@@ -8,6 +8,9 @@
     "dev": "nodemon server/src/index.js",
     "start": "node server/src/index.js"
   },
+  "engines": {
+    "node": ">=18.0.0"
+  },
   "dependencies": {
     "@supabase/supabase-js": "^2.45.4",
     "cookie-parser": "^1.4.7",

@@ -1,0 +1,21 @@
+# render.yaml — Blueprint de deploy do ATENDE.IA no Render.
+# Cria um Web Service Node. As 3 chaves do Supabase (sync:false) você preenche
+# no painel do Render (não vão no Git, por segurança).
+services:
+  - type: web
+    name: atende-ai
+    runtime: node
+    plan: free
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_ANON_KEY
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+    # PORT é injetado automaticamente pelo Render — o servidor já usa process.env.PORT.
