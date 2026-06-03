@@ -45,10 +45,16 @@ app.get('*', (req, res) => {
 // --- Tratamento de erros (sempre por último) ---
 app.use(errorHandler);
 
-app.listen(config.port, () => {
-  console.log('\n  ATENDE.IA — servidor no ar');
-  console.log('  Frontend + API:  http://localhost:' + config.port);
-  console.log('  Health check:    http://localhost:' + config.port + '/api/health');
-  logConfigStatus();
-  console.log('  (Ctrl+C para parar)\n');
-});
+// Em serverless (Vercel) NÃO damos listen — exportamos o app como handler.
+// Localmente (e em hosts persistentes como Render), subimos o servidor na porta.
+if (!process.env.VERCEL) {
+  app.listen(config.port, () => {
+    console.log('\n  ATENDE.IA — servidor no ar');
+    console.log('  Frontend + API:  http://localhost:' + config.port);
+    console.log('  Health check:    http://localhost:' + config.port + '/api/health');
+    logConfigStatus();
+    console.log('  (Ctrl+C para parar)\n');
+  });
+}
+
+export default app;
