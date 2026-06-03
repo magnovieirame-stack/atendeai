@@ -1,0 +1,14 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npm install 2>&1)",
+      "PowerShell(node server/src/index.js)",
+      "PowerShell(Start-Sleep -Seconds 2; \\(Invoke-WebRequest http://localhost:8080/api/health -UseBasicParsing -TimeoutSec 5\\).Content)",
+      "PowerShell(node server/scripts/setup-test-user.js)",
+      "PowerShell(npm install --save-dev @babel/core @babel/preset-react 2>&1)",
+      "PowerShell(node server/scripts/check-jsx.js)",
+      "PowerShell(node server/scripts/test-upload.js)",
+      "PowerShell(node server/scripts/check-jsx.js inbox.jsx)"
+    ]
+  }
+}
