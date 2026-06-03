@@ -123,29 +123,26 @@ function BoardFormModal({ mode, initial, onClose, onSave }) {
 
 function CRMList() {
   const { setRoute } = useStore();
-  const [boards, setBoards] = React.useState(CRM_BOARDS);
+  const [boards, setBoards] = React.useState(null); // null = carregando
   const [showNew, setShowNew] = React.useState(false);
   const [editing, setEditing] = React.useState(null);
+  React.useEffect(() => { API.getFunis().then((r) => setBoards(r.funis || [])).catch(() => setBoards([])); }, []);
 
-  const handleCreate = (data) => {
-    setBoards((bs) => [...bs, {
-      id: `board-${Date.now()}`,
-      name: data.name,
-      desc: data.desc,
-      color: data.color,
-      cards: 0,
-      updated: 'agora',
-      columns: []
-    }]);
+  const handleCreate = async (data) => {
     setShowNew(false);
+    try { const r = await API.createFunil(data.name, data.desc, data.color); setBoards((bs) => [...(bs || []), r.funil]); } catch (e) {}
   };
-  const handleSaveEdit = (data) => {
-    setBoards((bs) => bs.map((b) => b.id === editing.id ? { ...b, ...data } : b));
-    setEditing(null);
+  const handleSaveEdit = async (data) => {
+    const id = editing.id; setEditing(null);
+    try { await API.updateFunil(id, data.name, data.desc, data.color); setBoards((bs) => (bs || []).map((b) => b.id === id ? { ...b, name: data.name, desc: data.desc, color: data.color } : b)); } catch (e) {}
   };
 
   return (
     <Page title="CRM Kanban" subtitle="Boards independentes para diferentes funis" actions={<button className="fin-new-btn" onClick={() => setShowNew(true)} aria-label="Novo CRM"><span className="fin-new-label">{'Novo CRM\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>}>
+      {boards === null ?
+      <div className="muted" style={{ padding: 30 }}>Carregando funis…</div> :
+      boards.length === 0 ?
+      <EmptyState icon="reports" title="Nenhum funil ainda" desc="Crie seu primeiro CRM no botão acima." /> :
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 'var(--pad-3)' }}>
         {boards.map((b) =>
         <BoardCard
@@ -154,7 +151,7 @@ function CRMList() {
           onOpen={() => setRoute('crm-board', b.id)}
           onEdit={() => setEditing(b)} />
         )}
-      </div>
+      </div>}
       {showNew && <BoardFormModal mode="new" onClose={() => setShowNew(false)} onSave={handleCreate} />}
       {editing && <BoardFormModal mode="edit" initial={editing} onClose={() => setEditing(null)} onSave={handleSaveEdit} />}
     </Page>);
@@ -162,14 +159,35 @@ function CRMList() {
 }
 
 function CRMBoard() {
-  const { setRoute, back } = useStore();
+  const { setRoute, back, routeParam } = useStore();
+  const funilId = routeParam; // id do funil vindo da lista
   const [openCard, setOpenCard] = React.useState(null);
   const [view, setView] = React.useState('funnel');
   const [chatCard, setChatCard] = React.useState(null);
   const [apptCard, setApptCard] = React.useState(null);
   const [contractCard, setContractCard] = React.useState(null);
-  const [cards, setCards] = React.useState(CRM_CARDS.map((c, i) => ({ ...c, _id: `card-${i}`, pinned: false })));
-  const [phases, setPhases] = React.useState(CRM_PHASES.map((p) => ({ ...p })));
+  const [cards, setCards] = React.useState([]);
+  const [phases, setPhases] = React.useState([]);
+  const [funil, setFunil] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+
+  const cardFromApi = (c) => ({ _id: 'c' + c.id, _cardId: c.id, phase: c.faseId, name: c.name, company: c.company, phone: c.phone, email: c.email, value: c.value, foto: c.foto, tags: [], pinned: false });
+
+  React.useEffect(() => {
+    let alive = true;
+    if (!funilId) { setLoading(false); return; }
+    setLoading(true);
+    API.getFunil(funilId)
+      .then((r) => {
+        if (!alive) return;
+        setFunil(r.funil);
+        setPhases((r.fases || []).map((f) => ({ id: f.id, label: f.label, color: f.color, pos: f.pos })));
+        setCards((r.cards || []).map(cardFromApi));
+      })
+      .catch(() => {})
+      .finally(() => { if (alive) setLoading(false); });
+    return () => { alive = false; };
+  }, [funilId]);
   const [confirmDel, setConfirmDel] = React.useState(null);
   const [editPhase, setEditPhase] = React.useState(null);
   const [addingTo, setAddingTo] = React.useState(null);
@@ -218,9 +236,18 @@ function CRMBoard() {
   }, [draggingId, findPhaseAt]);
 
   const togglePin = (id) => setCards((cs) => cs.map((c) => c._id === id ? { ...c, pinned: !c.pinned, pinnedAt: !c.pinned ? Date.now() : null } : c));
-  const removeCard = (id) => setCards((cs) => cs.filter((c) => c._id !== id));
-  const moveCardToPhase = (cardId, phaseId) => setCards((cs) => cs.map((c) => c._id === cardId ? { ...c, phase: phaseId } : c));
-  const renamePhase = (id, label) => setPhases((ps) => ps.map((p) => p.id === id ? { ...p, label } : p));
+  const removeCard = (id) => setCards((cs) => { const card = cs.find((c) => c._id === id); if (card && card._cardId) API.deleteCard(card._cardId).catch(() => {}); return cs.filter((c) => c._id !== id); });
+  const moveCardToPhase = (cardId, phaseId) => {
+    // o phaseId do arrasto pode vir como string; normaliza p/ o id real da fase (número)
+    const ph = phases.find((p) => String(p.id) === String(phaseId));
+    const target = ph ? ph.id : phaseId;
+    setCards((cs) => cs.map((c) => {
+      if (c._id !== cardId) return c;
+      if (c._cardId && c.phase !== target) API.moveCard(c._cardId, target).catch(() => {});
+      return { ...c, phase: target };
+    }));
+  };
+  const renamePhase = (id, label) => { API.updateFase(id, { nome: label }).catch(() => {}); setPhases((ps) => ps.map((p) => p.id === id ? { ...p, label } : p)); };
   const reorderPhase = (id, newIndex) => setPhases((ps) => {
     const arr = [...ps];
     const i = arr.findIndex((p) => p.id === id);
@@ -229,11 +256,16 @@ function CRMBoard() {
     arr.splice(Math.max(0, Math.min(newIndex, arr.length)), 0, item);
     return arr;
   });
-  const addCard = (phaseId, data) => setCards((cs) => [...cs, { ...data, _id: `card-${Date.now()}`, phase: phaseId, pinned: false }]);
+  const addCard = async (phaseId, data) => {
+    try {
+      const r = await API.addCardCliente(phaseId, { nome: data.name, empresa: data.company, telefone: data.phone, email: data.email, valor: data.value });
+      setCards((cs) => [...cs, cardFromApi(r.card)]);
+    } catch (e) {}
+  };
 
   return (
     <div className="screen">
-      <Topbar title="Pré-Venda" subtitle="Funil de vendas principal" left={<button className="btn btn-ghost btn-icon" onClick={back}><Ic name="chevron-left" size={16} /></button>} right={
+      <Topbar title={funil ? funil.name : (loading ? 'Carregando…' : 'Funil')} subtitle={funil ? (funil.desc || 'Funil de vendas') : ''} left={<button className="btn btn-ghost btn-icon" onClick={back}><Ic name="chevron-left" size={16} /></button>} right={
       <div className="row" style={{ gap: 6 }}>
           <button className="fin-new-btn" onClick={() => setAddingPhase(true)} aria-label="Nova coluna"><span className="fin-new-label">{'Nova coluna\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>
           <div style={{ position: 'relative', display: 'flex', gap: 0, background: 'var(--surface-2)', borderRadius: 10, padding: 4, height: 38, backgroundColor: "rgb(244, 244, 244)" }}>
@@ -267,7 +299,7 @@ function CRMBoard() {
               const rest = phaseCards.filter((c) => !c.pinned);
               const ordered = [...pinned, ...rest];
               const total = phaseCards.reduce((s, c) => s + (c.value || 0), 0);
-              const isOver = dragOverPhase === ph.id;
+              const isOver = String(dragOverPhase) === String(ph.id);
               return (
                 <div
                   key={ph.id}
@@ -446,8 +478,8 @@ function CRMBoard() {
           <div style={{ fontSize: 'var(--type-sm)' }}>Tem certeza que deseja excluir o card de <strong>{confirmDel.name}</strong>? Esta ação não pode ser desfeita.</div>
         </Modal>
       }
-      {editPhase && <EditPhaseModal phase={editPhase} phases={phases} onSave={(label, idx, color) => {renamePhase(editPhase.id, label);reorderPhase(editPhase.id, idx);setPhases((ps) => ps.map((p) => p.id === editPhase.id ? { ...p, color } : p));setEditPhase(null);}} onDelete={() => {setPhases((ps) => ps.filter((p) => p.id !== editPhase.id));setCards((cs) => cs.filter((c) => c.phase !== editPhase.id));setEditPhase(null);}} onClose={() => setEditPhase(null)} />}
-      {addingPhase && <NewPhaseModal phases={phases} onSave={(p, idx) => {setPhases((ps) => {const arr = [...ps];arr.splice(idx, 0, p);return arr;});setAddingPhase(false);}} onClose={() => setAddingPhase(false)} />}
+      {editPhase && <EditPhaseModal phase={editPhase} phases={phases} onSave={(label, idx, color) => {API.updateFase(editPhase.id, { nome: label, cor_funil: color }).catch(() => {});setPhases((ps) => ps.map((p) => p.id === editPhase.id ? { ...p, label, color } : p));reorderPhase(editPhase.id, idx);setEditPhase(null);}} onDelete={() => {API.deleteFase(editPhase.id).catch(() => {});setPhases((ps) => ps.filter((p) => p.id !== editPhase.id));setCards((cs) => cs.filter((c) => c.phase !== editPhase.id));setEditPhase(null);}} onClose={() => setEditPhase(null)} />}
+      {addingPhase && <NewPhaseModal phases={phases} onSave={async (p, idx) => {setAddingPhase(false);try {const r = await API.addFase(funilId, p.label, p.color);setPhases((ps) => {const arr = [...ps];arr.splice(idx, 0, { id: r.fase.id, label: r.fase.label, color: r.fase.color, pos: r.fase.pos });return arr;});} catch (e) {}}} onClose={() => setAddingPhase(false)} />}
       {addingTo && <AddCardModal phase={addingTo} onSave={(d) => {addCard(addingTo.id, d);setAddingTo(null);}} onClose={() => setAddingTo(null)} />}
       {contractCard && <NewContractDrawer card={contractCard} onClose={() => setContractCard(null)} />}
     </div>);

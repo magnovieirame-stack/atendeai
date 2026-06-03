@@ -564,6 +564,8 @@ function ConvRow({ c, active, onClick }) {
 
 function Modal({ title, onClose, children, footer, size = 'md' }) {
   const maxW = size === 'sm' ? 440 : size === 'md' ? 540 : 720;
+  // close(cb): permite rodapé em função (footer(close)) — roda o callback e fecha.
+  const close = React.useCallback((cb) => { if (typeof cb === 'function') cb(); onClose && onClose(); }, [onClose]);
   React.useEffect(() => {
     const onKey = (e) => {if (e.key === 'Escape') onClose();};
     document.addEventListener('keydown', onKey);
@@ -577,7 +579,7 @@ function Modal({ title, onClose, children, footer, size = 'md' }) {
           <button className="btn btn-ghost btn-icon modal-x" onClick={onClose}><Ic name="x" size={16} /></button>
         </div>
         <div className="modal-bd">{children}</div>
-        {footer && <div className="modal-ft">{footer}</div>}
+        {footer && <div className="modal-ft">{typeof footer === 'function' ? footer(close) : footer}</div>}
       </div>
     </div>);
 

@@ -65,6 +65,29 @@ const API = {
   getCliente(id) { return this._req('/chatbot/clientes/' + id); },
   updateCliente(id, patch) { return this._json('/chatbot/clientes/' + id, 'PATCH', patch); },
 
+  // --- CRM ---
+  getFunis() { return this._req('/crm/funis'); },
+  getFunil(id) { return this._req('/crm/funis/' + id); },
+  createFunil(nome, descricao, cor_funil) { return this._json('/crm/funis', 'POST', { nome, descricao, cor_funil }); },
+  updateFunil(id, nome, descricao, cor_funil) { return this._json('/crm/funis/' + id, 'PATCH', { nome, descricao, cor_funil }); },
+  moveCard(cardId, faseId) { return this._json('/crm/cards/' + cardId, 'PATCH', { faseId }); },
+  addCardCliente(faseId, dados) { return this._json('/crm/cards/novo', 'POST', { faseId, ...dados }); },
+  deleteCard(cardId) { return this._req('/crm/cards/' + cardId, { method: 'DELETE' }); },
+  addFase(funilId, nome, cor_funil) { return this._json('/crm/funis/' + funilId + '/fases', 'POST', { nome, cor_funil }); },
+  updateFase(id, patch) { return this._json('/crm/fases/' + id, 'PATCH', patch); },
+  deleteFase(id) { return this._req('/crm/fases/' + id, { method: 'DELETE' }); },
+
+  // --- Financeiro: contas ---
+  getContas() { return this._req('/financeiro/contas'); },
+  createConta(dto) { return this._json('/financeiro/contas', 'POST', dto); },
+  updateConta(id, dto) { return this._json('/financeiro/contas/' + id, 'PATCH', dto); },
+  deleteConta(id) { return this._req('/financeiro/contas/' + id, { method: 'DELETE' }); },
+  // --- Financeiro: lançamentos (entradas/saidas) ---
+  getEntradas(tipo) { return this._req('/financeiro/entradas' + (tipo ? ('?tipo=' + tipo) : '')); },
+  createEntrada(dto) { return this._json('/financeiro/entradas', 'POST', dto); },
+  updateEntrada(id, dto) { return this._json('/financeiro/entradas/' + id, 'PATCH', dto); },
+  deleteEntrada(id) { return this._req('/financeiro/entradas/' + id, { method: 'DELETE' }); },
+
   // --- Contatos / nova conversa ---
   getClientes(q) { return this._req('/chatbot/clientes' + (q ? ('?q=' + encodeURIComponent(q)) : '')); },
   openContato(clienteId) { return this._json('/chatbot/contatos', 'POST', { clienteId }); },

@@ -123,6 +123,9 @@
     const [d, m, y] = s.split('/').map(Number);
     return new Date(y, (m || 1) - 1, d || 1);
   }
+  // Conversões entre ISO (banco: 'YYYY-MM-DD') e BR ('dd/mm/yyyy')
+  function isoToBR(s) { if (!s) return ''; const p = String(s).slice(0, 10).split('-'); return p.length === 3 ? `${p[2]}/${p[1]}/${p[0]}` : ''; }
+  function brToIso(s) { if (!s) return null; const p = String(s).split('/'); return p.length === 3 ? `${p[2]}-${p[1].padStart(2, '0')}-${p[0].padStart(2, '0')}` : null; }
   const TODAY_DATE = parseBR(TODAY);
   function diffDays(a, b) {
     return Math.round((a - b) / 86400000);
@@ -311,7 +314,31 @@
     const [from, setFrom] = React.useState('');
     const [to, setTo] = React.useState('');
     const [query, setQuery] = React.useState('');
-    const [items, setItems] = React.useState(() => (isReceita ? MOCK_RECEITAS : MOCK_DESPESAS).slice());
+    const [items, setItems] = React.useState([]);
+    const [contasMap, setContasMap] = React.useState({ byId: {}, byName: {} });
+    // API entrada -> linha da UI
+    const entradaToRow = (e) => ({
+      _id: e.id, codigo: e.codigo,
+      cliente: e.clienteOrigem || '—', funcionario: e.responsavel || '',
+      categoria: e.categoria || '', conta: e.contaNome || '',
+      tipo: e.recorrente ? 'recorrente' : 'unica',
+      status: e.pago ? 'paga' : 'aberto',
+      venc: isoToBR(e.vencimento), valor: e.valor || 0,
+      forma: e.forma || '', desc: e.descricao || '',
+    });
+    React.useEffect(() => {
+      let alive = true;
+      API.getContas().then((r) => {
+        if (!alive) return;
+        const byId = {}, byName = {};
+        (r.contas || []).forEach((c) => { byId[c.id] = c.descricao; byName[(c.descricao || '').toLowerCase()] = c.id; });
+        setContasMap({ byId, byName });
+      }).catch(() => {});
+      API.getEntradas(isReceita ? 'entrada' : 'saida')
+        .then((r) => { if (alive) setItems((r.entradas || []).map(entradaToRow)); })
+        .catch(() => {});
+      return () => { alive = false; };
+    }, [isReceita]);
     const [showNew, setShowNew] = React.useState(false);
     const [editItem, setEditItem] = React.useState(null);
     const [drawerMode, setDrawerMode] = React.useState('new'); // 'new' | 'view' | 'edit'
@@ -369,32 +396,48 @@
       };
     }, [filtered]);
 
-    const onSave = (entry) => {
-      if (editItem) {
-        setItems((prev) => prev.map((it) => it.codigo === editItem.codigo ? { ...it, ...entry } : it));
-      } else {
-        const nextCode = (isReceita ? 'RCB' : 'DSP') + '-' + Math.floor(10000 + Math.random() * 90000);
-        setItems((prev) => [{ codigo: nextCode, ...entry }, ...prev]);
-      }
-      setShowNew(false);setEditItem(null);
+    // linha/entry da UI -> DTO da API
+    const rowToDto = (entry) => ({
+      tipo: cfg.drawerKind,
+      descricao: entry.desc || '',
+      valor: Number(entry.valor) || 0,
+      categoria: entry.categoria || '',
+      contaId: contasMap.byName[(entry.conta || '').toLowerCase()] || null,
+      forma: entry.forma || '',
+      responsavel: entry.funcionario || '',
+      clienteOrigem: entry.cliente || '',
+      recorrente: entry.tipo === 'recorrente',
+      pago: entry.status === 'paga',
+      vencimento: entry.venc ? brToIso(entry.venc) : null,
+    });
+
+    const onSave = async (entry) => {
+      try {
+        if (editItem && editItem._id) {
+          const r = await API.updateEntrada(editItem._id, rowToDto(entry));
+          setItems((prev) => prev.map((it) => it._id === editItem._id ? entradaToRow(r.entrada) : it));
+        } else {
+          const r = await API.createEntrada(rowToDto(entry));
+          setItems((prev) => [entradaToRow(r.entrada), ...prev]);
+        }
+      } catch (e) {}
+      setShowNew(false); setEditItem(null);
     };
 
-    const onPay = (item, extra) => {
-      setItems((prev) => prev.map((it) => it.codigo === item.codigo ?
-      { ...it,
-        status: 'paga',
-        valor: extra && extra.total != null ? extra.total : it.valor,
-        jurosBaixa: extra ? extra.juros : undefined,
-        descontoBaixa: extra ? extra.desconto : undefined,
-        dataPagamento: extra ? extra.data : undefined,
-        forma: extra && extra.forma ? extra.forma : it.forma,
-        conta: extra && extra.conta ? extra.conta : it.conta } :
-      it));
+    const onPay = async (item, extra) => {
+      const dto = { pago: true };
+      if (extra && extra.forma) dto.forma = extra.forma;
+      if (extra && extra.conta && contasMap.byName[(extra.conta || '').toLowerCase()]) dto.contaId = contasMap.byName[extra.conta.toLowerCase()];
+      try {
+        const r = await API.updateEntrada(item._id, dto);
+        setItems((prev) => prev.map((it) => it._id === item._id ? entradaToRow(r.entrada) : it));
+      } catch (e) {}
       setConfirmPay(null);
       setFaturItem(null);
     };
-    const onDelete = (item) => {
-      setItems((prev) => prev.filter((it) => it.codigo !== item.codigo));
+    const onDelete = async (item) => {
+      try { if (item._id) await API.deleteEntrada(item._id); } catch (e) {}
+      setItems((prev) => prev.filter((it) => it._id !== item._id));
       setConfirmDel(null);
     };
 
@@ -492,7 +535,7 @@
               const tipoLabel = TIPOS.find((t) => t.id === it.tipo)?.label || it.tipo;
               const isCarne = it.tipo === 'carne';
               return (
-                <div key={it.codigo} className="fin-row fin-row-body fin-row-click" style={{ borderLeft: `2px solid ${borderColor}`, cursor: 'pointer' }} onClick={() => {setEditItem(it);setDrawerMode('view');setShowNew(true);}} title="Ver detalhes">
+                <div key={it._id || it.codigo} className="fin-row fin-row-body fin-row-click" style={{ borderLeft: `2px solid ${borderColor}`, cursor: 'pointer' }} onClick={() => {setEditItem(it);setDrawerMode('view');setShowNew(true);}} title="Ver detalhes">
                     <div className="fin-c fin-c-code">
                       <span className="muted" style={{ fontSize: 10, letterSpacing: '.06em', fontWeight: 600 }}>CÓDIGO</span>
                       <span className="tnum" style={{ fontWeight: 700, fontSize: 'var(--type-sm)' }}>{it.codigo}</span>

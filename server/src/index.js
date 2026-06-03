@@ -13,6 +13,8 @@ import { apiNotFound, errorHandler } from './middleware/errorHandler.js';
 import { healthRouter } from './routes/health.routes.js';
 import { authRouter } from './routes/auth.routes.js';
 import { chatbotRouter } from './routes/chatbot.routes.js';
+import { crmRouter } from './routes/crm.routes.js';
+import { financeiroRouter } from './routes/financeiro.routes.js';
 
 const app = express();
 
@@ -30,7 +32,9 @@ api.use(apiLimiter);
 api.use(healthRouter);
 api.use(authRouter);
 api.use('/chatbot', chatbotRouter);
-// (próximos módulos — CRM, financeiro, etc. — entram aqui)
+api.use('/crm', crmRouter);
+api.use('/financeiro', financeiroRouter);
+// (próximos módulos entram aqui)
 app.use('/api', api);
 app.use('/api', apiNotFound); // 404 JSON p/ rotas de API inexistentes
 

@@ -57,7 +57,9 @@
 
   // ---------- Page ----------
   function AccountsPage() {
-    const [items, setItems] = React.useState(() => SEED.slice());
+    const [items, setItems] = React.useState([]);
+    const contaToUi = (c) => ({ id: c.id, descricao: c.descricao, banco: c.banco, agencia: c.agencia, conta: c.conta, tipo: c.tipoConta || 'Corrente', pessoa: c.fisicaJuridica || 'Jurídica', operacao: '', saldo: c.saldo, natureza: c.gerencial ? 'gerencial' : 'capital', cor: c.cor || '#22c55e', obs: c.observacoes || '' });
+    React.useEffect(() => { API.getContas().then((r) => setItems((r.contas || []).map(contaToUi))).catch(() => {}); }, []);
     const [showNew, setShowNew] = React.useState(false);
     const [editItem, setEditItem] = React.useState(null);
     const [hidden, setHidden] = React.useState({}); // visibility per card
@@ -69,17 +71,34 @@
 
     const toggleHide = (id) => setHidden((p) => ({ ...p, [id]: !p[id] }));
 
-    const handleSave = (data) => {
-      if (editItem) {
-        setItems((prev) => prev.map((it) => it.id === editItem.id ? { ...it, ...data } : it));
-      } else {
-        const id = 'a' + Date.now().toString(36);
-        setItems((prev) => [...prev, { id, ...data }]);
-      }
-      setShowNew(false);setEditItem(null);
+    const toDto = (d) => ({
+      descricao: d.descricao,
+      banco: bankName(d.banco) !== '—' ? bankName(d.banco) : (d.banco || ''),
+      numero: d.conta || '',
+      saldoInicial: Number(d.saldoInicial != null ? d.saldoInicial : d.saldo) || 0,
+      cor: d.cor || '#22c55e',
+      tipoConta: d.tipo || '',
+      fisicaJuridica: d.pessoa || '',
+      agencia: d.agencia || '',
+      conta: d.conta || '',
+      gerencial: d.natureza === 'gerencial',
+      observacoes: d.obs || '',
+    });
+    const handleSave = async (data) => {
+      try {
+        if (editItem && editItem.id) {
+          const r = await API.updateConta(editItem.id, toDto(data));
+          setItems((prev) => prev.map((it) => it.id === editItem.id ? contaToUi(r.conta) : it));
+        } else {
+          const r = await API.createConta(toDto(data));
+          setItems((prev) => [...prev, contaToUi(r.conta)]);
+        }
+      } catch (e) {}
+      setShowNew(false); setEditItem(null);
     };
 
-    const handleDelete = (item) => {
+    const handleDelete = async (item) => {
+      try { if (item.id) await API.deleteConta(item.id); } catch (e) {}
       setItems((prev) => prev.filter((it) => it.id !== item.id));
       setConfirmDel(null);
     };
