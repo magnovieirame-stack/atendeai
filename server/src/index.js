@@ -19,6 +19,8 @@ import { financeiroRouter } from './routes/financeiro.routes.js';
 import { agendaRouter } from './routes/agenda.routes.js';
 import { leadsRouter } from './routes/leads.routes.js';
 import { notificacoesRouter } from './routes/notificacoes.routes.js';
+import { integracoesRouter } from './routes/integracoes.routes.js';
+import { webhooksRouter } from './routes/webhooks.routes.js';
 
 const app = express();
 
@@ -27,8 +29,15 @@ app.set('trust proxy', 1);
 
 // --- Segurança e parsing ---
 app.use(helmetMiddleware);
-app.use(express.json({ limit: '1mb' })); // limita tamanho do corpo (anti-DoS)
+// Guardamos o corpo CRU (req.rawBody) para validar a assinatura HMAC do webhook
+// da Meta — a assinatura é calculada sobre os bytes exatos recebidos.
+app.use(express.json({ limit: '1mb', verify: (req, res, buf) => { req.rawBody = buf; } })); // limita tamanho do corpo (anti-DoS)
 app.use(cookieParser());
+
+// --- Webhooks públicos (sem login e sem rate limit) ---
+// A Meta chama estas rotas; precisam responder rápido e não podem ser barradas
+// pelo limitador da API. A segurança vem da assinatura HMAC, não do login.
+app.use('/api/webhooks', webhooksRouter);
 
 // --- API (tudo sob /api) ---
 const api = express.Router();
@@ -41,6 +50,7 @@ api.use('/financeiro', financeiroRouter);
 api.use('/agenda', agendaRouter);
 api.use('/leads', leadsRouter);
 api.use('/notificacoes', notificacoesRouter);
+api.use('/integracoes', integracoesRouter);
 // (próximos módulos entram aqui)
 app.use('/api', api);
 app.use('/api', apiNotFound); // 404 JSON p/ rotas de API inexistentes

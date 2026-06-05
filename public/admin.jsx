@@ -578,19 +578,223 @@ function AdminCatalog() {
 }
 
 // Integrations
+// Abre o login do canal (Instagram/Facebook) em um popup e resolve quando o
+// backend devolve o resultado via postMessage (mesma origem — seguro).
+function abrirLoginCanal(connectUrl, onDone) {
+  const w = 600, h = 760;
+  const left = window.screenX + Math.max(0, (window.outerWidth - w) / 2);
+  const top = window.screenY + Math.max(0, (window.outerHeight - h) / 2);
+  const popup = window.open(connectUrl, 'canal_login', `width=${w},height=${h},left=${left},top=${top}`);
+  let done = false;
+  function finish(res) { if (done) return; done = true; window.removeEventListener('message', onMsg); clearInterval(timer); onDone(res); }
+  function onMsg(e) {
+    if (e.origin !== window.location.origin || !e.data || e.data.source !== 'atende-integracao') return;
+    finish(e.data);
+  }
+  window.addEventListener('message', onMsg);
+  // Se o usuário fechar o popup sem concluir, encerramos o "carregando".
+  const timer = setInterval(() => { if (popup && popup.closed) finish(null); }, 800);
+}
+
+// Modal de conexão por LOGIN (Instagram e Facebook) — abre popup OAuth.
+function CanalOAuthModal({ cfg, disponivel, current, onClose, onConnected }) {
+  const [busy, setBusy] = React.useState(false);
+  const [erro, setErro] = React.useState(null);
+  const conectado = current && current.status === 'conectado';
+
+  const conectar = () => {
+    setErro(null); setBusy(true);
+    abrirLoginCanal(cfg.connectUrl(), (res) => {
+      setBusy(false);
+      if (!res) return; // popup fechado sem concluir
+      if (res.ok) onConnected && onConnected();
+      else setErro(res.mensagem || 'Não foi possível conectar.');
+    });
+  };
+  const desconectar = async () => {
+    if (!window.confirm('Desconectar o ' + cfg.nome + '? As conversas já recebidas continuam salvas, mas novas mensagens deixarão de chegar.')) return;
+    setBusy(true);
+    try { await cfg.disconnect(); onConnected && onConnected(); }
+    catch (e) { setErro(e.message || 'Erro ao desconectar.'); }
+    finally { setBusy(false); }
+  };
+
+  const nomeConta = current && (current.username ? (cfg.arroba ? '@' : '') + current.username : (current.nome || 'sua conta'));
+  return (
+    <Modal title={cfg.titulo} size="sm" onClose={onClose} footer={null}>
+      <div className="col" style={{ gap: 14, alignItems: 'center', textAlign: 'center', padding: '4px 0' }}>
+        <div style={{ width: 56, height: 56, borderRadius: 14, background: `color-mix(in oklab, ${cfg.cor} 12%, var(--surface))`, color: cfg.cor, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+          <Ic name={cfg.icon} size={28} />
+        </div>
+        {conectado ? (
+          <>
+            <div>
+              <div style={{ fontWeight: 600 }}>Conectado como {nomeConta}</div>
+              <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>{cfg.descConectado}</div>
+            </div>
+            {erro && <div className="muted" style={{ color: 'var(--danger)', fontSize: 'var(--type-sm)' }}>{erro}</div>}
+            <div className="row" style={{ gap: 8, width: '100%', marginTop: 4 }}>
+              <button className="btn" style={{ flex: 1 }} disabled={busy} onClick={conectar}>Reconectar</button>
+              <button className="btn btn-danger" style={{ flex: 1 }} disabled={busy} onClick={desconectar}>Desconectar</button>
+            </div>
+          </>
+        ) : (
+          <>
+            <div>
+              <div style={{ fontWeight: 600 }}>{cfg.tituloDesc}</div>
+              <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>{cfg.desc}</div>
+            </div>
+            {!disponivel && (
+              <div style={{ width: '100%', fontSize: 'var(--type-sm)', color: 'var(--warning, #b45309)', background: 'color-mix(in oklab, #f59e0b 12%, var(--surface))', border: '1px solid color-mix(in oklab, #f59e0b 30%, var(--surface))', borderRadius: 8, padding: '8px 10px' }}>
+                A conexão real ainda não está habilitada no servidor (app da Meta em configuração). O botão abaixo já está pronto para quando as credenciais forem preenchidas.
+              </div>
+            )}
+            {erro && <div className="muted" style={{ color: 'var(--danger)', fontSize: 'var(--type-sm)' }}>{erro}</div>}
+            <button className="btn btn-primary" style={{ width: '100%' }} disabled={busy} onClick={conectar}>
+              <Ic name={cfg.icon} size={15} /> {busy ? 'Aguardando login…' : cfg.botao}
+            </button>
+            <div className="muted" style={{ fontSize: 'var(--type-xs)' }}>Seus dados de acesso são tratados pela {cfg.nome}. Guardamos apenas um token seguro e criptografado no servidor.</div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
+// Configs por canal de login.
+const CANAL_OAUTH_CFG = {
+  instagram: {
+    nome: 'Instagram', titulo: 'Instagram Direct', cor: '#e4405f', icon: 'instagram', arroba: true,
+    tituloDesc: 'Conecte sua conta do Instagram',
+    desc: <span>Faça login com a conta <b>Profissional/Business</b> do Instagram. Depois de autorizar, as mensagens recebidas e enviadas ficam salvas e organizadas aqui.</span>,
+    descConectado: 'As DMs do Instagram entram direto na sua Caixa de entrada e podem ser respondidas por aqui.',
+    botao: 'Entrar com Instagram',
+    connectUrl: () => API.instagramConnectUrl(), disconnect: () => API.disconnectInstagram(),
+  },
+  facebook: {
+    nome: 'Facebook', titulo: 'Facebook Messenger', cor: '#1877f2', icon: 'facebook', arroba: false,
+    tituloDesc: 'Conecte sua Página do Facebook',
+    desc: <span>Faça login com o Facebook e escolha a <b>Página</b> do seu negócio. As mensagens do Messenger passam a chegar e ser respondidas por aqui.</span>,
+    descConectado: 'As mensagens do Messenger entram direto na sua Caixa de entrada e podem ser respondidas por aqui.',
+    botao: 'Entrar com Facebook',
+    connectUrl: () => API.facebookConnectUrl(), disconnect: () => API.disconnectFacebook(),
+  },
+};
+
+// Modal do WhatsApp — conexão MANUAL (Phone Number ID + token).
+function WhatsappConnectModal({ disponivel, current, onClose, onConnected }) {
+  const [busy, setBusy] = React.useState(false);
+  const [erro, setErro] = React.useState(null);
+  const [phoneNumberId, setPhoneNumberId] = React.useState('');
+  const [token, setToken] = React.useState('');
+  const [wabaId, setWabaId] = React.useState('');
+  const conectado = current && current.status === 'conectado';
+
+  const conectar = async () => {
+    setErro(null);
+    if (!phoneNumberId.trim() || !token.trim()) { setErro('Preencha o Phone Number ID e o token.'); return; }
+    setBusy(true);
+    try { await API.connectWhatsapp({ phoneNumberId: phoneNumberId.trim(), token: token.trim(), wabaId: wabaId.trim() }); onConnected && onConnected(); }
+    catch (e) { setErro(e.message || 'Não foi possível conectar.'); }
+    finally { setBusy(false); }
+  };
+  const desconectar = async () => {
+    if (!window.confirm('Desconectar o WhatsApp? As conversas já recebidas continuam salvas, mas novas mensagens deixarão de chegar.')) return;
+    setBusy(true);
+    try { await API.disconnectWhatsapp(); onConnected && onConnected(); }
+    catch (e) { setErro(e.message || 'Erro ao desconectar.'); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Modal title="WhatsApp Business" size="sm" onClose={onClose} footer={null}>
+      <div className="col" style={{ gap: 14, padding: '4px 0' }}>
+        <div className="col" style={{ gap: 8, alignItems: 'center', textAlign: 'center' }}>
+          <div style={{ width: 56, height: 56, borderRadius: 14, background: 'color-mix(in oklab, #25d366 12%, var(--surface))', color: '#25d366', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+            <Ic name="whatsapp" size={28} />
+          </div>
+        </div>
+
+        {conectado ? (
+          <div className="col" style={{ gap: 12, alignItems: 'center', textAlign: 'center' }}>
+            <div>
+              <div style={{ fontWeight: 600 }}>Conectado{current.username ? ' · ' + current.username : ''}</div>
+              <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>As mensagens do WhatsApp entram direto na sua Caixa de entrada e podem ser respondidas por aqui.</div>
+            </div>
+            {erro && <div className="muted" style={{ color: 'var(--danger)', fontSize: 'var(--type-sm)' }}>{erro}</div>}
+            <button className="btn btn-danger" style={{ width: '100%' }} disabled={busy} onClick={desconectar}>Desconectar</button>
+          </div>
+        ) : (
+          <>
+            <div style={{ textAlign: 'center' }}>
+              <div style={{ fontWeight: 600 }}>Conecte seu número do WhatsApp</div>
+              <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>
+                Informe os dados da <b>WhatsApp Cloud API</b> (painel da Meta &rarr; WhatsApp &rarr; Configuração da API).
+              </div>
+            </div>
+            {!disponivel && (
+              <div style={{ fontSize: 'var(--type-sm)', color: 'var(--warning, #b45309)', background: 'color-mix(in oklab, #f59e0b 12%, var(--surface))', border: '1px solid color-mix(in oklab, #f59e0b 30%, var(--surface))', borderRadius: 8, padding: '8px 10px' }}>
+                O servidor ainda não tem a chave de criptografia (TOKEN_ENCRYPTION_KEY). Preencha no .env para habilitar a conexão.
+              </div>
+            )}
+            <div><label className="label">Phone Number ID *</label><input className="input" value={phoneNumberId} onChange={(e) => setPhoneNumberId(e.target.value)} placeholder="ex: 123456789012345" /></div>
+            <div><label className="label">Token de acesso *</label><input className="input" type="password" value={token} onChange={(e) => setToken(e.target.value)} placeholder="token permanente do número" /></div>
+            <div><label className="label">WhatsApp Business Account ID (opcional)</label><input className="input" value={wabaId} onChange={(e) => setWabaId(e.target.value)} placeholder="WABA ID" /></div>
+            {erro && <div className="muted" style={{ color: 'var(--danger)', fontSize: 'var(--type-sm)' }}>{erro}</div>}
+            <button className="btn btn-primary" style={{ width: '100%' }} disabled={busy} onClick={conectar}>{busy ? 'Validando…' : 'Conectar WhatsApp'}</button>
+            <div className="muted" style={{ fontSize: 'var(--type-xs)' }}>O token é validado na Meta e guardado criptografado no servidor — nunca fica visível no navegador.</div>
+          </>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 function AdminIntegrations() {
+  const [data, setData] = React.useState(null);
+  const [loading, setLoading] = React.useState(true);
+  const [modal, setModal] = React.useState(null); // 'instagram' | 'facebook' | 'whatsapp' | null
+
+  const load = React.useCallback(async () => {
+    try { const r = await API.getIntegracoes(); setData(r); }
+    catch (e) { setData({ integracoes: {} }); }
+    finally { setLoading(false); }
+  }, []);
+  React.useEffect(() => { load(); }, [load]);
+
+  const integ = (data && data.integracoes) || {};
+  const info = (canal) => integ[canal] || null;
+  const conectado = (canal) => { const i = info(canal); return !!(i && i.status === 'conectado'); };
+  const nomeConta = (canal, arroba) => { const i = info(canal); if (!i) return ''; return i.username ? (arroba ? '@' : '') + i.username : (i.nome || 'Conta conectada'); };
+
   const cards = [
-  { name: 'WhatsApp Business', icon: 'whatsapp', color: '#25d366', status: 'conectado', detail: '+55 85 9 9999-9999 · 360dialog', last: 'última msg há 12s' },
-  { name: 'Instagram Direct', icon: 'instagram', color: '#e4405f', status: 'conectado', detail: '@iguabelaoficial', last: 'última msg há 4 min' },
-  { name: 'Facebook Messenger', icon: 'facebook', color: '#1877f2', status: 'desconectado', detail: 'Não configurado', last: '' },
-  { name: 'API do sistema', icon: 'database', color: '#1f2937', status: 'conectado', detail: 'sistemainterno.com/api · Sync ok', last: 'última sync 11 min' },
-  { name: 'Google Calendar', icon: 'agenda', color: '#4285f4', status: 'conectado', detail: 'paulo@iguabela.com · Calendário "Atendimentos"', last: 'sync ativo' }];
+    {
+      key: 'whatsapp', name: 'WhatsApp Business', icon: 'whatsapp', color: '#25d366',
+      conectado: conectado('whatsapp'),
+      detail: conectado('whatsapp') ? (nomeConta('whatsapp') || 'Número conectado') : 'Conecte seu número para receber mensagens',
+      onConfig: () => setModal('whatsapp'),
+    },
+    {
+      key: 'instagram', name: 'Instagram Direct', icon: 'instagram', color: '#e4405f',
+      conectado: conectado('instagram'),
+      detail: conectado('instagram') ? nomeConta('instagram', true) : 'Conecte sua conta para receber DMs',
+      onConfig: () => setModal('instagram'),
+    },
+    {
+      key: 'facebook', name: 'Facebook Messenger', icon: 'facebook', color: '#1877f2',
+      conectado: conectado('facebook'),
+      detail: conectado('facebook') ? nomeConta('facebook') : 'Conecte sua Página para receber mensagens',
+      onConfig: () => setModal('facebook'),
+    },
+    { key: 'api', name: 'API do sistema', icon: 'database', color: '#1f2937', conectado: false, detail: 'Em breve', soon: true },
+    { key: 'gcal', name: 'Google Calendar', icon: 'agenda', color: '#4285f4', conectado: false, detail: 'Em breve', soon: true },
+  ];
 
   return (
     <Page title="Integrações" subtitle="Canais de mensagens e sistemas externos">
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--pad-3)' }}>
         {cards.map((c) =>
-        <div key={c.name} className="card card-pad">
+        <div key={c.key} className="card card-pad">
             <div className="row" style={{ gap: 12 }}>
               <div style={{ width: 42, height: 42, borderRadius: 10, background: `color-mix(in oklab, ${c.color} 12%, var(--surface))`, color: c.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Ic name={c.icon} size={22} />
@@ -599,16 +803,37 @@ function AdminIntegrations() {
                 <div style={{ fontWeight: 600 }}>{c.name}</div>
                 <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>{c.detail}</div>
               </div>
-              {c.status === 'conectado' ? <span className="badge badge-success"><span className="dot dot-online" style={{ boxShadow: 'none' }} /> Conectado</span> : <span className="badge badge-neutral">Desconectado</span>}
+              {c.conectado
+                ? <span className="badge badge-success"><span className="dot dot-online" style={{ boxShadow: 'none' }} /> Conectado</span>
+                : <span className="badge badge-neutral">{c.soon ? 'Em breve' : 'Desconectado'}</span>}
             </div>
-            <div className="muted" style={{ fontSize: 'var(--type-xs)', marginTop: 10 }}>{c.last}</div>
+            <div className="muted" style={{ fontSize: 'var(--type-xs)', marginTop: 10, minHeight: 14 }}>{c.conectado ? 'conectado' : ''}</div>
             <div className="row" style={{ marginTop: 12, gap: 6 }}>
-              <button className="btn btn-sm" style={{ flex: 1 }}>{c.status === 'conectado' ? 'Configurar' : 'Conectar'}</button>
-              {c.status === 'conectado' && <button className="btn btn-sm btn-danger">Desconectar</button>}
+              <button className="btn btn-sm" style={{ flex: 1 }} disabled={!c.onConfig || loading} onClick={c.onConfig}>
+                {c.soon ? 'Em breve' : (c.conectado ? 'Configurar' : 'Conectar')}
+              </button>
             </div>
           </div>
         )}
       </div>
+
+      {(modal === 'instagram' || modal === 'facebook') && (
+        <CanalOAuthModal
+          cfg={CANAL_OAUTH_CFG[modal]}
+          disponivel={!!(data && data[modal + 'Disponivel'])}
+          current={info(modal)}
+          onClose={() => setModal(null)}
+          onConnected={() => { setModal(null); load(); }}
+        />
+      )}
+      {modal === 'whatsapp' && (
+        <WhatsappConnectModal
+          disponivel={!!(data && data.whatsappDisponivel)}
+          current={info('whatsapp')}
+          onClose={() => setModal(null)}
+          onConnected={() => { setModal(null); load(); }}
+        />
+      )}
     </Page>);
 
 }
@@ -1344,4 +1569,4 @@ function AdminSettings() {
 
 }
 
-Object.assign(window, { AdminDashboard, AdminAgentList, AdminCatalog, AdminIntegrations, AdminTeam, AdminRules, AdminReplies, AdminReports, AdminHistory, AdminFinance, AdminSettings, Toggle, AgentTester });
+Object.assign(window, { AdminDashboard, AdminAgentList, AdminCatalog, AdminIntegrations, CanalOAuthModal, WhatsappConnectModal, AdminTeam, AdminRules, AdminReplies, AdminReports, AdminHistory, AdminFinance, AdminSettings, Toggle, AgentTester });

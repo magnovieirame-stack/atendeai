@@ -13,6 +13,10 @@ import multer from 'multer';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
+import * as integ from '../lib/integracoes.js';
+import * as ig from '../lib/instagram.js';
+import * as fb from '../lib/facebook.js';
+import * as wa from '../lib/whatsapp.js';
 
 export const chatbotRouter = Router();
 chatbotRouter.use(requireAuth);
@@ -26,6 +30,41 @@ const uuid = z.string().uuid('id inválido');
 // Nome a gravar em "enviadopor" quando a empresa/atendente envia.
 function nomeAtendente(user) {
   return user?.user_metadata?.name || user?.email || 'Atendente';
+}
+
+// Entrega a mensagem do atendente no canal externo (Instagram/Facebook/WhatsApp).
+// O histórico continua salvo no banco do MESMO jeito; aqui só "espelhamos" o
+// envio para a plataforma. Best-effort: se falhar (ex.: fora da janela de 24h),
+// a mensagem fica gravada como NÃO entregue e devolvemos um aviso.
+const CANAIS_EXTERNOS = new Set(['instagram', 'facebook', 'whatsapp']);
+const NOME_CANAL = { instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp' };
+
+async function entregarNoCanal(req, contatoId, { texto, midiaUrl, tipo, titulo }) {
+  try {
+    const { data: ct } = await req.supabase
+      .from('chatbot-contatos').select('origemcontato,external_id').eq('id', contatoId).single();
+    const canal = ct && ct.origemcontato;
+    if (!ct || !CANAIS_EXTERNOS.has(canal) || !ct.external_id) return { tentou: false, entregue: true };
+
+    const empresaId = await getEmpresaId(req);
+    const tok = await integ.getActiveToken(empresaId, canal);
+    if (!tok) return { tentou: true, entregue: false, erro: NOME_CANAL[canal] + ' não está conectado.' };
+
+    if (canal === 'instagram') {
+      if (midiaUrl) await ig.sendMedia({ token: tok.token, recipientId: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'file' })[tipo] || 'file', url: midiaUrl });
+      else await ig.sendText({ token: tok.token, recipientId: ct.external_id, text: texto });
+    } else if (canal === 'facebook') {
+      if (midiaUrl) await fb.sendMedia({ token: tok.token, recipientId: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'file' })[tipo] || 'file', url: midiaUrl });
+      else await fb.sendText({ token: tok.token, recipientId: ct.external_id, text: texto });
+    } else if (canal === 'whatsapp') {
+      // No WhatsApp, o phone_number_id é o external_id da integração; o destino é o external_id do contato.
+      if (midiaUrl) await wa.sendMedia({ token: tok.token, phoneNumberId: tok.externalId, to: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'document' })[tipo] || 'document', link: midiaUrl, filename: titulo });
+      else await wa.sendText({ token: tok.token, phoneNumberId: tok.externalId, to: ct.external_id, text: texto });
+    }
+    return { tentou: true, entregue: true };
+  } catch (e) {
+    return { tentou: true, entregue: false, erro: e?.message || 'Falha ao enviar pelo canal.' };
+  }
 }
 
 // Deriva o tipomidia a partir do mimetype do arquivo enviado.
@@ -234,9 +273,15 @@ chatbotRouter.post('/contatos/:id/mensagens', validateBody(textoSchema), async (
       .select('*')
       .single();
     if (error) throw error;
+    // espelha o envio no canal externo (Instagram), se for o caso
+    const ent = await entregarNoCanal(req, id, { texto: req.body.texto });
+    if (ent.tentou && !ent.entregue) {
+      await req.supabase.from('chatbot-mensagens').update({ entregue: false }).eq('id', data.id);
+      data.entregue = false;
+    }
     // marca o horário da última mensagem no contato (best-effort)
     await req.supabase.from('chatbot-contatos').update({ ultimamsg: new Date().toISOString() }).eq('id', id);
-    res.status(201).json({ mensagem: mapMensagem(data) });
+    res.status(201).json({ mensagem: mapMensagem(data), aviso: (ent.tentou && !ent.entregue) ? ent.erro : undefined });
   } catch (err) { next(err); }
 });
 
@@ -573,7 +618,13 @@ chatbotRouter.post('/contatos/:id/midia', upload.single('arquivo'), async (req, 
       .select('*')
       .single();
     if (error) throw error;
+    // espelha a mídia no canal externo (Instagram/Facebook/WhatsApp), se for o caso
+    const ent = await entregarNoCanal(req, id, { midiaUrl: publicUrl, tipo, titulo: orig });
+    if (ent.tentou && !ent.entregue) {
+      await req.supabase.from('chatbot-mensagens').update({ entregue: false }).eq('id', data.id);
+      data.entregue = false;
+    }
     await req.supabase.from('chatbot-contatos').update({ ultimamsg: new Date().toISOString() }).eq('id', id);
-    res.status(201).json({ mensagem: mapMensagem(data) });
+    res.status(201).json({ mensagem: mapMensagem(data), aviso: (ent.tentou && !ent.entregue) ? ent.erro : undefined });
   } catch (err) { next(err); }
 });

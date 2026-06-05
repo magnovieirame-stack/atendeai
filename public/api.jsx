@@ -137,6 +137,17 @@ const API = {
   limparContato(id) { return this._req('/chatbot/contatos/' + id + '/mensagens', { method: 'DELETE' }); },
   apagarContato(id) { return this._req('/chatbot/contatos/' + id, { method: 'DELETE' }); },
   createClienteContato(nome, telefone, canal) { return this._json('/chatbot/clientes-contato', 'POST', { nome, telefone, canal }); },
+
+  // --- Integrações (canais externos) ---
+  getIntegracoes() { return this._req('/integracoes'); },
+  // URLs abertas em popup (navegação top-level leva o cookie de sessão httpOnly).
+  instagramConnectUrl() { return '/api/integracoes/instagram/connect'; },
+  facebookConnectUrl() { return '/api/integracoes/facebook/connect'; },
+  disconnectInstagram() { return this._req('/integracoes/instagram', { method: 'DELETE' }); },
+  disconnectFacebook() { return this._req('/integracoes/facebook', { method: 'DELETE' }); },
+  // WhatsApp: conexão manual (sem popup) — envia Phone Number ID + token.
+  connectWhatsapp(dto) { return this._json('/integracoes/whatsapp', 'POST', dto); },
+  disconnectWhatsapp() { return this._req('/integracoes/whatsapp', { method: 'DELETE' }); },
 };
 window.API = API;
 
