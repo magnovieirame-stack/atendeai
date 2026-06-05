@@ -633,7 +633,7 @@
         <Modal title={isReceita ? 'Confirmar recebimento' : 'Confirmar pagamento'} onClose={() => setConfirmPay(null)} size="sm"
         footer={<>
               <div style={{ flex: 1 }} />
-              <button className="btn" onClick={() => setConfirmPay(null)}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={() => setConfirmPay(null)}>Voltar</button>
               <button className="btn btn-primary" onClick={() => onPay(confirmPay)}>
                 <Ic name="check" size={13} /> {isReceita ? 'Receber' : 'Pagar'} {fmtBRL(confirmPay.valor)}
               </button>
@@ -656,7 +656,7 @@
         <Modal title={`Excluir ${isReceita ? 'receita' : 'despesa'}`} onClose={() => setConfirmDel(null)} size="sm"
         footer={<>
               <div style={{ flex: 1 }} />
-              <button className="btn" onClick={() => setConfirmDel(null)}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={() => setConfirmDel(null)}>Voltar</button>
               <button className="btn" style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white' }} onClick={() => onDelete(confirmDel)}>
                 <Ic name="trash" size={13} /> Excluir
               </button>
@@ -831,7 +831,7 @@
         <>
           <div style={{ flex: 1 }} />
           <button className="btn fin-btn-back btn-fixed" onClick={() => close()}>
-            <Ic name="arrow-left" size={13} /> {mode === 'edit' ? 'Cancelar' : 'Voltar'}
+            <Ic name="arrow-left" size={13} /> Voltar
           </button>
           <button className="btn btn-save btn-fixed" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close(handleSave)}>
             <Ic name="check" size={13} /> Salvar
@@ -1031,7 +1031,7 @@
         <Modal title={isReceita ? 'Confirmar recebimento' : 'Confirmar pagamento'} onClose={() => setConfirm(false)} size="sm"
         footer={<>
               <div style={{ flex: 1 }} />
-              <button className="btn" onClick={() => setConfirm(false)}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={() => setConfirm(false)}>Voltar</button>
               <button className="btn btn-primary" onClick={() => onConfirm({ total, juros: Number(juros) || 0, desconto: Number(desconto) || 0, data: fmtData, forma, conta })}>
                 <Ic name="check" size={13} /> {verbo} {fmtBRL(total)}
               </button>
@@ -1069,7 +1069,7 @@
         onClose={onClose}
         footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back" onClick={() => close()}>Cancelar</button>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
           <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close(save)}>
             <Ic name="check" size={13} /> Cadastrar
           </button>
@@ -1431,18 +1431,7 @@
           font-size: var(--type-sm); font-weight: 600; color: var(--text);
           text-align: right; min-width: 0;
         }
-        .fin-section-title {
-          font-size: 10.5px; font-weight: 700; letter-spacing: .12em;
-          color: var(--text-muted); text-transform: uppercase;
-          margin-top: 14px; margin-bottom: 8px;
-        }
-        .fin-section {
-          background: var(--surface-2);
-          border: 1px solid var(--border);
-          border-radius: 12px;
-          padding: 14px;
-          display: flex; flex-direction: column; gap: 12px;
-        }
+        /* .fin-section-title e .fin-section agora são globais (styles.css) — tópicos coloridos */
         .fin-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
         .fin-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
         @media (max-width: 640px) { .fin-grid-2, .fin-grid-3 { grid-template-columns: 1fr; } }

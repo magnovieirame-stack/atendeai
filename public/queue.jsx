@@ -349,7 +349,7 @@ function Queue() {
             {selectedIds.length} conversa{selectedIds.length > 1 ? 's' : ''} selecionada{selectedIds.length > 1 ? 's' : ''}
           </span>
           <div className="spacer" />
-          <button className="btn btn-sm" onClick={() => setSelectedIds([])}>Cancelar</button>
+          <button className="btn btn-sm fin-btn-back" onClick={() => setSelectedIds([])}>Voltar</button>
           <button className="btn btn-sm" onClick={() => setReturnModal({ bulk: true })}>
             <Ic name="sparkles" size={13} /> Devolver à IA
           </button>
@@ -889,7 +889,7 @@ function AssignToColleagueModal({ target, onClose, onConfirm }) {
       size="md"
       onClose={onClose}
       footer={<>
-        <button className="btn" onClick={onClose}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
         <button
           className="btn btn-primary"
           disabled={!selected}
@@ -974,7 +974,7 @@ function ReturnToAIModal({ target, onClose, onConfirm }) {
       size="sm"
       onClose={onClose}
       footer={<>
-        <button className="btn" onClick={onClose}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
         <button className="btn btn-primary" style={{ background: 'var(--ai)', borderColor: 'var(--ai)' }} onClick={() => onConfirm({ reason })}>
           <Ic name="sparkles" size={13} /> Devolver à IA
         </button>
@@ -1015,7 +1015,7 @@ function CloseQueueConvModal({ conv, onClose, onConfirm }) {
       size="sm"
       onClose={onClose}
       footer={<>
-        <button className="btn" onClick={onClose}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
         <button className="btn btn-primary" style={{ background: '#dc2626', borderColor: '#dc2626' }} onClick={() => onConfirm({ label })}>
           <Ic name="x" size={13} /> Encerrar
         </button>
@@ -1600,7 +1600,7 @@ function ContactPickerPanel({ onClose, onPick }) {
         <div className="muted" style={{ fontSize: 'var(--type-sm)', flex: 1 }}>
           {selected ? `Selecionado: ${selected.name}` : `${filtered.length} contato${filtered.length === 1 ? '' : 's'}`}
         </div>
-        <button className="btn" onClick={onClose}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
         <button
           className="btn btn-primary"
           disabled={!selected}
@@ -1680,7 +1680,7 @@ function ReturnPopover({ conv, onClose, onConfirm }) {
       {/* Footer */}
       <div className="row" style={{ gap: 6, padding: '10px 12px', borderTop: '1px solid var(--border)' }}>
         <div className="spacer" />
-        <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-sm fin-btn-back" onClick={onClose}>Voltar</button>
         <button
           className="btn btn-sm btn-primary"
           style={{ background: 'var(--ai)', borderColor: 'var(--ai)' }}
@@ -1839,7 +1839,7 @@ function TransferPopover({ onClose, onConfirm }) {
 
       <div className="row" style={{ gap: 6, padding: '10px 12px', borderTop: '1px solid var(--border)' }}>
         <div className="spacer" />
-        <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-sm fin-btn-back" onClick={onClose}>Voltar</button>
         <button
           className="btn btn-sm btn-primary"
           disabled={!selected}
@@ -1941,7 +1941,7 @@ function ClosePopover({ conv, onClose, onConfirm }) {
 
       <div className="row" style={{ gap: 6, padding: '10px 12px', borderTop: '1px solid var(--border)' }}>
         <div className="spacer" />
-        <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
+        <button className="btn btn-sm fin-btn-back" onClick={onClose}>Voltar</button>
         <button
           className="btn btn-sm btn-primary"
           disabled={!outcome}
@@ -2056,7 +2056,7 @@ function InlineAppointmentForm({ conv, onClose }) {
       {!saved && (
         <div className="row" style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', gap: 8, flexShrink: 0 }}>
           <div className="spacer" />
-          <button className="btn" onClick={onClose}>Cancelar</button>
+          <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
           <button className="btn btn-save" disabled={!client.trim() || !date || !time} style={{ opacity: (client.trim() && date && time) ? 1 : .5 }} onClick={save}>
             <Ic name="check" size={13} /> Criar
           </button>

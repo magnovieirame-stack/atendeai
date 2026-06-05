@@ -117,7 +117,7 @@ function ClientDrawer({ initial, onClose, onSave, onDelete }) {
         return <>
         {isEdit && <button className="btn btn-delete-soft" onClick={()=>setConfirmDel(true)}><Ic name="trash" size={13}/> Excluir</button>}
         <div style={{flex:1}}/>
-        <button className="btn" onClick={() => close()}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
         {!isEdit && <button className="btn" onClick={() => close(handleSave)}><Ic name="mail" size={13}/> Salvar e enviar boas-vindas</button>}
         <button className="btn btn-save" onClick={() => close(handleSave)}><Ic name="check" size={13}/> {isEdit ? 'Salvar alterações' : 'Cadastrar cliente'}</button>
       </>;
@@ -343,7 +343,7 @@ function ClientDrawer({ initial, onClose, onSave, onDelete }) {
             </div>
             <div className="muted" style={{fontSize:'var(--type-sm)', marginTop:10}}>Tem certeza que deseja excluir <strong style={{color:'var(--text)'}}>{initial?.name}</strong>? Essa ação remove o tenant da plataforma. Histórico de pagamentos e conversas permanecem arquivados conforme a política de retenção.</div>
             <div className="row" style={{gap:8, marginTop:18, justifyContent:'flex-end'}}>
-              <button className="btn" onClick={()=>setConfirmDel(false)}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={()=>setConfirmDel(false)}>Voltar</button>
               <button className="btn btn-delete" onClick={()=>{
                 setDelClosing(true);
                 setTimeout(() => {

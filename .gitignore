@@ -18,3 +18,9 @@ npm-debug.log*
 # Editor / OS
 .DS_Store
 Thumbs.db
+
+# Logs e helpers locais (nao versionar)
+*.log
+*.err
+mock-server.mjs
+serve.ps1

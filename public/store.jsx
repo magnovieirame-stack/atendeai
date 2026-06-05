@@ -89,4 +89,24 @@ function Provider({ children }) {
   );
 }
 
-Object.assign(window, { Provider, useRouter, useStore, ATENDE_DEFAULTS, ACCENT_PRESETS, RouterCtx, StoreCtx });
+// Responsive breakpoint hook — true quando a viewport é de celular (<= maxWidth).
+// Apenas leitura da largura da janela; não toca em rede, API ou dados.
+function useIsMobile(maxWidth = 640) {
+  const query = '(max-width: ' + maxWidth + 'px)';
+  const read = () => (typeof window !== 'undefined' && window.matchMedia ? window.matchMedia(query).matches : false);
+  const [isMobile, setIsMobile] = React.useState(read);
+  React.useEffect(() => {
+    const mq = window.matchMedia(query);
+    const onChange = () => setIsMobile(mq.matches);
+    onChange();
+    if (mq.addEventListener) mq.addEventListener('change', onChange);
+    else mq.addListener(onChange); // fallback p/ engines antigas
+    return () => {
+      if (mq.removeEventListener) mq.removeEventListener('change', onChange);
+      else mq.removeListener(onChange);
+    };
+  }, [query]);
+  return isMobile;
+}
+
+Object.assign(window, { Provider, useRouter, useStore, useIsMobile, ATENDE_DEFAULTS, ACCENT_PRESETS, RouterCtx, StoreCtx });

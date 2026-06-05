@@ -6,21 +6,106 @@ const WD_MINI_PT = ['D', 'S', 'T', 'Q', 'Q', 'S', 'S'];
 
 // Tipos de agendamento — ícones no padrão de linha do sistema (Ic), sem emoji colorido
 const APPOINTMENT_TYPES = [
-{ label: 'Reunião', icon: 'users' },
-{ label: 'Atendimento', icon: 'phone' },
-{ label: 'Comercial', icon: 'commercial' },
-{ label: 'Treinamento', icon: 'star' },
-{ label: 'Projeto', icon: 'columns' },
-{ label: 'Evento', icon: 'calendar' },
-{ label: 'Viagem', icon: 'send' },
-{ label: 'Ausência', icon: 'sun' },
-{ label: 'Pessoal', icon: 'user' },
-{ label: 'Tarefa', icon: 'check-double' },
-{ label: 'Financeiro', icon: 'coins' },
-{ label: 'Gravação', icon: 'video' },
-{ label: 'Outro', icon: 'pin' }];
+{ label: 'Reunião', icon: 'users', color: '#3b82f6' },
+{ label: 'Atendimento', icon: 'phone', color: '#16a34a' },
+{ label: 'Comercial', icon: 'commercial', color: '#7c3aed' },
+{ label: 'Treinamento', icon: 'star', color: '#f59e0b' },
+{ label: 'Projeto', icon: 'columns', color: '#06b6d4' },
+{ label: 'Evento', icon: 'calendar', color: '#ec4899' },
+{ label: 'Viagem', icon: 'send', color: '#14b8a6' },
+{ label: 'Ausência', icon: 'sun', color: '#64748b' },
+{ label: 'Pessoal', icon: 'user', color: '#6366f1' },
+{ label: 'Tarefa', icon: 'check-double', color: '#10b981' },
+{ label: 'Financeiro', icon: 'coins', color: '#eab308' },
+{ label: 'Gravação', icon: 'video', color: '#ef4444' },
+{ label: 'Outro', icon: 'pin', color: '#94a3b8' }];
 
-const typeIcon = (label) => (APPOINTMENT_TYPES.find((t) => t.label === label) || { icon: 'tag' }).icon;
+// ── Categorias dinâmicas: padrão (acima) + personalizadas (do banco) ──────────
+// 20 ícones corporativos/tarefa para o popup de nova categoria.
+const CATEGORY_ICONS = ['users', 'phone', 'commercial', 'star', 'columns', 'calendar', 'send', 'coins', 'video', 'check-double', 'chat', 'mail', 'file-text', 'contracts', 'team', 'megaphone', 'building', 'clock', 'flag', 'reports'];
+const DEFAULT_LABELS = new Set(APPOINTMENT_TYPES.map((t) => t.label));
+let CUSTOM_CATEGORIES = []; // linhas do banco: override de padrão (label de padrão) OU categoria do usuário
+const CATEGORY_LISTENERS = new Set();
+function notifyCategories() { CATEGORY_LISTENERS.forEach((fn) => fn()); }
+function setCustomCategories(arr) { CUSTOM_CATEGORIES = arr; notifyCategories(); }
+function addCustomCategory(cat) { CUSTOM_CATEGORIES = [...CUSTOM_CATEGORIES, cat]; notifyCategories(); }
+function upsertCustomCategory(cat) {
+  const exists = CUSTOM_CATEGORIES.some((c) => c.id === cat.id);
+  CUSTOM_CATEGORIES = exists ? CUSTOM_CATEGORIES.map((c) => c.id === cat.id ? cat : c) : [...CUSTOM_CATEGORIES, cat];
+  notifyCategories();
+}
+function removeCustomCategory(id) { CUSTOM_CATEGORIES = CUSTOM_CATEGORIES.filter((c) => c.id !== id); notifyCategories(); }
+// Mescla padrão (código) + banco: linha do banco com label de padrão = override (padrao, não exclui);
+// linha do banco com label próprio = categoria do usuário (exclui).
+function allCategories() {
+  const ovByLabel = {};
+  CUSTOM_CATEGORIES.forEach((c) => { ovByLabel[c.label] = c; });
+  const out = APPOINTMENT_TYPES.map((def) => {
+    const ov = ovByLabel[def.label];
+    return ov
+      ? { label: def.label, icon: ov.icon || def.icon, color: ov.color || def.color, id: ov.id, padrao: true }
+      : { label: def.label, icon: def.icon, color: def.color, padrao: true };
+  });
+  CUSTOM_CATEGORIES.forEach((c) => { if (!DEFAULT_LABELS.has(c.label)) out.push({ label: c.label, icon: c.icon, color: c.color, id: c.id, padrao: false }); });
+  return out;
+}
+function catColor(type) { return (allCategories().find((c) => c.label === type) || {}).color || 'var(--accent)'; }
+function useAgendaCategories() {
+  const [, force] = React.useReducer((x) => x + 1, 0);
+  React.useEffect(() => { CATEGORY_LISTENERS.add(force); return () => { CATEGORY_LISTENERS.delete(force); }; }, []);
+  return allCategories();
+}
+
+const typeIcon = (label) => (allCategories().find((t) => t.label === label) || { icon: 'tag' }).icon;
+
+// ── Configuração da agenda (compartilhada): horário comercial, intervalo, dias úteis… ──
+const AGENDA_CONFIG_DEFAULTS = {
+  timezone: 'America/Fortaleza', defaultDur: 60, primeiroDia: 'Domingo', visaoInicial: 'month', corPadrao: '#16a34a',
+  horaInicio: '08:00', horaFim: '19:00', diasUteis: [false, true, true, true, true, true, false],
+  intervalo: 10, overbooking: false, notifEmail: true, notifPush: true, notifWhatsapp: true,
+  antecedencia: 60, notifInterna: true, google: true,
+};
+let AGENDA_CONFIG = { ...AGENDA_CONFIG_DEFAULTS };
+const AGENDA_CONFIG_LISTENERS = new Set();
+function setAgendaConfig(c) { AGENDA_CONFIG = { ...AGENDA_CONFIG_DEFAULTS, ...(c || {}) }; AGENDA_CONFIG_LISTENERS.forEach((fn) => fn()); }
+function useAgendaConfig() {
+  const [, force] = React.useReducer((x) => x + 1, 0);
+  React.useEffect(() => { AGENDA_CONFIG_LISTENERS.add(force); return () => { AGENDA_CONFIG_LISTENERS.delete(force); }; }, []);
+  return AGENDA_CONFIG;
+}
+// Dia útil? (diasUteis indexado por getDay(): 0=Dom … 6=Sáb)
+function isDiaUtil(isoDate, cfg) {
+  if (!isoDate) return true;
+  const d = new Date(isoDate + 'T00:00:00');
+  if (isNaN(d)) return true;
+  const arr = (cfg && cfg.diasUteis) || AGENDA_CONFIG.diasUteis;
+  return arr ? !!arr[d.getDay()] : true;
+}
+function _toMin(t) { const p = String(t || '').split(':'); return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0); }
+// Há conflito de horário? (mesmo dia + sobreposição de horário + mesmo responsável)
+function hasConflict(appts, novo, ignoreId) {
+  if (!novo.data || !novo.start) return false;
+  const s = _toMin(novo.start), e = s + (novo.dur || 60);
+  return (appts || []).some((a) => {
+    if (a.id && a.id === ignoreId) return false;
+    if (a.data !== novo.data) return false;
+    if (novo.resp && a.resp && a.resp !== novo.resp) return false;
+    const as = _toMin(a.start), ae = as + (a.dur || 60);
+    return s < ae && as < e;
+  });
+}
+// Data/hora já passou? Compara com o INÍCIO do minuto atual (permite o minuto corrente).
+function isPast(isoDate, hora) {
+  if (!isoDate) return false;
+  const dt = new Date(`${isoDate}T${hora && String(hora).length === 5 ? hora : '00:00'}:00`);
+  if (isNaN(dt)) return false;
+  const nowMin = Math.floor(Date.now() / 60000) * 60000;
+  return dt.getTime() < nowMin;
+}
+// Primeiro dia da semana (config): 0=Domingo, 1=Segunda.
+function firstDow(cfg) { return (cfg && cfg.primeiroDia === 'Segunda') ? 1 : 0; }
+// Início da semana que contém `date`, respeitando o primeiro dia configurado.
+function weekStartDate(date, fdow) { const s = new Date(date); s.setDate(s.getDate() - ((s.getDay() - fdow + 7) % 7)); return s; }
 
 const ymd = (d) => `${d.getFullYear()}-${(d.getMonth() + 1).toString().padStart(2, '0')}-${d.getDate().toString().padStart(2, '0')}`;
 
@@ -37,6 +122,7 @@ function TypeTag({ type, size = 14 }) {
 
 // Lista suspensa de tipo de agendamento (com ícones)
 function TypeSelect({ value, onChange }) {
+  const TYPES = useAgendaCategories();
   const [open, setOpen] = React.useState(false);
   const wrapRef = React.useRef(null);
   React.useEffect(() => {
@@ -60,7 +146,7 @@ function TypeSelect({ value, onChange }) {
         boxShadow: '0 12px 32px rgba(0,0,0,.18)', maxHeight: 280, overflowY: 'auto', width: '100%',
         animation: 'fmtFadeIn .15s ease-out', padding: 4
       }}>
-          {APPOINTMENT_TYPES.map((t) =>
+          {TYPES.map((t) =>
         <div key={t.label} data-active={t.label === value}
         onClick={() => {onChange(t.label);setOpen(false);}}
         style={{
@@ -71,7 +157,7 @@ function TypeSelect({ value, onChange }) {
         }}
         onMouseEnter={(e) => {if (t.label !== value) e.currentTarget.style.background = 'var(--accent-soft)';}}
         onMouseLeave={(e) => {if (t.label !== value) e.currentTarget.style.background = 'transparent';}}>
-              <Ic name={t.icon} size={16} />
+              <Ic name={t.icon} size={16} style={t.color && t.label !== value ? { color: t.color } : undefined} />
               <span style={{ flex: 1 }}>{t.label}</span>
               {t.hint && <span style={{ fontSize: 11, opacity: .65 }}>{t.hint}</span>}
             </div>)}
@@ -82,7 +168,7 @@ function TypeSelect({ value, onChange }) {
 
 function Agenda() {
   const [view, setView] = React.useState('month');
-  const [cursor, setCursor] = React.useState(new Date(2026, 4, 11));
+  const [cursor, setCursor] = React.useState(new Date());
   const [showNew, setShowNew] = React.useState(false);
   const [newAt, setNewAt] = React.useState(null); // { date, time } prefill from empty slot
   const openNewAt = (date, time) => setNewAt({ date, time });
@@ -92,12 +178,34 @@ function Agenda() {
   const [animKey, setAnimKey] = React.useState(0);
   const [animDir, setAnimDir] = React.useState('right');
   const [active, setActive] = React.useState(null); // { appt, mode: 'view' | 'edit' }
-  const [appts, setAppts] = React.useState(() => APPOINTMENTS.map((a) => ({ ...a })));
+  const [appts, setAppts] = React.useState([]);
+  const [tasks, setTasks] = React.useState([]);
+  const [me, setMe] = React.useState(null);
+  const cfg = useAgendaConfig();
+  const [catFilter, setCatFilter] = React.useState(() => new Set()); // labels marcadas; vazio = mostra todos
+  const toggleCat = (label) => setCatFilter((s) => { const n = new Set(s); n.has(label) ? n.delete(label) : n.add(label); return n; });
+  const filteredAppts = catFilter.size ? appts.filter((a) => catFilter.has(a.type)) : appts;
+  React.useEffect(() => {
+    API.getAgenda().then((r) => setAppts(r.agenda || [])).catch(() => setAppts([]));
+    API.getTarefas().then((r) => setTasks(r.tarefas || [])).catch(() => setTasks([]));
+    API.me().then((r) => setMe(r.user)).catch(() => {});
+    API.getCategorias().then((r) => setCustomCategories((r.categorias || []).map((c) => ({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || null })))).catch(() => {});
+    API.getAgendaConfig().then((r) => { setAgendaConfig(r.config); const v = r.config && r.config.visaoInicial; if (v === 'week' || v === 'day' || v === 'month') setView(v); }).catch(() => {});
+  }, []);
   const openView = (appt) => setActive({ appt, mode: 'view' });
   const openEdit = (appt) => setActive({ appt, mode: 'edit' });
-  const removeAppt = (appt) => {setAppts((list) => list.filter((x) => x.id !== appt.id));setActive(null);};
-  const addAppt = (appt) => setAppts((list) => [...list, appt]);
-  const updateAppt = (updated) => {setAppts((list) => list.map((x) => x.id === updated.id ? updated : x));setActive({ appt: updated, mode: 'view' });};
+  const removeAppt = async (appt) => { try { await API.deleteApptApi(appt.id); } catch (e) {} setAppts((list) => list.filter((x) => x.id !== appt.id)); setActive(null); };
+  const addAppt = async (dto) => { try { const r = await API.createAppt(dto); setAppts((list) => [...list, r.appt]); } catch (e) {} };
+  const updateAppt = async (updated) => {
+    try {
+      const r = await API.updateApptApi(updated.id, { participante: updated.client, participanteTipo: updated.participanteTipo, clienteId: updated.clienteId || null, service: updated.service, data: updated.data, start: updated.start, dur: updated.dur, resp: updated.resp, type: updated.type, status: updated.status, local: updated.local, phone: updated.phone, obs: updated.obs });
+      setAppts((list) => list.map((x) => x.id === r.appt.id ? r.appt : x));
+      setActive({ appt: r.appt, mode: 'view' });
+    } catch (e) {}
+  };
+  const addTask = async (dto) => { try { const r = await API.createTarefa(dto); setTasks((tt) => [...tt, r.tarefa]); } catch (e) {} };
+  const toggleTask = async (t) => { const done = !t.done; setTasks((tt) => tt.map((x) => x.id === t.id ? { ...x, done } : x)); try { await API.updateTarefa(t.id, { done }); } catch (e) {} };
+  const deleteTask = async (id) => { setTasks((tt) => tt.filter((x) => x.id !== id)); try { await API.deleteTarefa(id); } catch (e) {} };
 
   const animate = (dir = 'right') => {
     setAnimDir(dir);
@@ -134,7 +242,7 @@ function Agenda() {
     if (view === 'tasks') return 'TAREFAS';
     if (view === 'month') return `${MONTHS_PT[cursor.getMonth()].toUpperCase()} DE ${cursor.getFullYear()}`;
     if (view === 'day') return `${cursor.getDate().toString().padStart(2, '0')} ${MONTHS_PT[cursor.getMonth()].toUpperCase()} ${cursor.getFullYear()}`;
-    const start = new Date(cursor);start.setDate(start.getDate() - start.getDay());
+    const start = weekStartDate(cursor, firstDow(cfg));
     const end = new Date(start);end.setDate(end.getDate() + 6);
     return `${start.getDate().toString().padStart(2, '0')} – ${end.getDate().toString().padStart(2, '0')} ${MONTHS_PT[end.getMonth()].toUpperCase()} ${end.getFullYear()}`;
   };
@@ -171,6 +279,8 @@ function Agenda() {
           cursor={cursor}
           setCursor={updateCursor}
           onSettings={() => setShowSettings(true)}
+          catFilter={catFilter}
+          onToggleCat={toggleCat}
           onNew={() => view === 'tasks' ? setShowNewTask(true) : setShowNew(true)} />
         
         <div style={{ display: 'flex', flexDirection: 'column', minWidth: 0, overflow: 'hidden', background: 'var(--surface-2)' }}>
@@ -188,21 +298,21 @@ function Agenda() {
             {view !== 'tasks' && <div style={{ flex: 1 }} />}
             {view === 'tasks' ?
             <MonthYearPicker cursor={cursor} onPick={updateCursor} /> :
-            <button className="btn btn-ghost btn-sm" onClick={() => setCursor(new Date(2026, 4, 11))}>Hoje</button>}
+            <button className="btn btn-ghost btn-sm" onClick={() => setCursor(new Date())}>Hoje</button>}
           </div>
           <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
             <div key={animKey} className={`view-anim view-anim-${animDir}`} style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
-              {view === 'month' && <MonthView cursor={cursor} appts={appts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} onOpenDay={openDay} />}
-              {view === 'week' && <WeekView cursor={cursor} appts={appts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} />}
-              {view === 'day' && <DayView cursor={cursor} appts={appts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} />}
-              {view === 'tasks' && <TasksView cursor={cursor} setCursor={updateCursor} />}
+              {view === 'month' && <MonthView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} onOpenDay={openDay} />}
+              {view === 'week' && <WeekView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} />}
+              {view === 'day' && <DayView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} />}
+              {view === 'tasks' && <TasksView cursor={cursor} setCursor={updateCursor} tasks={tasks} onToggle={toggleTask} onDelete={deleteTask} />}
             </div>
           </div>
         </div>
       </div>
-      {showNew && <NewAppointment onClose={() => setShowNew(false)} onSave={(a) => {addAppt(a);setShowNew(false);}} />}
-      {newAt && <NewAppointment defaultDate={newAt.date} defaultTime={newAt.time} onClose={() => setNewAt(null)} onSave={(a) => {addAppt(a);setNewAt(null);}} />}
-      {showNewTask && <NewTask onClose={() => setShowNewTask(false)} />}
+      {showNew && <NewAppointment appts={appts} defaultResponsible={me ? me.name : ''} onClose={() => setShowNew(false)} onSave={(a) => {addAppt(a);setShowNew(false);}} />}
+      {newAt && <NewAppointment appts={appts} defaultResponsible={me ? me.name : ''} defaultDate={newAt.date} defaultTime={newAt.time} onClose={() => setNewAt(null)} onSave={(a) => {addAppt(a);setNewAt(null);}} />}
+      {showNewTask && <NewTask onClose={() => setShowNewTask(false)} onCreate={(dto) => { addTask(dto); setShowNewTask(false); }} />}
       {active && active.mode === 'view' &&
       <AppointmentDetailDrawer
         appt={active.appt}
@@ -223,7 +333,8 @@ function Agenda() {
 
 }
 
-function AgendaSidebar({ view, changeView, cursor, setCursor, onNew, onSettings }) {
+function AgendaSidebar({ view, changeView, cursor, setCursor, onNew, onSettings, catFilter, onToggleCat }) {
+  const cats = useAgendaCategories();
   const tabs = [
   { id: 'month', label: 'MÊS', icon: 'calendar' },
   { id: 'week', label: 'SEMANA', icon: 'calendar' },
@@ -250,20 +361,19 @@ function AgendaSidebar({ view, changeView, cursor, setCursor, onNew, onSettings 
         )}
       </div>
       <MiniCalendar cursor={cursor} setCursor={setCursor} />
-      <div style={{ marginTop: 'auto', paddingTop: 14, borderTop: '1px solid var(--border)', display: 'flex', flexDirection: 'column', gap: 6 }}>
+      <div style={{ marginTop: 56, display: 'flex', flexDirection: 'column', gap: 8, flex: 1, minHeight: 0 }}>
         <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.08em', color: 'var(--text-faint)', textTransform: 'uppercase', padding: '0 2px' }}>Categorias</div>
-        {[
-        { c: 'var(--accent)', l: 'Atendimentos' },
-        { c: 'var(--ai)', l: 'Agendado pela IA' },
-        { c: 'var(--hue-amber)', l: 'Pessoal' },
-        { c: 'var(--hue-rose)', l: 'Bloqueio' }].
-        map((k, i) =>
-        <div key={i} className="cat-row">
-            <span className="cat-dot" style={{ background: k.c }} />
-            <span style={{ flex: 1 }}>{k.l}</span>
-            <span className="cat-check"><Ic name="check" size={11} /></span>
-          </div>
-        )}
+        <div className="cat-scroll" style={{ display: 'flex', flexDirection: 'column', gap: 4, overflowY: 'auto', flex: 1, minHeight: 0, paddingRight: 2 }}>
+          {cats.map((k, i) => {
+          const on = catFilter && catFilter.has(k.label);
+          return (
+            <div key={k.id || ('def-' + i)} className="cat-row" onClick={() => onToggleCat && onToggleCat(k.label)}>
+              <span className="cat-dot" style={{ background: k.color || 'var(--text-muted)' }} />
+              <span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.label}</span>
+              <span className="cat-check" style={{ background: on ? 'var(--accent)' : 'transparent', border: on ? '1px solid var(--accent)' : '1px solid var(--border-strong)', color: on ? '#fff' : 'transparent' }}>{on && <Ic name="check" size={11} />}</span>
+            </div>);
+          })}
+        </div>
       </div>
     </div>);
 
@@ -348,7 +458,7 @@ function useEvPopover({ onView, onEdit, onDelete }) {
       footer={
       <>
               <div style={{ flex: 1 }} />
-              <button className="btn" onClick={() => setConfirmDel(null)}>Voltar</button>
+              <button className="btn fin-btn-back" onClick={() => setConfirmDel(null)}>Voltar</button>
               <button className="btn btn-danger" onClick={() => {onDelete && onDelete(confirmDel);setConfirmDel(null);}}>
                 <Ic name="trash" size={14} /> Excluir
               </button>
@@ -356,7 +466,7 @@ function useEvPopover({ onView, onEdit, onDelete }) {
       }>
         
         <div style={{ fontSize: 13.5, color: 'var(--text)', lineHeight: 1.5 }}>
-          O agendamento de <strong>{confirmDel.client}</strong> — {confirmDel.service}, dia {confirmDel.day.toString().padStart(2, '0')}/05 às {confirmDel.start} — será cancelado. Esta ação não pode ser desfeita.
+          O agendamento de <strong>{confirmDel.client}</strong> — {confirmDel.service}, dia {(confirmDel.data || '').split('-').reverse().slice(0, 2).join('/')} às {confirmDel.start} — será cancelado. Esta ação não pode ser desfeita.
         </div>
       </Modal>
     }
@@ -389,22 +499,22 @@ function MonthView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onN
       <div className="month-grid">
         {cells.map((c, i) => {
           const isToday = c.cur && c.d === today.getDate() && month === today.getMonth() && year === today.getFullYear();
-          const evs = c.cur && month === 4 && year === 2026 ? appts.filter((a) => a.day === c.d) : [];
+          const evs = c.cur ? appts.filter((a) => a.data === ymd(new Date(year, month, c.d))) : [];
           return (
             <div
               key={i}
               className={'month-cell' + (c.cur ? ' month-cell-click' : '')}
               data-current={c.cur}
               data-today={isToday}
-              onClick={c.cur && onOpenDay ? () => onOpenDay(new Date(year, month, c.d)) : undefined}
-              title={c.cur ? 'Abrir dia' : undefined}>
+              onClick={c.cur && onNewAt ? () => onNewAt(ymd(new Date(year, month, c.d))) : undefined}
+              title={c.cur ? 'Novo agendamento neste dia' : undefined}>
               <div className="month-cell-day" style={{ height: "14px" }}>{c.d.toString().padStart(2, '0')}</div>
               <div className="month-cell-evs">
                 {evs.slice(0, 3).map((e, j) =>
                 <div
                   key={j}
                   className="month-ev"
-                  style={{ background: e.byAI ? 'var(--ai-soft)' : 'var(--accent-soft)', color: e.byAI ? 'var(--ai-strong)' : 'var(--accent-700)', borderLeft: `3px solid ${e.byAI ? 'var(--ai)' : 'var(--accent)'}`, fontSize: "10px", cursor: 'pointer' }}
+                  style={{ background: `color-mix(in oklab, ${catColor(e.type)} 16%, var(--surface))`, color: catColor(e.type), borderLeft: `3px solid ${catColor(e.type)}`, fontSize: "10px", cursor: 'pointer' }}
                   {...evProps(e)}>
                     <strong className="tnum">{e.start}</strong> {e.client}
                   </div>
@@ -447,7 +557,7 @@ function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete }
   }, [rect, ev]);
 
   const resp = TEAM.find((m) => m.id === ev.resp);
-  const accent = ev.byAI ? 'var(--ai)' : 'var(--accent)';
+  const accent = catColor(ev.type);
   const stop = (fn) => (e) => {e.stopPropagation();fn && fn();};
 
   return ReactDOM.createPortal(
@@ -503,7 +613,8 @@ function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete }
 }
 
 function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt }) {
-  const start = new Date(cursor);start.setDate(start.getDate() - start.getDay());
+  const cfg = useAgendaConfig();
+  const start = weekStartDate(cursor, firstDow(cfg));
   const days = Array.from({ length: 7 }, (_, i) => {const d = new Date(start);d.setDate(d.getDate() + i);return d;});
   const hours = Array.from({ length: 13 }, (_, i) => i + 7); // 07:00 .. 19:00
   const DAY_START = hours[0] * 60;
@@ -546,7 +657,7 @@ function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNe
         {days.map((d, di) => {
           const isToday = d.toDateString() === today.toDateString();
           const inMay = d.getMonth() === 4 && d.getFullYear() === 2026;
-          const evs = inMay ? appts.filter((a) => a.day === d.getDate()) : [];
+          const evs = appts.filter((a) => a.data === ymd(d));
           const { placed, lanes } = layoutDay(evs);
           return (
             <div key={di} className="week-col" data-today={isToday}>
@@ -570,9 +681,9 @@ function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNe
                     style={{
                       top: top + 2, height: Math.max(20, height - 4),
                       left: `calc(${lane * w}% + 2px)`, width: `calc(${w}% - 4px)`,
-                      background: ev.byAI ? 'var(--ai-soft)' : 'var(--accent-soft)',
-                      color: ev.byAI ? 'var(--ai-strong)' : 'var(--accent-700)',
-                      borderLeft: `3px solid ${ev.byAI ? 'var(--ai)' : 'var(--accent)'}`
+                      background: `color-mix(in oklab, ${catColor(ev.type)} 16%, var(--surface))`,
+                      color: catColor(ev.type),
+                      borderLeft: `3px solid ${catColor(ev.type)}`
                     }}>
                     <div className="week-ev-time">{ev.start}–{fmtEndTime(ev.start, ev.dur)}</div>
                     <div className="week-ev-client">{ev.client}</div>
@@ -607,7 +718,7 @@ function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNew
   const DAY_START = hours[0] * 60;
   const HOUR_H = 76;
   const inMay = cursor.getMonth() === 4 && cursor.getFullYear() === 2026;
-  const evs = inMay ? appts.filter((a) => a.day === cursor.getDate()) : [];
+  const evs = appts.filter((a) => a.data === ymd(cursor));
   const today = new Date(2026, 4, 11);
   const isToday = cursor.toDateString() === today.toDateString();
   const [confirmDel, setConfirmDel] = React.useState(null);
@@ -670,9 +781,9 @@ function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNew
                   style={{
                     top: top + 2, height: Math.max(30, height - 4),
                     left: `calc(${lane * w}% + 2px)`, width: `calc(${w}% - 4px)`,
-                    background: ev.byAI ? 'var(--ai-soft)' : 'var(--accent-soft)',
-                    color: ev.byAI ? 'var(--ai-strong)' : 'var(--accent-700)',
-                    borderLeft: `4px solid ${ev.byAI ? 'var(--ai)' : 'var(--accent)'}`
+                    background: `color-mix(in oklab, ${catColor(ev.type)} 16%, var(--surface))`,
+                    color: catColor(ev.type),
+                    borderLeft: `4px solid ${catColor(ev.type)}`
                   }}>
                   <div className="day-ev-main">
                     <div className="day-ev-time"><Ic name="clock" size={12} /> {ev.start}–{fmtEndTime(ev.start, ev.dur)} <span style={{ opacity: .7 }}>· {ev.dur} min</span></div>
@@ -710,7 +821,7 @@ function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNew
         footer={
         <>
             <div style={{ flex: 1 }} />
-            <button className="btn" onClick={() => setConfirmDel(null)}>Voltar</button>
+            <button className="btn fin-btn-back" onClick={() => setConfirmDel(null)}>Voltar</button>
             <button className="btn btn-danger" onClick={() => {onDelete && onDelete(confirmDel);setConfirmDel(null);}}>
               <Ic name="trash" size={14} /> Excluir
             </button>
@@ -718,7 +829,7 @@ function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNew
         }>
         
         <div style={{ fontSize: 13.5, color: 'var(--text)', lineHeight: 1.5 }}>
-          O agendamento de <strong>{confirmDel.client}</strong> — {confirmDel.service}, dia {confirmDel.day.toString().padStart(2, '0')}/05 às {confirmDel.start} — será cancelado. Esta ação não pode ser desfeita.
+          O agendamento de <strong>{confirmDel.client}</strong> — {confirmDel.service}, dia {(confirmDel.data || '').split('-').reverse().slice(0, 2).join('/')} às {confirmDel.start} — será cancelado. Esta ação não pode ser desfeita.
         </div>
       </Modal>
       }
@@ -808,9 +919,7 @@ function DayStrip({ cursor, setCursor }) {
     </div>);
 }
 
-function TasksView({ cursor, setCursor }) {
-  const [tasks, setTasks] = React.useState(TASKS.map((t) => ({ ...t })));
-  const toggle = (id) => setTasks((tt) => tt.map((t) => t.id === id ? { ...t, done: !t.done } : t));
+function TasksView({ cursor, setCursor, tasks = [], onToggle, onDelete }) {
   const order = ['fazer', 'agendar', 'delegar', 'eliminar'];
 
   return (
@@ -837,7 +946,7 @@ function TasksView({ cursor, setCursor }) {
                 items.map((t) => {
                   const m = TEAM.find((x) => x.id === t.resp);
                   return (
-                    <div key={t.id} className={`eis-card ${t.done ? 'done' : ''}`} onClick={() => toggle(t.id)}>
+                    <div key={t.id} className={`eis-card ${t.done ? 'done' : ''}`} onClick={() => onToggle && onToggle(t)}>
                       <div className={`eis-cb ${t.done ? 'done' : ''}`}>{t.done && <Ic name="check" size={11} />}</div>
                       <div style={{ flex: 1, minWidth: 0 }}>
                         <div className="eis-card-title">{t.title}</div>
@@ -857,27 +966,27 @@ function TasksView({ cursor, setCursor }) {
 
 }
 
-function ClientCombo({ defaultValue = '', onChange }) {
+function ClientCombo({ defaultValue = '', onChange, onPick }) {
   const [q, setQ] = React.useState(defaultValue);
   const setQv = (v) => {setQ(v);if (onChange) onChange(v);};
   const [open, setOpen] = React.useState(false);
   const [hi, setHi] = React.useState(0);
+  const [list, setList] = React.useState([]);
   const wrapRef = React.useRef(null);
-  const contacts = window.CONTACTS || [];
-  const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
-  const digits = (s) => (s || '').replace(/\D/g, '');
-  const list = React.useMemo(() => {
-    const nq = norm(q);
-    const dq = digits(q);
-    if (!nq) return contacts.slice(0, 50);
-    return contacts.filter((c) => norm(c.name).includes(nq) || dq.length >= 2 && digits(c.phone).includes(dq)).slice(0, 50);
-  }, [q, contacts]);
+  // Busca clientes reais no banco (debounce simples).
+  React.useEffect(() => {
+    let alive = true;
+    const t = setTimeout(() => {
+      API.getClientes(q).then((r) => { if (alive) setList((r.clientes || []).slice(0, 50)); }).catch(() => { if (alive) setList([]); });
+    }, 180);
+    return () => { alive = false; clearTimeout(t); };
+  }, [q]);
   React.useEffect(() => {
     const onDoc = (e) => {if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false);};
     document.addEventListener('mousedown', onDoc);
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
-  const pick = (c) => {setQv(c.name);setOpen(false);};
+  const pick = (c) => {setQv(c.nome);setOpen(false);if (onPick) onPick(c);};
   const onKey = (e) => {
     if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) {setOpen(true);return;}
     if (e.key === 'ArrowDown') {e.preventDefault();setHi((h) => Math.min(h + 1, list.length - 1));} else
@@ -885,12 +994,11 @@ function ClientCombo({ defaultValue = '', onChange }) {
     if (e.key === 'Enter') {e.preventDefault();if (list[hi]) pick(list[hi]);} else
     if (e.key === 'Escape') {setOpen(false);}
   };
-  const channelColor = { whatsapp: '#25d366', instagram: '#e4405f', facebook: '#1877f2' };
   return (
     <div ref={wrapRef} style={{ position: 'relative' }}>
       <input
         className="input"
-        placeholder="Buscar contato por nome ou telefone..."
+        placeholder="Buscar cliente por nome ou telefone..."
         value={q}
         onChange={(e) => {setQv(e.target.value);setOpen(true);setHi(0);}}
         onFocus={() => setOpen(true)}
@@ -898,23 +1006,19 @@ function ClientCombo({ defaultValue = '', onChange }) {
       {open &&
       <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 12px 28px rgba(15,23,42,.16)', zIndex: 20, maxHeight: 280, overflow: 'auto' }}>
           {list.length === 0 ?
-        <div style={{ padding: '14px 14px', fontSize: 'var(--type-sm)', color: 'var(--text-faint)' }}>Nenhum contato encontrado</div> :
+        <div style={{ padding: '14px 14px', fontSize: 'var(--type-sm)', color: 'var(--text-faint)' }}>Nenhum cliente encontrado</div> :
         list.map((c, i) =>
         <div key={c.id}
         onMouseDown={(e) => {e.preventDefault();pick(c);}}
         onMouseEnter={() => setHi(i)}
         style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer', background: i === hi ? 'var(--surface-2)' : 'transparent' }}>
                 <div style={{ width: 30, height: 30, borderRadius: '50%', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
-                  {c.name.split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase()}
+                  {(c.nome || '?').split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase()}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ fontSize: 'var(--type-sm)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.name}</div>
-                  <div style={{ fontSize: 11, color: 'var(--text-faint)', display: 'flex', alignItems: 'center', gap: 6 }}>
-                    <span style={{ width: 6, height: 6, borderRadius: '50%', background: channelColor[c.channel] || '#94a3b8' }} />
-                    {c.phone}
-                  </div>
+                  <div style={{ fontSize: 'var(--type-sm)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.nome}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{c.telefone || 'sem telefone'}</div>
                 </div>
-                {c.tag && <span className="badge" style={{ fontSize: 10 }}>{c.tag}</span>}
               </div>)}
         </div>}
     </div>);
@@ -969,12 +1073,132 @@ function DurationSelect({ value, onChange, options }) {
 
 }
 
-function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsible = '', defaultDate = '2026-05-11', defaultTime = '10:00' }) {
-  const [date, setDate] = React.useState(defaultDate);
-  const [time, setTime] = React.useState(defaultTime);
+// Seletor de participante do agendamento: tipo (Cliente/Lead/Usuário/Outros) + lista respectiva.
+// onChange recebe { name, tipo, clienteId, phone }.
+function ParticipantPicker({ onChange, defaultValue }) {
+  const TYPES = [
+    { id: 'cliente', label: 'Cliente' },
+    { id: 'lead', label: 'Lead' },
+    { id: 'usuario', label: 'Usuário' },
+    { id: 'outro', label: 'Outros' },
+  ];
+  const [tipo, setTipo] = React.useState('cliente');
+  const [q, setQ] = React.useState(defaultValue && defaultValue.name ? defaultValue.name : '');
+  const [open, setOpen] = React.useState(false);
+  const [list, setList] = React.useState([]);
+  const [hi, setHi] = React.useState(0);
+  const wrapRef = React.useRef(null);
+
+  React.useEffect(() => {
+    if (tipo === 'outro') { setList([]); return; }
+    let alive = true;
+    const t = setTimeout(async () => {
+      try {
+        let items = [];
+        if (tipo === 'cliente') {
+          const r = await API.getClientes(q);
+          items = (r.clientes || []).map((c) => ({ id: c.id, name: c.nome, phone: c.telefone }));
+        } else if (tipo === 'lead') {
+          const r = await API.getLeads();
+          items = (r.leads || []).map((l) => ({ id: l.id, name: l.name, phone: l.phone }));
+        } else if (tipo === 'usuario') {
+          const r = await API.getUsuarios();
+          items = (r.usuarios || []).map((u) => ({ id: u.id, name: u.nome, phone: '' }));
+        }
+        const nq = (q || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+        if (nq && tipo !== 'cliente') items = items.filter((it) => (it.name || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').includes(nq));
+        if (alive) setList(items.slice(0, 50));
+      } catch (e) { if (alive) setList([]); }
+    }, 180);
+    return () => { alive = false; clearTimeout(t); };
+  }, [tipo, q]);
+
+  React.useEffect(() => {
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setOpen(false); };
+    document.addEventListener('mousedown', onDoc);
+    return () => document.removeEventListener('mousedown', onDoc);
+  }, []);
+
+  // Pré-preenche a partir de um card (CRM): detecta se a pessoa é Lead ou Cliente.
+  React.useEffect(() => {
+    if (!defaultValue || !defaultValue.name) return;
+    let alive = true;
+    const dv = defaultValue;
+    (async () => {
+      const nm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+      const dg = (s) => (s || '').replace(/\D/g, '');
+      let lead = null;
+      // Se o card já sabe que é cliente, não procura nos leads (evita falso-positivo).
+      if (dv.tipo !== 'cliente') {
+        try {
+          const r = await API.getLeads();
+          lead = (r.leads || []).find((l) => nm(l.name) === nm(dv.name) || (dv.phone && dg(l.phone) && dg(l.phone) === dg(dv.phone)));
+        } catch (e) {}
+      }
+      if (!alive) return;
+      // Abre como Lead se o card é explicitamente lead OU se encontrou correspondência nos leads.
+      if (dv.tipo === 'lead' || lead) { setTipo('lead'); setQ((lead && lead.name) || dv.name); onChange && onChange({ name: (lead && lead.name) || dv.name, tipo: 'lead', clienteId: null, participanteId: lead ? lead.id : null, phone: (lead && lead.phone) || dv.phone || '' }); }
+      else { setTipo('cliente'); setQ(dv.name); onChange && onChange({ name: dv.name, tipo: 'cliente', clienteId: dv.clienteId || null, participanteId: dv.clienteId || null, phone: dv.phone || '' }); }
+    })();
+    return () => { alive = false; };
+  }, []);
+  const changeType = (nt) => { setTipo(nt); setQ(''); setList([]); setOpen(false); onChange && onChange({ name: '', tipo: nt, clienteId: null, participanteId: null, phone: '' }); };
+  const typed = (v) => { setQ(v); setHi(0); if (tipo !== 'outro') setOpen(true); onChange && onChange({ name: v, tipo, clienteId: null, participanteId: null, phone: '' }); };
+  const pick = (it) => { setQ(it.name); setOpen(false); onChange && onChange({ name: it.name, tipo, clienteId: tipo === 'cliente' ? it.id : null, participanteId: it.id || null, phone: it.phone || '' }); };
+  const onKey = (e) => {
+    if (tipo === 'outro') return;
+    if (!open && (e.key === 'ArrowDown' || e.key === 'Enter')) { setOpen(true); return; }
+    if (e.key === 'ArrowDown') { e.preventDefault(); setHi((h) => Math.min(h + 1, list.length - 1)); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); setHi((h) => Math.max(h - 1, 0)); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (list[hi]) pick(list[hi]); }
+    else if (e.key === 'Escape') { setOpen(false); }
+  };
+  const curLabel = (TYPES.find((t) => t.id === tipo) || {}).label || '';
+
+  return (
+    <div ref={wrapRef} style={{ position: 'relative' }}>
+      <div className="row" style={{ gap: 8 }}>
+        <select className="input" style={{ width: 130, flexShrink: 0 }} value={tipo} onChange={(e) => changeType(e.target.value)}>
+          {TYPES.map((t) => <option key={t.id} value={t.id}>{t.label}</option>)}
+        </select>
+        <input className="input" style={{ flex: 1 }}
+          placeholder={tipo === 'outro' ? 'Digite o nome…' : `Buscar ${curLabel.toLowerCase()}…`}
+          value={q}
+          onChange={(e) => typed(e.target.value)}
+          onFocus={() => { if (tipo !== 'outro') setOpen(true); }}
+          onKeyDown={onKey} />
+      </div>
+      {open && tipo !== 'outro' &&
+      <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 138, right: 0, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 12px 28px rgba(15,23,42,.16)', zIndex: 20, maxHeight: 260, overflow: 'auto' }}>
+        {list.length === 0 ?
+        <div style={{ padding: '12px 14px', fontSize: 'var(--type-sm)', color: 'var(--text-faint)' }}>Nenhum {curLabel.toLowerCase()} encontrado</div> :
+        list.map((it, i) =>
+        <div key={it.id}
+          onMouseDown={(e) => { e.preventDefault(); pick(it); }}
+          onMouseEnter={() => setHi(i)}
+          style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '9px 12px', cursor: 'pointer', background: i === hi ? 'var(--surface-2)' : 'transparent' }}>
+          <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'var(--surface-3)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 11, fontWeight: 700, color: 'var(--text-muted)' }}>
+            {(it.name || '?').split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase()}
+          </div>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={{ fontSize: 'var(--type-sm)', fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{it.name}</div>
+            {it.phone && <div style={{ fontSize: 11, color: 'var(--text-faint)' }}>{it.phone}</div>}
+          </div>
+        </div>)}
+      </div>}
+    </div>);
+}
+
+function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsible = '', defaultDate, defaultTime, appts = [], defaultParticipante }) {
+  const _now = new Date();
+  const [date, setDate] = React.useState(defaultDate || ymd(_now));
+  const [time, setTime] = React.useState(defaultTime || `${String(_now.getHours()).padStart(2, '0')}:${String(_now.getMinutes()).padStart(2, '0')}`);
   const [duration, setDuration] = React.useState('60');
   const [apptType, setApptType] = React.useState('Atendimento');
-  const [client, setClient] = React.useState(defaultClient);
+  const [client, setClient] = React.useState(defaultParticipante ? (defaultParticipante.name || '') : defaultClient);
+  const [clienteId, setClienteId] = React.useState(null);
+  const [participanteTipo, setParticipanteTipo] = React.useState('cliente');
+  const [participanteId, setParticipanteId] = React.useState(null);
   const [service, setService] = React.useState('');
   const [local, setLocal] = React.useState('');
   const [phone, setPhone] = React.useState('');
@@ -999,19 +1223,26 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
   const [respName, setRespName] = React.useState(defaultResponsible || respList[0]);
   const STATUSES = ['agendado', 'confirmado', 'realizado'];
 
-  const valid = client.trim() && service.trim();
+  const cfg = useAgendaConfig();
+  const respConf = (TEAM.find((m) => m.name === respName) || {}).id;
+  const conflito = !cfg.overbooking && hasConflict(appts, { data: date, start: time, dur: parseInt(duration, 10) || 60, resp: respConf });
+  const valid = client.trim() && service.trim() && isDiaUtil(date, cfg) && !conflito && !isPast(date, time);
   const submit = () => {
     if (!valid || !onSave) {onClose();return;}
     const resp = TEAM.find((m) => m.name === respName);
     onSave({
-      id: 'a' + Date.now(),
-      day: parseInt(date.slice(8, 10), 10),
+      participante: client.trim(),
+      participanteTipo,
+      participanteId,
+      respNome: respName,
+      clienteId,
       client: client.trim(),
       service: service.trim(),
+      data: date,
       start: time,
       dur: parseInt(duration, 10),
       resp: resp ? resp.id : 'kz',
-      source: 'whatsapp',
+      source: 'manual',
       status,
       byAI: false,
       type: apptType,
@@ -1023,17 +1254,20 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
 
   return (
     <Drawer title="Novo agendamento" subtitle="Cadastre um compromisso" onClose={onClose} width={DRAWER_W}
-    footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" disabled={!valid} onClick={submit}><Ic name="check" size={14} /> Criar</button></>}>
+    footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><button className="btn btn-primary" disabled={!valid} onClick={submit}><Ic name="check" size={14} /> Criar</button></>}>
       <div className="col" style={{ gap: 14 }}>
-        <div><label className="label">Cliente</label><ClientCombo defaultValue={defaultClient} onChange={setClient} /></div>
+        <div><label className="label">Participante</label><ParticipantPicker defaultValue={defaultParticipante} onChange={(p) => { setClient(p.name); setParticipanteTipo(p.tipo); setClienteId(p.clienteId); setParticipanteId(p.participanteId); if (p.phone && !phone) setPhone(p.phone); }} /></div>
         <div><label className="label">Serviço</label><input className="input" value={service} onChange={(e) => setService(e.target.value)} placeholder="Ex.: Limpeza de pele" /></div>
         <div className="row" style={{ gap: 10 }}>
           <div style={{ flex: 1 }}><label className="label">Data</label><DateInput value={date} onChange={setDate} /></div>
-          <div style={{ flex: 1 }}><label className="label">Hora</label><TimeInput value={time} onChange={setTime} /></div>
+          <div style={{ flex: 1 }}><label className="label">Hora</label><TimeInput value={time} onChange={setTime} startTime={cfg.horaInicio} endTime={cfg.horaFim} step={cfg.intervalo || 15} /></div>
         </div>
+        {isPast(date, time) && <div style={{ fontSize: 'var(--type-xs)', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 5 }}><Ic name="alert" size={12} /> Data/hora no passado — escolha um horário futuro.</div>}
+        {!isDiaUtil(date, cfg) && <div style={{ fontSize: 'var(--type-xs)', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 5 }}><Ic name="alert" size={12} /> Esse dia não é um dia útil na configuração da agenda — escolha outra data.</div>}
+        {conflito && <div style={{ fontSize: 'var(--type-xs)', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 5 }}><Ic name="alert" size={12} /> Já existe um compromisso nesse horário para o responsável. Ative "Permitir overbooking" nas Configurações para marcar mesmo assim.</div>}
         <div className="row" style={{ gap: 10 }}>
           <div style={{ flex: 1 }}><label className="label">Duração</label><DurationSelect value={duration} onChange={setDuration} options={DURATIONS} /></div>
-          <div style={{ flex: 1 }}><label className="label">Tipo</label><TypeSelect value={apptType} onChange={setApptType} /></div>
+          <div style={{ flex: 1 }}><label className="label">Categoria</label><TypeSelect value={apptType} onChange={setApptType} /></div>
         </div>
         <div><label className="label">Local</label><input className="input" value={local} onChange={(e) => setLocal(e.target.value)} placeholder="Ex.: Sala 1" /></div>
         <div className="row" style={{ gap: 10 }}>
@@ -1047,10 +1281,23 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
 
 }
 
-function NewTask({ onClose }) {
+function NewTask({ onClose, onCreate }) {
+  const _now = new Date();
+  const [title, setTitle] = React.useState('');
+  const [cat, setCat] = React.useState('Tarefa');
+  const [date, setDate] = React.useState(ymd(_now));
+  const [time, setTime] = React.useState(`${String(_now.getHours()).padStart(2, '0')}:${String(_now.getMinutes()).padStart(2, '0')}`);
   const [important, setImportant] = React.useState(null);
   const [urgent, setUrgent] = React.useState(null);
+  const cfg = useAgendaConfig();
   const decided = important !== null && urgent !== null;
+  const valid = decided && title.trim() && isDiaUtil(date, cfg) && !isPast(date, time);
+  const submit = () => {
+    if (!valid) return;
+    const due = date ? `${date.split('-').reverse().join('/')}${time ? ' ' + time : ''}` : '';
+    if (onCreate) onCreate({ title: title.trim(), cat, important: !!important, urgent: !!urgent, due, resp: '' });
+    else onClose();
+  };
   const qid = !decided ? null : quadrantOf({ important, urgent });
   const q = qid ? EISENHOWER[qid] : null;
 
@@ -1061,10 +1308,16 @@ function NewTask({ onClose }) {
     </div>;
 
   return (
-    <Drawer title="Nova tarefa" subtitle="Criar tarefa na agenda" onClose={onClose} width={DRAWER_W} footer={<><button className="btn" onClick={onClose}>Cancelar</button><div style={{ flex: 1 }} /><button className="btn btn-primary" disabled={!decided} onClick={onClose}>Criar</button></>}>
+    <Drawer title="Nova tarefa" subtitle="Criar tarefa na agenda" onClose={onClose} width={DRAWER_W} footer={<><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><div style={{ flex: 1 }} /><button className="btn btn-primary" disabled={!valid} onClick={submit}>Criar</button></>}>
       <div className="col" style={{ gap: 14 }}>
-        <div><label className="label">Título</label><input className="input" placeholder="Ex.: Ligar para Sara" /></div>
-        <div><label className="label">Categoria</label><select className="input"><option>Ligação</option><option>Follow-up</option><option>Interno</option><option>Reunião</option></select></div>
+        <div><label className="label">Título</label><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: Ligar para Sara" /></div>
+        <div><label className="label">Categoria</label><TypeSelect value={cat} onChange={setCat} /></div>
+        <div className="row" style={{ gap: 10 }}>
+          <div style={{ flex: 1 }}><label className="label">Data</label><DateInput value={date} onChange={setDate} /></div>
+          <div style={{ flex: 1 }}><label className="label">Hora</label><TimeInput value={time} onChange={setTime} startTime={cfg.horaInicio} endTime={cfg.horaFim} step={cfg.intervalo || 15} /></div>
+        </div>
+        {isPast(date, time) && <div style={{ fontSize: 'var(--type-xs)', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 5 }}><Ic name="alert" size={12} /> Data/hora no passado — escolha um horário futuro.</div>}
+        {!isDiaUtil(date, cfg) && <div style={{ fontSize: 'var(--type-xs)', color: '#dc2626', display: 'flex', alignItems: 'center', gap: 5 }}><Ic name="alert" size={12} /> Esse dia não é um dia útil na configuração da agenda — escolha outra data.</div>}
 
         <div className="ynq">
           <div className="ynq-row">
@@ -1106,8 +1359,8 @@ function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
   const resp = TEAM.find((m) => m.id === appt.resp);
   const accent = appt.byAI ? 'var(--ai)' : 'var(--accent)';
   const [confirmDel, setConfirmDel] = React.useState(false);
-  const dateObj = new Date(2026, 4, appt.day);
-  const dateLabel = `${WD_FULL_PT[dateObj.getDay()]}, ${appt.day.toString().padStart(2, '0')} de ${MONTHS_PT[dateObj.getMonth()]} de ${dateObj.getFullYear()}`;
+  const dateObj = appt.data ? new Date(appt.data + 'T00:00:00') : new Date();
+  const dateLabel = `${WD_FULL_PT[dateObj.getDay()]}, ${dateObj.getDate().toString().padStart(2, '0')} de ${MONTHS_PT[dateObj.getMonth()]} de ${dateObj.getFullYear()}`;
   const sourceLabel = { whatsapp: 'WhatsApp', instagram: 'Instagram', facebook: 'Facebook' }[appt.source] || appt.source;
 
   const Row = ({ icon, label, children }) =>
@@ -1162,7 +1415,7 @@ function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
         footer={
         <>
             <div style={{ flex: 1 }} />
-            <button className="btn" onClick={() => setConfirmDel(false)}>Voltar</button>
+            <button className="btn fin-btn-back" onClick={() => setConfirmDel(false)}>Voltar</button>
             <button className="btn btn-danger" onClick={() => {setConfirmDel(false);onDelete && onDelete();}}>
               <Ic name="trash" size={14} /> Excluir
             </button>
@@ -1186,7 +1439,7 @@ function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
 
   const [client, setClient] = React.useState(appt.client);
   const [service, setService] = React.useState(appt.service);
-  const [date, setDate] = React.useState(`2026-05-${appt.day.toString().padStart(2, '0')}`);
+  const [date, setDate] = React.useState(appt.data || ymd(new Date()));
   const [time, setTime] = React.useState(appt.start);
   const [duration, setDuration] = React.useState(String(appt.dur));
   const [type, setType] = React.useState(appt.type);
@@ -1202,7 +1455,7 @@ function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
     if (!onSave) {onBack();return;}
     onSave({
       ...appt,
-      day: parseInt(date.slice(8, 10), 10),
+      data: date,
       client: client.trim() || appt.client,
       service: service.trim() || appt.service,
       start: time,
@@ -1223,7 +1476,7 @@ function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
       onClose={onClose}
       width={DRAWER_W}
       leftHead={<button className="btn btn-ghost btn-icon" title="Voltar aos detalhes" onClick={onBack}><Ic name="arrow-left" size={16} /></button>}
-      footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onBack}>Cancelar</button><button className="btn btn-save" onClick={save}><Ic name="check" size={14} /> Salvar</button></>}>
+      footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onBack}>Voltar</button><button className="btn btn-save" onClick={save}><Ic name="check" size={14} /> Salvar</button></>}>
       
       <div className="col" style={{ gap: 14 }}>
         <div>
@@ -1274,11 +1527,13 @@ function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
 
 function AgendaSettingsDrawer({ onClose }) {
   const [tab, setTab] = React.useState('geral');
-  const [notif, setNotif] = React.useState({ email: true, push: true, whatsapp: true });
-  const [google, setGoogle] = React.useState(true);
-  const [defaultDur, setDefaultDur] = React.useState(60);
-  const [start, setStart] = React.useState('08:00');
-  const [end, setEnd] = React.useState('19:00');
+  const cats = useAgendaCategories();
+  const [catModal, setCatModal] = React.useState(null); // null | 'new' | categoria (editar)
+  const [cfg, setCfg] = React.useState(() => ({ ...AGENDA_CONFIG }));
+  const setC = (k, v) => setCfg((p) => ({ ...p, [k]: v }));
+  React.useEffect(() => { API.getAgendaConfig().then((r) => { if (r && r.config && Object.keys(r.config).length) setCfg((p) => ({ ...p, ...r.config })); }).catch(() => {}); }, []);
+  const save = () => { setAgendaConfig(cfg); API.saveAgendaConfig({ config: cfg }).catch(() => {}); };
+  const delCat = (id) => { removeCustomCategory(id); API.deleteCategoria(id).catch(() => {}); };
   const tabs = [
   { id: 'geral', label: 'Geral', icon: 'settings' },
   { id: 'horario', label: 'Horário', icon: 'clock' },
@@ -1288,7 +1543,7 @@ function AgendaSettingsDrawer({ onClose }) {
 
   return (
     <Drawer title="Configurações da agenda" subtitle="Personalize sua agenda" onClose={onClose} width={620}
-    footer={(close) => <><div style={{ flex: 1 }} /><button className="btn" onClick={() => close()}>Cancelar</button><button className="btn btn-save" onClick={() => close()}>Salvar alterações</button></>}>
+    footer={(close) => <><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={() => close()}>Voltar</button><button className="btn btn-save" onClick={() => close(save)}>Salvar alterações</button></>}>
       <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 18, height: '100%' }}>
         <div className="col" style={{ gap: 2 }}>
           {tabs.map((t) =>
@@ -1301,16 +1556,31 @@ function AgendaSettingsDrawer({ onClose }) {
           {tab === 'geral' &&
           <>
               <SetRow label="Fuso horário" desc="Usado em lembretes e exportações">
-                <select className="input" defaultValue="-03:00"><option>America/Sao_Paulo (-03:00)</option><option>America/Fortaleza (-03:00)</option></select>
+                <select className="input" value={cfg.timezone} onChange={(e) => setC('timezone', e.target.value)}>
+                  <option value="America/Noronha">America/Noronha (-02:00)</option>
+                  <option value="America/Sao_Paulo">America/Sao_Paulo (-03:00)</option>
+                  <option value="America/Fortaleza">America/Fortaleza (-03:00)</option>
+                  <option value="America/Recife">America/Recife (-03:00)</option>
+                  <option value="America/Bahia">America/Bahia (-03:00)</option>
+                  <option value="America/Belem">America/Belem (-03:00)</option>
+                  <option value="America/Manaus">America/Manaus (-04:00)</option>
+                  <option value="America/Cuiaba">America/Cuiaba (-04:00)</option>
+                  <option value="America/Campo_Grande">America/Campo_Grande (-04:00)</option>
+                  <option value="America/Porto_Velho">America/Porto_Velho (-04:00)</option>
+                  <option value="America/Boa_Vista">America/Boa_Vista (-04:00)</option>
+                  <option value="America/Rio_Branco">America/Rio_Branco (-05:00)</option>
+                  <option value="America/Eirunepe">America/Eirunepe (-05:00)</option>
+                </select>
               </SetRow>
-              <SetRow label="Duração padrão" desc="Em minutos">
-                <input className="input" type="number" value={defaultDur} onChange={(e) => setDefaultDur(+e.target.value)} style={{ width: 120 }} />
+              <SetRow label="Visão do Calendário" desc="Com qual visão o calendário abre">
+                <select className="input" value={cfg.visaoInicial || 'month'} onChange={(e) => setC('visaoInicial', e.target.value)}>
+                  <option value="month">Mês</option>
+                  <option value="week">Semana</option>
+                  <option value="day">Dia</option>
+                </select>
               </SetRow>
               <SetRow label="Primeiro dia da semana">
-                <select className="input"><option>Domingo</option><option>Segunda</option></select>
-              </SetRow>
-              <SetRow label="Cor padrão">
-                <div className="row" style={{ gap: 6 }}>{['#16a34a', '#6d57ff', '#f59e0b', '#3b82f6', '#f43f5e'].map((c) => <div key={c} className="color-sw" style={{ background: c }} />)}</div>
+                <select className="input" value={cfg.primeiroDia} onChange={(e) => setC('primeiroDia', e.target.value)}><option>Domingo</option><option>Segunda</option></select>
               </SetRow>
             </>
           }
@@ -1318,35 +1588,57 @@ function AgendaSettingsDrawer({ onClose }) {
           <>
               <SetRow label="Horário comercial">
                 <div className="row" style={{ gap: 8 }}>
-                  <TimeInput value={start} onChange={setStart} style={{ width: 120 }} />
+                  <TimeInput value={cfg.horaInicio} onChange={(v) => setC('horaInicio', v)} style={{ width: 120 }} />
                   <span className="muted">até</span>
-                  <TimeInput value={end} onChange={setEnd} style={{ width: 120 }} />
+                  <TimeInput value={cfg.horaFim} onChange={(v) => setC('horaFim', v)} style={{ width: 120 }} />
                 </div>
               </SetRow>
               <SetRow label="Dias úteis" desc="Selecione os dias atendidos">
-                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((d, i) => <button key={i} className={`day-btn ${i > 0 && i < 6 ? 'on' : ''}`}>{d}</button>)}</div>
+                <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>{['D', 'S', 'T', 'Q', 'Q', 'S', 'S'].map((d, i) => <button key={i} className={`day-btn ${cfg.diasUteis[i] ? 'on' : ''}`} onClick={() => setC('diasUteis', cfg.diasUteis.map((x, j) => j === i ? !x : x))}>{d}</button>)}</div>
               </SetRow>
-              <SetRow label="Intervalo entre eventos" desc="Em minutos">
-                <input className="input" type="number" defaultValue={10} style={{ width: 120 }} />
+              <SetRow label="Intervalo entre eventos" desc="Passo do campo de horário">
+                <select className="input" value={cfg.intervalo} onChange={(e) => setC('intervalo', +e.target.value)} style={{ width: 120 }}>
+                  <option value={10}>10 min</option>
+                  <option value={15}>15 min</option>
+                  <option value={30}>30 min</option>
+                  <option value={45}>45 min</option>
+                  <option value={60}>60 min</option>
+                </select>
               </SetRow>
-              <SetRow label="Permitir overbooking">
-                <Toggle />
+              <SetRow label="Permitir overbooking" desc="Marcação dupla de agenda">
+                <Toggle on={cfg.overbooking} onChange={() => setC('overbooking', !cfg.overbooking)} />
               </SetRow>
             </>
           }
           {tab === 'notif' &&
           <>
               <SetRow label="E-mail" desc="Lembrete 1 hora antes">
-                <Toggle on={notif.email} onChange={() => setNotif((n) => ({ ...n, email: !n.email }))} />
+                <Toggle on={cfg.notifEmail} onChange={() => setC('notifEmail', !cfg.notifEmail)} />
               </SetRow>
               <SetRow label="Push no navegador">
-                <Toggle on={notif.push} onChange={() => setNotif((n) => ({ ...n, push: !n.push }))} />
+                <Toggle on={cfg.notifPush} onChange={() => setC('notifPush', !cfg.notifPush)} />
               </SetRow>
               <SetRow label="WhatsApp para o cliente" desc="Confirmação automática">
-                <Toggle on={notif.whatsapp} onChange={() => setNotif((n) => ({ ...n, whatsapp: !n.whatsapp }))} />
+                <Toggle on={cfg.notifWhatsapp} onChange={() => setC('notifWhatsapp', !cfg.notifWhatsapp)} />
               </SetRow>
-              <SetRow label="Antecedência do lembrete">
-                <select className="input"><option>15 minutos</option><option>30 minutos</option><option>1 hora</option><option>1 dia</option></select>
+              <SetRow label="Notificação interna" desc="No sino e na página de Notificações do sistema">
+                <Toggle on={cfg.notifInterna !== false} onChange={() => setC('notifInterna', cfg.notifInterna === false)} />
+              </SetRow>
+              <SetRow label="Antecedência do lembrete" desc="Quando avisar antes do compromisso (vale p/ todos os canais marcados)">
+                <select className="input" value={cfg.antecedencia} onChange={(e) => setC('antecedencia', +e.target.value)}>
+                  <option value={5}>5 minutos</option>
+                  <option value={10}>10 minutos</option>
+                  <option value={15}>15 minutos</option>
+                  <option value={30}>30 minutos</option>
+                  <option value={45}>45 minutos</option>
+                  <option value={60}>1 hora</option>
+                  <option value={120}>2 horas</option>
+                  <option value={180}>3 horas</option>
+                  <option value={300}>5 horas</option>
+                  <option value={480}>8 horas</option>
+                  <option value={1440}>24 horas</option>
+                  <option value={2880}>48 horas</option>
+                </select>
               </SetRow>
             </>
           }
@@ -1358,7 +1650,7 @@ function AgendaSettingsDrawer({ onClose }) {
                   <div style={{ fontWeight: 600 }}>Google Calendar</div>
                   <div className="muted" style={{ fontSize: 12 }}>Sincronização bidirecional</div>
                 </div>
-                <Toggle on={google} onChange={() => setGoogle((g) => !g)} />
+                <Toggle on={cfg.google} onChange={() => setC('google', !cfg.google)} />
               </div>
               <div className="integ-card">
                 <div className="integ-ic" style={{ background: '#0078d4', color: 'white' }}>O</div>
@@ -1380,25 +1672,81 @@ function AgendaSettingsDrawer({ onClose }) {
           }
           {tab === 'cat' &&
           <>
-              <div className="muted" style={{ fontSize: 12 }}>Personalize as categorias da agenda. Arraste para reordenar.</div>
-              {[
-            { c: '#16a34a', l: 'Atendimentos' },
-            { c: '#6d57ff', l: 'Agendado pela IA' },
-            { c: '#f59e0b', l: 'Pessoal' },
-            { c: '#f43f5e', l: 'Bloqueio' }].
-            map((k, i) =>
-            <div key={i} className="integ-card">
-                  <div style={{ width: 18, height: 18, borderRadius: 6, background: k.c }} />
-                  <input className="input" defaultValue={k.l} style={{ flex: 1 }} />
-                  <button className="btn btn-ghost btn-icon"><Ic name="trash" size={14} /></button>
-                </div>
-            )}
-              <button className="btn"><Ic name="plus" size={13} /> Nova categoria</button>
+              <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+                <div className="muted" style={{ fontSize: 12, flex: 1 }}>Categorias usadas ao criar agendamentos e tarefas. As padrão são fixas; as suas você pode excluir.</div>
+                <button className="fin-new-btn" title="Nova categoria" onClick={() => setCatModal('new')} style={{ flexShrink: 0 }}>
+                  <span className="fin-new-plus" style={{ width: "36px", height: "36px" }}><Ic name="plus" size={18} /></span>
+                </button>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 8, maxHeight: 300, overflowY: 'auto', paddingRight: 4 }}>
+                {cats.map((k, i) =>
+              <div key={k.id || ('def-' + i)} className="integ-card" onClick={() => setCatModal(k)} style={{ cursor: 'pointer' }} title="Editar categoria">
+                    <span style={{ width: 30, height: 30, borderRadius: 8, background: k.color ? `color-mix(in oklab, ${k.color} 16%, var(--surface))` : 'var(--surface-2)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: k.color || 'var(--text-muted)', flexShrink: 0 }}><Ic name={k.icon} size={16} /></span>
+                    <div style={{ flex: 1, fontWeight: 500 }}>{k.label}</div>
+                    {k.padrao ?
+                  <span className="badge" style={{ fontSize: 10 }}>padrão</span> :
+                  <button className="btn btn-ghost btn-icon" title="Excluir categoria" onClick={(e) => { e.stopPropagation(); delCat(k.id); }}><Ic name="trash" size={14} /></button>}
+                  </div>
+              )}
+              </div>
             </>
           }
         </div>
       </div>
+      {catModal && <NewCategoryModal categoria={catModal === 'new' ? null : catModal} onClose={() => setCatModal(null)} />}
     </Drawer>);
+
+}
+
+// Popup de nova categoria: nome + grade de 20 ícones corporativos.
+function NewCategoryModal({ onClose, categoria }) {
+  const editing = !!categoria;
+  const isPadrao = editing && categoria.padrao;
+  const [nome, setNome] = React.useState(editing ? categoria.label : '');
+  const [icone, setIcone] = React.useState(editing ? (categoria.icon || CATEGORY_ICONS[0]) : CATEGORY_ICONS[0]);
+  const [cor, setCor] = React.useState(editing ? (categoria.color || '#3b82f6') : '#3b82f6');
+  const valid = nome.trim().length >= 1;
+  const submit = async () => {
+    if (!valid) return;
+    try {
+      if (editing && categoria.id) {
+        const r = await API.updateCategoria(categoria.id, { nome: nome.trim(), icone, cor });
+        const c = r.categoria;
+        upsertCustomCategory({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || cor });
+      } else {
+        const r = await API.createCategoria({ nome: nome.trim(), icone, cor });
+        const c = r.categoria;
+        addCustomCategory({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || cor });
+      }
+    } catch (e) {}
+    onClose();
+  };
+  return (
+    <Modal title={editing ? 'Editar categoria' : 'Nova categoria'} onClose={onClose} size="sm" footer={
+    <><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><div style={{ flex: 1 }} /><button className="btn btn-primary" disabled={!valid} onClick={submit}><Ic name="check" size={13} /> Salvar</button></>
+    }>
+      <div className="col" style={{ gap: 14 }}>
+        <div><label className="label">Nome da categoria</label><input className="input" value={nome} onChange={(e) => setNome(e.target.value)} disabled={isPadrao} autoFocus={!isPadrao} placeholder="Ex.: Visita técnica" style={isPadrao ? { opacity: .7 } : null} />{isPadrao && <div className="muted" style={{ fontSize: 11, marginTop: 4 }}>O nome das categorias padrão não pode ser alterado.</div>}</div>
+        <div>
+          <label className="label">Cor</label>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+            <input type="color" value={/^#[0-9a-fA-F]{6}$/.test(cor) ? cor : '#3b82f6'} onChange={(e) => setCor(e.target.value)} title="Escolher qualquer cor" style={{ width: 46, height: 38, padding: 2, border: '1px solid var(--border)', borderRadius: 8, cursor: 'pointer', background: 'var(--surface)', flexShrink: 0 }} />
+            <input className="input" value={cor} onChange={(e) => setCor(e.target.value)} placeholder="#FFFFFF" maxLength={7} style={{ flex: 1, fontFamily: 'monospace', textTransform: 'uppercase' }} />
+            <span title="Prévia" style={{ width: 38, height: 38, borderRadius: 8, background: cor, border: '1px solid var(--border)', flexShrink: 0 }} />
+          </div>
+        </div>
+        <div>
+          <label className="label">Ícone</label>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(10, 1fr)', gap: 6 }}>
+            {CATEGORY_ICONS.map((ic) =>
+            <button key={ic} type="button" onClick={() => setIcone(ic)}
+            style={{ height: 38, borderRadius: 8, border: `1px solid ${icone === ic ? 'var(--accent)' : 'var(--border)'}`, background: icone === ic ? 'var(--accent-soft)' : 'var(--surface)', color: icone === ic ? 'var(--accent-700)' : 'var(--text-muted)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer' }}>
+              <Ic name={ic} size={17} />
+            </button>)}
+          </div>
+        </div>
+      </div>
+    </Modal>);
 
 }
 
@@ -1448,6 +1796,11 @@ function AgendaStyles() {
       .cat-row:hover { background:var(--surface-2); }
       .cat-dot { width:10px; height:10px; border-radius:3px; flex-shrink:0; }
       .cat-check { width:18px; height:18px; border-radius:4px; background:var(--accent); color:white; display:inline-flex; align-items:center; justify-content:center; flex-shrink:0; }
+      .cat-scroll { scrollbar-width:thin; scrollbar-color:var(--border-strong) transparent; }
+      .cat-scroll::-webkit-scrollbar { width:8px; }
+      .cat-scroll::-webkit-scrollbar-track { background:transparent; }
+      .cat-scroll::-webkit-scrollbar-thumb { background:var(--border-strong); border-radius:4px; }
+      .cat-scroll::-webkit-scrollbar-thumb:hover { background:var(--text-faint); }
 
       .agenda-header { display:flex; align-items:center; gap:14px; padding:14px 26px; background:var(--surface); border-bottom:1px solid var(--border); }
       .agenda-header-strip { flex:1; min-width:0; }

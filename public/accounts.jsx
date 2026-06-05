@@ -58,18 +58,50 @@
   // ---------- Page ----------
   function AccountsPage() {
     const [items, setItems] = React.useState([]);
-    const contaToUi = (c) => ({ id: c.id, descricao: c.descricao, banco: c.banco, agencia: c.agencia, conta: c.conta, tipo: c.tipoConta || 'Corrente', pessoa: c.fisicaJuridica || 'Jurídica', operacao: '', saldo: c.saldo, natureza: c.gerencial ? 'gerencial' : 'capital', cor: c.cor || '#22c55e', obs: c.observacoes || '' });
-    React.useEffect(() => { API.getContas().then((r) => setItems((r.contas || []).map(contaToUi))).catch(() => {}); }, []);
+    const [hidden, setHidden] = React.useState({}); // saldo oculto por conta (carregado do banco)
+    const contaToUi = (c) => ({ id: c.id, descricao: c.descricao, banco: c.banco, agencia: c.agencia, conta: c.conta, tipo: c.tipoConta || 'Corrente', pessoa: c.fisicaJuridica || 'Jurídica', operacao: '', saldo: c.saldo, natureza: c.gerencial ? 'gerencial' : 'capital', cor: c.cor || '#22c55e', obs: c.observacoes || '', gerencialDefault: !!c.gerencialDefault, saldoOculto: !!c.saldoOculto });
+    const loadContas = React.useCallback(() => API.getContas().then((r) => {
+      const ui = (r.contas || []).map(contaToUi);
+      setItems(ui);
+      setHidden(Object.fromEntries(ui.map((c) => [c.id, !!c.saldoOculto])));
+    }).catch(() => {}), []);
+    React.useEffect(() => { loadContas(); }, [loadContas]);
+    // Usuário atual — usado como "Responsável" (travado) nas movimentações.
+    const [userName, setUserName] = React.useState('');
+    React.useEffect(() => { API.me().then((r) => setUserName((r.user && (r.user.name || r.user.email)) || '')).catch(() => {}); }, []);
     const [showNew, setShowNew] = React.useState(false);
     const [editItem, setEditItem] = React.useState(null);
-    const [hidden, setHidden] = React.useState({}); // visibility per card
     const [confirmDel, setConfirmDel] = React.useState(null);
     const [moveModal, setMoveModal] = React.useState(null); // {kind:'aporte'|'retirada'|'transferir', account}
     const [statementAcc, setStatementAcc] = React.useState(null); // movimento drawer
+    // Categorias de movimentação (4 padrão; usuário pode criar novas via "+").
+    const [categories, setCategories] = React.useState([
+      { id: 'cat-aporte',   nome: 'Aporte de Sócio',      tipo: 'Financeira' },
+      { id: 'cat-receita',  nome: 'Receita Operacional',  tipo: 'Financeira' },
+      { id: 'cat-produto',  nome: 'Venda de Produto',     tipo: 'Produto' },
+      { id: 'cat-cliente',  nome: 'Pagamento de Cliente', tipo: 'Cliente' },
+    ]);
+    React.useEffect(() => { API.getFinCategorias().then((r) => { if (r.categorias && r.categorias.length) setCategories(r.categorias); }).catch(() => {}); }, []);
+    // Cria a categoria persistindo no backend; cai para local se a API/migration ainda não estiver pronta.
+    const addCategory = async ({ nome, tipo }) => {
+      try {
+        const r = await API.createFinCategoria({ nome, tipo });
+        setCategories((prev) => [...prev, r.categoria]);
+        return r.categoria;
+      } catch (e) {
+        const cat = { id: 'cat-' + Math.random().toString(36).slice(2, 9), nome, tipo };
+        setCategories((prev) => [...prev, cat]);
+        return cat;
+      }
+    };
 
     const filtered = items;
 
-    const toggleHide = (id) => setHidden((p) => ({ ...p, [id]: !p[id] }));
+    const toggleHide = (id) => {
+      const next = !hidden[id];
+      setHidden((p) => ({ ...p, [id]: next }));
+      API.setContaVisibilidade(id, next).catch(() => {}); // persiste no banco (ignora se a coluna ainda não existir)
+    };
 
     const toDto = (d) => ({
       descricao: d.descricao,
@@ -86,38 +118,37 @@
     });
     const handleSave = async (data) => {
       try {
-        if (editItem && editItem.id) {
-          const r = await API.updateConta(editItem.id, toDto(data));
-          setItems((prev) => prev.map((it) => it.id === editItem.id ? contaToUi(r.conta) : it));
-        } else {
-          const r = await API.createConta(toDto(data));
-          setItems((prev) => [...prev, contaToUi(r.conta)]);
-        }
+        if (editItem && editItem.id) await API.updateConta(editItem.id, toDto(data));
+        else await API.createConta(toDto(data));
+        await loadContas();
       } catch (e) {}
       setShowNew(false); setEditItem(null);
     };
 
-    const handleDelete = async (item) => {
-      try { if (item.id) await API.deleteConta(item.id); } catch (e) {}
-      setItems((prev) => prev.filter((it) => it.id !== item.id));
-      setConfirmDel(null);
+    // Aporte/Retirada => lançamento (entrada/saída) pago na conta. Transferência => endpoint próprio.
+    // Lança erro em falha (a aba lateral exibe a mensagem e permanece aberta).
+    const handleMovement = async ({ kind, account, amount, destId, dataRegistro, categoria, descricao }) => {
+      const n = Number(amount) || 0;
+      if (!n) return;
+      if (kind === 'transferir') {
+        await API.transferir({ origemId: account.id, destId, valor: n, data: dataRegistro, descricao });
+      } else {
+        await API.createEntrada({
+          tipo: kind === 'aporte' ? 'entrada' : 'saida',
+          valor: n, contaId: account.id, descricao,
+          categoria: categoria ? categoria.nome : '',
+          responsavel: userName, pago: true,
+          emissao: dataRegistro, vencimento: dataRegistro, competencia: dataRegistro,
+        });
+      }
+      await loadContas();
     };
 
-    const handleMovement = ({ kind, account, amount, destId, obs }) => {
-      const n = Number(amount) || 0;
-      if (!n) {setMoveModal(null);return;}
-      setItems((prev) => prev.map((it) => {
-        if (it.id === account.id) {
-          if (kind === 'aporte') return { ...it, saldo: (it.saldo || 0) + n };
-          if (kind === 'retirada') return { ...it, saldo: (it.saldo || 0) - n };
-          if (kind === 'transferir') return { ...it, saldo: (it.saldo || 0) - n };
-        }
-        if (kind === 'transferir' && it.id === destId) {
-          return { ...it, saldo: (it.saldo || 0) + n };
-        }
-        return it;
-      }));
-      setMoveModal(null);
+    // Encerramento: backend valida a regra de saldo (transfere se necessário) e remove a conta.
+    const handleEncerrar = async ({ account, dataRegistro, destId, motivo }) => {
+      await API.encerrarConta(account.id, { destId: destId || null, data: dataRegistro, motivo });
+      await loadContas();
+      setConfirmDel(null);
     };
 
     const sum = totalSaldo(filtered);
@@ -132,7 +163,6 @@
         <div className="acc-grid">
           {filtered.map((it) => {
             const isHidden = hidden[it.id];
-            const nat = NATUREZAS.find((n) => n.id === it.natureza)?.label || 'CONTA';
             return (
               <div key={it.id} className="acc-card" style={{ '--acc-color': it.cor }}>
                 {/* Header (white) */}
@@ -142,8 +172,6 @@
                     <div className="acc-card-bank-text">
                       <div className="acc-card-bank-title">
                         <span className="tnum" style={{ fontWeight: 700, color: 'var(--text)' }}>{it.banco}</span>
-                        <span style={{ opacity: .5, margin: '0 6px' }}>—</span>
-                        <span style={{ fontWeight: 600, color: 'var(--text)' }} title={it.descricao}>{it.descricao}</span>
                       </div>
                       <div className="acc-card-bank-sub">
                         <span>AG: <strong className="tnum">{it.agencia || '—'}</strong></span>
@@ -159,7 +187,7 @@
                     <div className="acc-balance-row">
                       <span className="acc-balance-label">SALDO EM CONTA</span>
                       <button className="acc-eye" onClick={() => toggleHide(it.id)} title={isHidden ? 'Mostrar saldo' : 'Ocultar saldo'}>
-                        <Ic name={isHidden ? 'eye-off' : 'eye'} size={14} />
+                        <Ic name={isHidden ? 'eye-off' : 'eye-on'} size={26} />
                       </button>
                     </div>
                     <div className="acc-balance-value">
@@ -174,11 +202,11 @@
                     <AccAction icon="arrows-h" label="TRANSFERIR" onClick={() => setMoveModal({ kind: 'transferir', account: it })} />
                     <AccAction icon="repeat" label="MOVIMENTO" onClick={() => setStatementAcc(it)} />
                     <AccAction icon="edit" label="EDITOR" onClick={() => {setEditItem(it);setShowNew(true);}} />
-                    <AccAction icon="trash" label="ENCERRAR" danger onClick={() => setConfirmDel(it)} />
+                    <AccAction icon="trash" label="ENCERRAR" danger disabled={it.gerencialDefault} tip={it.gerencialDefault ? 'A conta GERENCIAL é a conta padrão do sistema e não pode ser encerrada — por ela passa todo o fluxo de entradas e saídas.' : undefined} onClick={() => setConfirmDel(it)} />
                   </div>
 
-                  <div className="acc-nature" style={{ color: it.cor, fontSize: "20px" }}>
-                    {nat}
+                  <div className="acc-nature" style={{ color: it.cor, fontSize: "20px", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }} title={it.descricao}>
+                    {(it.descricao || '').toUpperCase()}
                   </div>
                 </div>
               </div>);
@@ -213,32 +241,22 @@
         }
 
         {confirmDel &&
-        <Modal title="Encerrar conta" onClose={() => setConfirmDel(null)} size="sm"
-        footer={<>
-              <div style={{ flex: 1 }} />
-              <button className="btn" onClick={() => setConfirmDel(null)}>Cancelar</button>
-              <button className="btn" style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white' }} onClick={() => handleDelete(confirmDel)}>
-                <Ic name="trash" size={13} /> Encerrar
-              </button>
-            </>}>
-            <div style={{ display: 'flex', gap: 12 }}>
-              <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'color-mix(in oklab, #dc2626 12%, white)', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                <Ic name="trash" size={18} />
-              </div>
-              <div>
-                <div style={{ fontWeight: 700 }}>Encerrar {confirmDel.descricao}?</div>
-                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>
-                  A conta será removida da lista. Lançamentos vinculados permanecem.
-                </div>
-              </div>
-            </div>
-          </Modal>
+        <CloseAccountDrawer
+          account={confirmDel}
+          accounts={items}
+          userName={userName}
+          onClose={() => setConfirmDel(null)}
+          onConfirm={handleEncerrar} />
+
         }
 
         {moveModal &&
-        <MoveModal
+        <MovementDrawer
           data={moveModal}
           accounts={items}
+          categories={categories}
+          addCategory={addCategory}
+          userName={userName}
           onClose={() => setMoveModal(null)}
           onConfirm={handleMovement} />
 
@@ -254,11 +272,24 @@
 
   }
 
-  function AccAction({ icon, label, onClick, danger }) {
+  function AccAction({ icon, label, onClick, danger, disabled, tip, title }) {
+    const ref = React.useRef(null);
+    const [tipPos, setTipPos] = React.useState(null);
+    // Tooltip via position:fixed (escapa do overflow:hidden do cartão). Não usamos o atributo
+    // 'disabled' para que o hover e o balão continuem disparando — a função é bloqueada no onClick.
+    const onEnter = () => { if (tip && ref.current) { const r = ref.current.getBoundingClientRect(); setTipPos({ left: r.left + r.width / 2, top: r.top - 8 }); } };
     return (
-      <button className={'acc-action' + (danger ? ' is-danger' : '')} onClick={onClick} style={{ height: "80px", width: "80px", borderRadius: "8px" }}>
+      <button ref={ref}
+        className={'acc-action' + (danger && !disabled ? ' is-danger' : '') + (disabled ? ' is-disabled' : '')}
+        onClick={disabled ? undefined : onClick}
+        aria-disabled={disabled || undefined}
+        title={tip ? undefined : title}
+        onMouseEnter={onEnter}
+        onMouseLeave={() => setTipPos(null)}
+        style={{ height: "80px", width: "100%", borderRadius: "8px", opacity: disabled ? .45 : 1, cursor: disabled ? 'not-allowed' : undefined }}>
         <span className="acc-action-ic"><Ic name={icon} size={18} /></span>
         <span className="acc-action-label" style={{ fontFamily: "Poppins", fontWeight: "500" }}>{label}</span>
+        {tip && tipPos && <span className="acc-action-tip" style={{ position: 'fixed', left: tipPos.left, top: tipPos.top }}>{tip}</span>}
       </button>);
 
   }
@@ -276,7 +307,16 @@
     const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
     const isEdit = !!entry;
 
-    const valid = f.descricao.trim().length >= 2;
+    // Todos os campos são obrigatórios, exceto Observação e Operação.
+    // Saldo Inicial não bloqueia: se vazio, salva ZERO.
+    const valid = f.descricao.trim().length >= 2 &&
+      String(f.banco).trim() !== '' &&
+      String(f.agencia).trim() !== '' &&
+      String(f.conta).trim() !== '' &&
+      String(f.dataSaldo).trim() !== '' &&
+      String(f.tipo).trim() !== '' &&
+      String(f.pessoa).trim() !== '' &&
+      String(f.natureza).trim() !== '';
 
     const handleSave = () => {
       onSave({
@@ -314,16 +354,16 @@
         <div className="fin-section-title">IDENTIFICAÇÃO</div>
         <div className="fin-section">
           <div className="acc-grid-3">
-            <IconField label="DESCRIÇÃO DA CONTA" icon="file-text" full>
+            <IconField label="DESCRIÇÃO DA CONTA *" icon="file-text" full>
               <input className="input" value={f.descricao} onChange={(e) => set('descricao', e.target.value)} placeholder="Ex.: Itaú PJ Operacional" />
             </IconField>
             <IconField label="SALDO INICIAL" icon="dollar">
               <MoneyInput value={f.saldoInicial} onChange={(v) => set('saldoInicial', v)} disabled={isEdit} />
             </IconField>
-            <IconField label="DATA DO SALDO" icon="calendar">
+            <IconField label="DATA DO SALDO *" icon="calendar">
               <DateField value={f.dataSaldo} onChange={(e) => set('dataSaldo', e.target.value)} />
             </IconField>
-            <IconField label="NATUREZA" icon="reports">
+            <IconField label="NATUREZA *" icon="reports">
               <select className="input" value={f.natureza} onChange={(e) => set('natureza', e.target.value)}>
                 {NATUREZAS.map((n) => <option key={n.id} value={n.id}>{n.label}</option>)}
               </select>
@@ -334,24 +374,24 @@
         <div className="fin-section-title">INFORMAÇÕES BANCÁRIAS</div>
         <div className="fin-section">
           <div className="acc-grid-3">
-            <IconField label="BANCO" icon="bank">
+            <IconField label="BANCO *" icon="bank">
               <select className="input" value={f.banco} onChange={(e) => set('banco', e.target.value)}>
                 <option value="">Selecione…</option>
                 {BANCOS.map((b) => <option key={b.code} value={b.code}>{b.code} — {b.name}</option>)}
               </select>
             </IconField>
-            <IconField label="AGÊNCIA-DÍGITO" icon="building">
+            <IconField label="AGÊNCIA-DÍGITO *" icon="building">
               <input className="input tnum" value={f.agencia} onChange={(e) => set('agencia', e.target.value)} placeholder="0000-0" />
             </IconField>
-            <IconField label="CONTA-DÍGITO" icon="wallet">
+            <IconField label="CONTA-DÍGITO *" icon="wallet">
               <input className="input tnum" value={f.conta} onChange={(e) => set('conta', e.target.value)} placeholder="00000-0" />
             </IconField>
-            <IconField label="TIPO DE CONTA" icon="list">
+            <IconField label="TIPO DE CONTA *" icon="list">
               <select className="input" value={f.tipo} onChange={(e) => set('tipo', e.target.value)}>
                 {TIPOS_CONTA.map((t) => <option key={t} value={t}>{t}</option>)}
               </select>
             </IconField>
-            <IconField label="FÍSICA OU JURÍDICA" icon="users">
+            <IconField label="FÍSICA OU JURÍDICA *" icon="users">
               <select className="input" value={f.pessoa} onChange={(e) => set('pessoa', e.target.value)}>
                 <option value="Jurídica">Jurídica</option>
                 <option value="Física">Física</option>
@@ -418,34 +458,138 @@
 
   }
 
-  // ---------- Movement modal (Aporte / Retirada / Transferir) ----------
-  function MoveModal({ data, accounts, onClose, onConfirm }) {
-    const { kind, account } = data;
-    const [amount, setAmount] = React.useState(0);
-    const [destId, setDestId] = React.useState('');
-    const [obs, setObs] = React.useState('');
-
-    const meta = {
-      aporte: { title: 'Aporte (entrada)', ic: 'arrow-down-to-line', color: '#10b981', verb: 'Aportar' },
-      retirada: { title: 'Retirada (saída)', ic: 'arrow-up-from-line', color: '#f43f5e', verb: 'Retirar' },
-      transferir: { title: 'Transferir entre contas', ic: 'arrows-h', color: '#3b82f6', verb: 'Transferir' }
-    }[kind];
-
-    const dests = accounts.filter((a) => a.id !== account.id);
-    const valid = amount > 0 && (kind !== 'transferir' || destId);
-
+  // ---------- Seletor de categoria (grupo suspenso + criar nova) ----------
+  const TIPO_CORES = { Financeira: '#3b82f6', Produto: '#f59e0b', Cliente: '#10b981' };
+  function CategoryField({ value, categories, onPick, onNew }) {
+    const [open, setOpen] = React.useState(false);
     return (
-      <Modal title={meta.title} onClose={onClose} size="sm"
+      <div style={{ position: 'relative' }}>
+        <button type="button" className="input" onClick={() => setOpen((o) => !o)}
+        style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 8, width: '100%', cursor: 'pointer', textAlign: 'left' }}>
+          <span style={{ display: 'inline-flex', alignItems: 'center', gap: 8, minWidth: 0, color: value ? 'var(--text)' : 'var(--text-faint)' }}>
+            {value && <span style={{ width: 8, height: 8, borderRadius: '50%', flexShrink: 0, background: TIPO_CORES[value.tipo] || '#64748b' }} />}
+            <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{value ? value.nome : 'Selecione uma categoria…'}</span>
+          </span>
+          <Ic name="chevron-down" size={14} style={{ flexShrink: 0, color: 'var(--text-faint)', transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .15s' }} />
+        </button>
+        {open && <>
+          <div style={{ position: 'fixed', inset: 0, zIndex: 60 }} onClick={() => setOpen(false)} />
+          <div style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 61, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 10 }}>
+            <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.08em', color: 'var(--text-faint)', textTransform: 'uppercase', marginBottom: 8 }}>Categorias</div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+              {categories.map((cat) => {
+                const on = value && value.id === cat.id;
+                const c = TIPO_CORES[cat.tipo] || '#64748b';
+                return (
+                  <button key={cat.id} type="button" onClick={() => { onPick(cat); setOpen(false); }}
+                  style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--type-sm)', fontWeight: 500,
+                    border: '1px solid ' + (on ? c : 'var(--border-strong)'),
+                    background: on ? 'color-mix(in oklab, ' + c + ' 12%, var(--surface))' : 'var(--surface)',
+                    color: on ? c : 'var(--text)' }}>
+                    <span style={{ width: 7, height: 7, borderRadius: '50%', background: c }} />
+                    {cat.nome}
+                  </button>);
+              })}
+              <button type="button" onClick={() => { setOpen(false); onNew(); }} title="Criar nova categoria"
+              style={{ display: 'inline-flex', alignItems: 'center', gap: 4, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', fontFamily: 'inherit', fontSize: 'var(--type-sm)', fontWeight: 600,
+                border: '1px dashed var(--border-strong)', background: 'transparent', color: 'var(--accent)' }}>
+                <Ic name="plus" size={13} /> Nova
+              </button>
+            </div>
+          </div>
+        </>}
+      </div>);
+  }
+
+  // ---------- Popup: nova categoria ----------
+  function NewCategoryModal({ onClose, onCreate }) {
+    const [nome, setNome] = React.useState('');
+    const [tipo, setTipo] = React.useState('Financeira');
+    const valid = nome.trim().length >= 2;
+    return (
+      <Modal title="Nova categoria" onClose={onClose} size="sm"
       footer={<>
           <div style={{ flex: 1 }} />
-          <button className="btn" onClick={onClose}>Cancelar</button>
-          <button className="btn btn-primary" disabled={!valid} style={{ background: meta.color, borderColor: meta.color, opacity: valid ? 1 : .55 }}
-        onClick={() => onConfirm({ kind, account, amount, destId, obs })}>
-            <Ic name="check" size={13} /> {meta.verb}
+          <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
+          <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => onCreate({ nome: nome.trim(), tipo })}>
+            <Ic name="check" size={13} /> Criar
           </button>
         </>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
-          <div className="acc-move-summary">
+          <div>
+            <label className="label">NOME DA CATEGORIA</label>
+            <input className="input" value={nome} autoFocus onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Aporte de Sócio" />
+          </div>
+          <div>
+            <label className="label">TIPO</label>
+            <select className="input" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+              <option value="Financeira">Financeira</option>
+              <option value="Produto">Produto</option>
+              <option value="Cliente">Cliente</option>
+            </select>
+          </div>
+        </div>
+      </Modal>);
+  }
+
+  // ---------- Movement drawer (Aporte / Retirada / Transferir) ----------
+  function MovementDrawer({ data, accounts, categories, addCategory, userName, onClose, onConfirm }) {
+    const { kind, account } = data;
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const [amount, setAmount] = React.useState(0);
+    const [destId, setDestId] = React.useState('');
+    const [obs, setObs] = React.useState('');
+    const [dataRegistro] = React.useState(todayISO); // sempre a data atual (travada)
+    const [categoria, setCategoria] = React.useState(null);
+    const [descricao, setDescricao] = React.useState('');
+    const [newCatOpen, setNewCatOpen] = React.useState(false);
+    const [saving, setSaving] = React.useState(false);
+    const [err, setErr] = React.useState('');
+
+    const meta = {
+      aporte: { title: 'APORTE (ENTRADA)', ic: 'arrow-down-to-line', color: '#10b981', verb: 'Aportar' },
+      retirada: { title: 'RETIRADA (SAÍDA)', ic: 'arrow-up-from-line', color: '#f43f5e', verb: 'Retirar' },
+      transferir: { title: 'TRANSFERIR ENTRE CONTAS', ic: 'arrows-h', color: '#3b82f6', verb: 'Transferir' }
+    }[kind];
+
+    const dests = accounts.filter((a) => a.id !== account.id);
+    const dataBR = dataRegistro.split('-').reverse().join('/');
+    // Obrigatórios: valor + descrição (sempre); categoria (aporte/retirada); conta destino (transferência).
+    const valid = amount > 0 && descricao.trim().length > 0 && (kind === 'transferir' ? !!destId : !!categoria);
+
+    const submit = async (close) => {
+      setErr(''); setSaving(true);
+      try {
+        await onConfirm({ kind, account, amount, destId, obs, dataRegistro, categoria, descricao });
+        close();
+      } catch (e) {
+        setErr((e && e.message) || 'Falha ao salvar a movimentação.');
+        setSaving(false);
+      }
+    };
+
+    return (<>
+      <Drawer
+        title={
+        <span className="row" style={{ gap: 10, alignItems: 'center' }}>
+            <span className="acc-move-ic" style={{ width: 30, height: 30, background: 'color-mix(in oklab, ' + meta.color + ' 14%, white)', color: meta.color }}><Ic name={meta.ic} size={16} /></span>
+            <span>{meta.title}</span>
+          </span>
+        }
+        onClose={onClose}
+        width={560}
+        footer={(close) => <>
+          <div style={{ flex: 1 }} />
+          <button className="btn fin-btn-back" onClick={() => close()} disabled={saving}>Voltar</button>
+          <button className="btn btn-primary" disabled={!valid || saving} style={{ background: meta.color, borderColor: meta.color, opacity: (!valid || saving) ? .55 : 1 }}
+        onClick={() => submit(close)}>
+            <Ic name="check" size={13} /> {saving ? 'Salvando…' : meta.verb}
+          </button>
+        </>}>
+
+        <div className="fin-section-title">MOVIMENTO</div>
+        <div className="fin-section">
+          <div className="acc-move-summary" style={{ marginBottom: 16 }}>
             <div className="acc-move-ic" style={{ background: 'color-mix(in oklab, ' + meta.color + ' 14%, white)', color: meta.color }}>
               <Ic name={meta.ic} size={18} />
             </div>
@@ -457,27 +601,169 @@
             </div>
           </div>
 
-          <div>
-            <label className="label">VALOR</label>
-            <MoneyInput value={amount} onChange={setAmount} />
-          </div>
-
-          {kind === 'transferir' &&
-          <div>
-              <label className="label">CONTA DE DESTINO</label>
+          <div className="acc-grid-2">
+            <IconField label="DATA DO REGISTRO" icon="calendar">
+              <input className="input tnum" value={dataBR} disabled readOnly />
+            </IconField>
+            <IconField label="VALOR *" icon="dollar">
+              <MoneyInput value={amount} onChange={setAmount} />
+            </IconField>
+            <IconField label="RESPONSÁVEL" icon="user">
+              <input className="input" value={userName || '—'} disabled readOnly title="Usuário atual (não editável)" />
+            </IconField>
+            {kind === 'transferir' &&
+            <IconField full label="CONTA DE DESTINO *" icon="arrows-h">
               <select className="input" value={destId} onChange={(e) => setDestId(e.target.value)}>
                 <option value="">Selecione…</option>
-                {dests.map((d) => <option key={d.id} value={d.id}>{d.descricao} ({bankShort(d.banco)})</option>)}
+                {dests.map((d) => <option key={d.id} value={d.id}>{(d.descricao || '').toUpperCase()} - {(d.banco || '').toUpperCase()}</option>)}
               </select>
+            </IconField>}
+            {kind !== 'transferir' &&
+            <div className="acc-field" style={{ gridColumn: '1 / -1' }}>
+              <label className="label">CATEGORIA *</label>
+              <CategoryField value={categoria} categories={categories} onPick={setCategoria} onNew={() => setNewCatOpen(true)} />
+            </div>}
+            <div className="acc-field" style={{ gridColumn: '1 / -1' }}>
+              <label className="label">DESCRIÇÃO *</label>
+              <input className="input" value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Descrição do movimento" />
             </div>
-          }
+          </div>
+          {err &&
+          <div style={{ marginTop: 12, color: '#dc2626', fontSize: 'var(--type-sm)', display: 'flex', gap: 6, alignItems: 'center' }}>
+            <Ic name="info" size={14} /> {err}
+          </div>}
+        </div>
 
+        <div className="fin-section-title">OBSERVAÇÕES</div>
+        <div className="fin-section">
+          <textarea className="input" rows={3} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observações..." />
+        </div>
+      </Drawer>
+
+      {newCatOpen &&
+      <NewCategoryModal
+        onClose={() => setNewCatOpen(false)}
+        onCreate={async (d) => {
+          const created = await addCategory(d);
+          setCategoria(created);
+          setNewCatOpen(false);
+        }} />
+      }
+    </>);
+
+  }
+
+  // ---------- Encerrar conta (aba lateral + popup de confirmação) ----------
+  function CloseAccountDrawer({ account, accounts, userName, onClose, onConfirm }) {
+    const todayISO = new Date().toISOString().slice(0, 10);
+    const [dataRegistro] = React.useState(todayISO); // sempre a data atual (travada)
+    const [destId, setDestId] = React.useState('');
+    const [motivo, setMotivo] = React.useState('');
+    const [confirmOpen, setConfirmOpen] = React.useState(false);
+    const [saving, setSaving] = React.useState(false);
+    const [err, setErr] = React.useState('');
+
+    const dests = accounts.filter((a) => a.id !== account.id);
+    const temSaldo = Math.abs(account.saldo || 0) > 0.005;
+    const destNome = (dests.find((d) => d.id === destId) || {}).descricao;
+    const dataBR = dataRegistro.split('-').reverse().join('/');
+    // Obrigatórios: motivo; e — havendo saldo — a conta destino.
+    const valid = motivo.trim().length > 0 && (!temSaldo || !!destId);
+
+    const submit = async () => {
+      setErr(''); setSaving(true);
+      try {
+        await onConfirm({ account, dataRegistro, destId, motivo });
+      } catch (e) {
+        setErr((e && e.message) || 'Falha ao encerrar a conta.');
+        setSaving(false);
+      }
+    };
+
+    return (<>
+      <Drawer
+        title={
+        <span className="row" style={{ gap: 10, alignItems: 'center' }}>
+            <span className="acc-move-ic" style={{ width: 30, height: 30, background: 'color-mix(in oklab, #dc2626 14%, white)', color: '#dc2626' }}><Ic name="trash" size={16} /></span>
+            <span>ENCERRAR CONTA</span>
+          </span>
+        }
+        onClose={onClose}
+        width={560}
+        footer={(close) => <>
+          <div style={{ flex: 1 }} />
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
+          <button className="btn" disabled={!valid} style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white', opacity: valid ? 1 : .55 }} onClick={() => setConfirmOpen(true)}>
+            <Ic name="trash" size={13} /> Encerrar
+          </button>
+        </>}>
+
+        <div className="fin-section-title">CONTA A ENCERRAR</div>
+        <div className="fin-section">
+          <div className="acc-move-summary" style={{ marginBottom: 16 }}>
+            <div className="acc-move-ic" style={{ background: 'color-mix(in oklab, #dc2626 14%, white)', color: '#dc2626' }}>
+              <Ic name="bank" size={18} />
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontWeight: 700, fontSize: 'var(--type-md)' }}>{account.descricao}</div>
+              <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>
+                Saldo atual: <span className="tnum" style={{ fontWeight: 600, color: temSaldo ? '#dc2626' : 'var(--text)' }}>R$ {fmtBRL(account.saldo)}</span>
+              </div>
+            </div>
+          </div>
+
+          <div className="acc-grid-2">
+            <IconField label="DATA DO REGISTRO" icon="calendar">
+              <input className="input tnum" value={dataBR} disabled readOnly />
+            </IconField>
+            <IconField label="RESPONSÁVEL" icon="user">
+              <input className="input" value={userName || '—'} disabled readOnly title="Usuário atual (não editável)" />
+            </IconField>
+            <IconField full label={temSaldo ? 'CONTA DESTINO DO SALDO *' : 'CONTA DESTINO DO SALDO'} icon="arrows-h">
+              <select className="input" value={destId} onChange={(e) => setDestId(e.target.value)} disabled={!temSaldo}>
+                <option value="">{temSaldo ? 'Selecione…' : 'Sem saldo a transferir'}</option>
+                {dests.map((d) => <option key={d.id} value={d.id}>{(d.descricao || '').toUpperCase()} - {(d.banco || '').toUpperCase()}</option>)}
+              </select>
+            </IconField>
+            <div className="acc-field" style={{ gridColumn: '1 / -1' }}>
+              <label className="label">MOTIVO DO ENCERRAMENTO *</label>
+              <textarea className="input" rows={3} value={motivo} onChange={(e) => setMotivo(e.target.value)} placeholder="Descreva o motivo do encerramento..." />
+            </div>
+          </div>
+          {temSaldo &&
+          <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 12, display: 'flex', gap: 8, alignItems: 'flex-start' }}>
+            <Ic name="info" size={14} style={{ marginTop: 2, flexShrink: 0, color: 'var(--hue-amber)' }} />
+            <span>Esta conta tem saldo. Selecione uma conta destino para transferir o saldo antes do encerramento.</span>
+          </div>}
+        </div>
+      </Drawer>
+
+      {confirmOpen &&
+      <Modal title="Confirmar encerramento" onClose={() => setConfirmOpen(false)} size="sm"
+      footer={<>
+          <div style={{ flex: 1 }} />
+          <button className="btn fin-btn-back" onClick={() => setConfirmOpen(false)} disabled={saving}>Voltar</button>
+          <button className="btn" disabled={saving} style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white', opacity: saving ? .55 : 1 }} onClick={submit}>
+            <Ic name="trash" size={13} /> {saving ? 'Encerrando…' : 'Encerrar conta'}
+          </button>
+        </>}>
+        <div style={{ display: 'flex', gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'color-mix(in oklab, #dc2626 12%, white)', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+            <Ic name="trash" size={18} />
+          </div>
           <div>
-            <label className="label">OBSERVAÇÕES</label>
-            <input className="input" value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Opcional" />
+            <div style={{ fontWeight: 700 }}>Encerrar {account.descricao}?</div>
+            <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>
+              {temSaldo && destNome
+                ? 'O saldo de R$ ' + fmtBRL(account.saldo) + ' será transferido para "' + destNome + '" e a conta será removida.'
+                : 'A conta será removida da lista. Lançamentos vinculados permanecem.'}
+            </div>
+            {err && <div style={{ marginTop: 8, color: '#dc2626', fontSize: 'var(--type-sm)' }}>{err}</div>}
           </div>
         </div>
-      </Modal>);
+      </Modal>
+      }
+    </>);
 
   }
 
@@ -540,7 +826,7 @@
               {opt.sub && <span className="stm-period-sub">{opt.sub}</span>}
             </button>
           )}
-          <DateRangeField from={fromDate} to={toDate} onChange={(f, t) => { setFromDate(f); setToDate(t); onChange('periodo'); }} placeholder="Período" style={{ width: 218, marginLeft: 4 }} />
+          <DateRangeField from={fromDate} to={toDate} onChange={(f, t) => { setFromDate(f); setToDate(t); onChange('periodo'); }} placeholder="Período" style={{ width: 218 }} />
         </div>
       </div>);
 
@@ -553,9 +839,39 @@
     const [period, setPeriod] = React.useState('mes');
     const [from, setFrom] = React.useState(todayISO);
     const [to, setTo] = React.useState(todayISO);
+    const [showFuturos, setShowFuturos] = React.useState(false); // lista nasce só com efetivados
 
-    // Mock movements for the selected account
-    const moves = React.useMemo(() => generateMoves(account), [account]);
+    // Lançamentos REAIS da conta — financeiro-entradas vinculados a esta conta.
+    // A data que rege o extrato é o VENCIMENTO (fallback emissão/competência).
+    const entradaToMove = (e) => {
+      // dateObj = vencimento (ordena/filtra). 'date' (exibição) = DATA/HORA da operação (created_at).
+      const vIso = e.vencimento || e.emissao || e.competencia || null;
+      const dObj = vIso ? new Date(vIso + 'T00:00:00') : new Date();
+      const cts = e.criadoEm || vIso;
+      const dh = cts ? new Date(String(cts).length <= 10 ? cts + 'T00:00:00' : cts) : new Date();
+      const p2 = (n) => String(n).padStart(2, '0');
+      const dataHora = p2(dh.getDate()) + '/' + p2(dh.getMonth() + 1) + '/' + String(dh.getFullYear()).slice(-2) + ' às ' + p2(dh.getHours()) + 'h' + p2(dh.getMinutes());
+      return {
+        id: e.id,
+        type: e.tipo === 'saida' ? 'out' : 'in',
+        desc: e.descricao || e.categoria || (e.tipo === 'saida' ? 'Saída' : 'Entrada'),
+        category: e.categoria || '—',
+        responsavel: e.responsavel || '—',
+        value: e.valor || 0,
+        status: e.pago ? 'paid' : 'pending',
+        dateObj: dObj,
+        date: dataHora,
+      };
+    };
+    const [moves, setMoves] = React.useState(null); // null = carregando
+    React.useEffect(() => {
+      let alive = true;
+      setMoves(null);
+      API.getEntradasDaConta(account.id)
+        .then((r) => { if (alive) setMoves((r.entradas || []).map(entradaToMove)); })
+        .catch(() => { if (alive) setMoves([]); });
+      return () => { alive = false; };
+    }, [account.id]);
 
     const filtered = React.useMemo(() => {
       let fromD = null,toD = null;
@@ -578,7 +894,7 @@
         fromD = from ? new Date(from) : null;
         toD = to ? new Date(to) : null;
       }
-      return moves.filter((m) => {
+      return (moves || []).filter((m) => {
         if (period === 'todos') return true;
         const d = m.dateObj;
         if (fromD && d < new Date(fromD.getFullYear(), fromD.getMonth(), fromD.getDate())) return false;
@@ -597,6 +913,8 @@
     const pctEntr = totalEntr > 0 ? Math.round(entradas / totalEntr * 100) : 0;
     const pctSai = totalSai > 0 ? Math.round(saidas / totalSai * 100) : 0;
     const pctPrev = entradas + saidas > 0 ? Math.round(Math.abs(previsao) / (entradas + saidas) * 100) : 0;
+    // A LISTA nasce só com EFETIVADOS; o botão "Lançamentos Futuros" inclui os previstos.
+    const listMoves = showFuturos ? filtered : filtered.filter((m) => m.status === 'paid');
 
     return (
       <Drawer
@@ -665,50 +983,61 @@
             
           </div>
 
-          {/* Period filter */}
-          <StmPeriodFilter
-            value={period}
-            onChange={setPeriod}
-            fromDate={from}
-            toDate={to}
-            setFromDate={setFrom}
-            setToDate={setTo} />
-          
+          {/* Period filter + botão Lançamentos Futuros */}
+          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 12, flexWrap: 'wrap' }}>
+            <StmPeriodFilter
+              value={period}
+              onChange={setPeriod}
+              fromDate={from}
+              toDate={to}
+              setFromDate={setFrom}
+              setToDate={setTo} />
+            <button type="button" className={'stm-futuros-btn' + (showFuturos ? ' on' : '')} onClick={() => setShowFuturos((v) => !v)} title={showFuturos ? 'Ocultar lançamentos futuros' : 'Incluir lançamentos futuros (previstos)'}>
+              <Ic name="calendar" size={14} /> Lançamentos Futuros
+            </button>
+          </div>
+
         </div>
 
         <div className="stm-section-title">LANÇAMENTOS</div>
         <div className="stm-section stm-list-wrap">
-          {filtered.length === 0 ?
+          {moves === null ?
+          <div className="stm-empty">
+              <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>Carregando lançamentos…</div>
+            </div> :
+          listMoves.length === 0 ?
           <div className="stm-empty">
               <Ic name="reports" size={36} style={{ opacity: .35 }} />
               <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
-                Sem lançamentos no período
+                {showFuturos ? 'Sem lançamentos no período' : 'Sem lançamentos efetivados no período'}
               </div>
               <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>
-                Ajuste o filtro acima para visualizar os movimentos da conta.
+                {showFuturos ? 'Ajuste o filtro acima para visualizar os movimentos da conta.' : 'Clique em “Lançamentos Futuros” para incluir os previstos.'}
               </div>
             </div> :
 
           <div className="stm-list">
               <div className="stm-row stm-row-head">
-                <div>DATA</div>
+                <div>DATA / HORA</div>
                 <div>DESCRIÇÃO</div>
                 <div>CATEGORIA</div>
+                <div>RESPONSÁVEL</div>
                 <div>STATUS</div>
                 <div style={{ textAlign: 'right' }}>VALOR</div>
               </div>
-              {filtered.map((m) =>
+              {listMoves.map((m) =>
             <div key={m.id} className={'stm-row ' + (m.type === 'in' ? 'is-in' : 'is-out')}>
-                  <div className="tnum" style={{ fontWeight: 600 }}>{m.date}</div>
+                  <div className="muted tnum" style={{ fontSize: 'var(--type-sm)' }}>{m.date}</div>
                   <div className="row" style={{ gap: 10, minWidth: 0 }}>
                     <span className={'stm-row-ic ' + (m.type === 'in' ? 'is-in' : 'is-out')}>
-                      <Ic name={m.type === 'in' ? 'arrow-down-to-line' : 'arrow-up-from-line'} size={14} />
+                      <Ic name={m.type === 'in' ? 'arrow-down-to-line' : 'arrow-up-from-line'} size={11} />
                     </span>
-                    <span style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                    <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
                       {m.desc}
                     </span>
                   </div>
                   <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>{m.category}</div>
+                  <div className="muted" style={{ fontSize: 'var(--type-sm)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0 }}>{m.responsavel}</div>
                   <div>
                     <span className={'stm-status ' + (m.status === 'paid' ? 'is-paid' : 'is-pending')}>
                       {m.status === 'paid' ? 'EFETIVADO' : 'PREVISTO'}
@@ -764,51 +1093,7 @@
   }
 
   // Mock generator — pseudo-random list of movements per account
-  function generateMoves(account) {
-    const seed = (account.id || 'a').split('').reduce((s, c) => s + c.charCodeAt(0), 0);
-    const rng = (i) => {
-      const x = Math.sin(seed + i * 137) * 10000;
-      return x - Math.floor(x);
-    };
-    const cats = ['Venda de Serviço', 'Aluguel', 'Fornecedor', 'Comissão', 'Energia', 'Internet', 'Folha', 'Marketing'];
-    const descs = [
-    ['in', 'PIX recebido — Júlia Mendes'],
-    ['in', 'Pacote noiva — Marcela Tavares'],
-    ['in', 'Repasse Mercado Pago'],
-    ['out', 'Aluguel sala comercial'],
-    ['out', 'Fornecedor Cosmédica'],
-    ['out', 'Energisa Ceará'],
-    ['out', 'Tarifa bancária'],
-    ['in', 'Consultoria — Roberto Lima'],
-    ['out', 'Folha de pagamento — Karla'],
-    ['in', 'Venda balcão'],
-    ['out', 'Google Ads'],
-    ['in', 'Transferência recebida'],
-    ['out', 'Materiais de escritório']];
-
-    const today = new Date();
-    const list = [];
-    for (let i = 0; i < descs.length; i++) {
-      const [type, desc] = descs[i];
-      const back = Math.floor(rng(i) * 18); // up to 18 days back
-      const ahead = Math.floor(rng(i + 50) * 10); // up to 10 days ahead
-      const isFuture = rng(i + 100) > 0.7;
-      const d = new Date(today);
-      d.setDate(d.getDate() + (isFuture ? ahead : -back));
-      const val = Math.round((40 + rng(i + 200) * 1800) * 100) / 100;
-      list.push({
-        id: 'm' + i,
-        type,
-        desc,
-        category: cats[i % cats.length],
-        value: val,
-        status: isFuture ? 'pending' : 'paid',
-        dateObj: d,
-        date: d.toLocaleDateString('pt-BR')
-      });
-    }
-    return list.sort((a, b) => b.dateObj - a.dateObj);
-  }
+  // generateMoves (mock) removido — o extrato agora usa os lançamentos reais (financeiro-entradas).
 
   // ---------- Styles ----------
   function AccountsStyles() {
@@ -817,7 +1102,7 @@
         /* Grid de cards */
         .acc-grid {
           display: grid;
-          grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+          grid-template-columns: repeat(auto-fill, minmax(296px, 1fr));
           gap: 16px;
           align-items: stretch;
         }
@@ -883,7 +1168,7 @@
         .acc-eye {
           appearance: none; background: transparent; border: 0;
           color: var(--text-muted); cursor: pointer;
-          width: 24px; height: 24px;
+          width: 32px; height: 32px;
           display: flex; align-items: center; justify-content: center;
           border-radius: 6px;
           transition: background .15s, color .15s;
@@ -895,14 +1180,14 @@
           color: var(--text);
         }
         .acc-balance-rs { font-size: 13px; font-weight: 600; color: var(--text-muted); }
-        .acc-balance-hidden { letter-spacing: .12em; font-size: 22px; color: var(--text-muted); }
+        /* mesmo tamanho do valor visível → altura do cartão não muda ao ocultar/mostrar */
+        .acc-balance-hidden { letter-spacing: .12em; font-size: 26px; color: var(--text-muted); }
 
         /* Grade de ações — botões 80x70, raio 5px, gap 8px lateral e inferior */
         .acc-actions-grid {
           display: grid;
-          grid-template-columns: repeat(3, 80px);
+          grid-template-columns: repeat(3, 1fr); /* botões acompanham a largura do cartão */
           gap: 8px;
-          justify-content: center;
         }
         .acc-action {
           appearance: none; cursor: pointer;
@@ -923,12 +1208,32 @@
           border-color: #ef4444;
         }
         [data-theme="dark"] .acc-action.is-danger:hover { color: #fecaca; }
+        /* Botão desabilitado (GERENCIAL): hover laranja, mantendo o resto do estilo */
+        .acc-action.is-disabled:hover {
+          background: color-mix(in oklab, #f97316 14%, var(--surface));
+          color: #ea580c;
+          border-color: #f97316;
+        }
+        /* Balão de aviso (tooltip) — position: fixed p/ escapar do overflow do cartão */
+        .acc-action-tip {
+          transform: translate(-50%, -100%);
+          background: #1f2937; color: #fff;
+          font-size: 11px; line-height: 1.35; font-weight: 500; letter-spacing: 0; text-transform: none;
+          padding: 7px 10px; border-radius: 7px;
+          width: max-content; max-width: 220px; text-align: center;
+          box-shadow: 0 8px 24px rgba(0,0,0,.28);
+          z-index: 1000; pointer-events: none;
+        }
+        .acc-action-tip::after {
+          content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%);
+          border: 5px solid transparent; border-top-color: #1f2937;
+        }
         .acc-action-ic { display: flex; align-items: center; justify-content: center; }
         .acc-action-label { font-size: var(--type-xs); font-weight: 600; letter-spacing: .04em; }
 
         .acc-nature {
           text-align: center;
-          font-size: var(--type-xs); font-weight: 700; letter-spacing: .14em;
+          font-size: var(--type-xs); font-weight: 600; letter-spacing: normal;
           padding-top: 10px;
           margin-top: 2px;
           border-top: 1px solid var(--border);
@@ -961,8 +1266,11 @@
         .acc-grid-3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
         @media (max-width: 720px) { .acc-grid-3 { grid-template-columns: 1fr 1fr; } }
         @media (max-width: 480px) { .acc-grid-3 { grid-template-columns: 1fr; } }
+        .acc-grid-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+        @media (max-width: 480px) { .acc-grid-2 { grid-template-columns: 1fr; } }
 
-        .acc-field { display: flex; flex-direction: column; gap: 4px; }
+        .acc-field { display: flex; flex-direction: column; gap: 2px; }
+        .acc-field .label { margin-bottom: 0; } /* só os 2px do gap entre rótulo e campo */
         .acc-field-wrap {
           display: flex; align-items: stretch;
           background: var(--surface);
@@ -1118,22 +1426,36 @@
 
         /* Period filter inside drawer — sliding-pill, matches Receitas/Despesas */
         .stm-period { display: inline-flex; max-width: 100%; }
+        /* Botão "Lançamentos Futuros" — estilo tag azul (fonte/contorno fortes, hover escurece leve) */
+        .stm-futuros-btn {
+          display: inline-flex; align-items: center; gap: 7px;
+          padding: 8px 14px; border-radius: 8px;
+          font-family: inherit; font-size: var(--type-sm); font-weight: 700;
+          cursor: pointer; white-space: nowrap;
+          background: color-mix(in oklab, #3b82f6 14%, var(--surface));
+          color: #1d4ed8;
+          border: 1.5px solid color-mix(in oklab, #3b82f6 55%, transparent);
+          transition: background .15s, border-color .15s, color .15s;
+        }
+        .stm-futuros-btn:hover { background: color-mix(in oklab, #3b82f6 22%, var(--surface)); border-color: #3b82f6; }
+        .stm-futuros-btn.on { background: #3b82f6; color: #fff; border-color: #3b82f6; }
+        .stm-futuros-btn.on:hover { background: #2563eb; }
         .stm-period-row {
           position: relative;
           display: inline-flex; align-items: center; gap: 6px;
-          padding: 4px;
+          padding: 6px;
           background: var(--surface-3);
           border: 1px solid var(--border);
           border-radius: 10px;
-          flex-wrap: wrap;
+          flex-wrap: nowrap;
         }
         [data-theme="dark"] .stm-period-row { background: #1a1f25; border-color: #262c34; }
 
         /* Sliding active pill */
         .stm-period-pill {
           position: absolute;
-          top: 4px;
-          bottom: 4px;
+          top: 6px;
+          bottom: 6px;
           left: 0;
           border-radius: 7px;
           background: #E7F4E9;
@@ -1189,7 +1511,7 @@
         .stm-list { display: flex; flex-direction: column; gap: 4px; padding: 0 4px 4px; }
         .stm-row {
           display: grid;
-          grid-template-columns: 110px minmax(0, 2fr) minmax(140px, 1fr) 120px 140px;
+          grid-template-columns: 150px minmax(0, 2fr) minmax(120px, 1fr) minmax(120px, 1fr) 110px 130px;
           gap: 14px;
           padding: 12px 16px;
           align-items: center;
@@ -1240,8 +1562,8 @@
         }
 
         @media (max-width: 900px) {
-          .stm-row { grid-template-columns: 90px minmax(0, 1.6fr) 110px 130px; }
-          .stm-row > div:nth-child(3) { display: none; }
+          .stm-row { grid-template-columns: 110px minmax(0, 1.6fr) 100px 120px; }
+          .stm-row > div:nth-child(3), .stm-row > div:nth-child(4) { display: none; } /* esconde Categoria e Responsável no estreito */
         }
       `}</style>);
 

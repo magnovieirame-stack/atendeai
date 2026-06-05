@@ -70,8 +70,10 @@ const API = {
   getFunil(id) { return this._req('/crm/funis/' + id); },
   createFunil(nome, descricao, cor_funil) { return this._json('/crm/funis', 'POST', { nome, descricao, cor_funil }); },
   updateFunil(id, nome, descricao, cor_funil) { return this._json('/crm/funis/' + id, 'PATCH', { nome, descricao, cor_funil }); },
+  deleteFunil(id) { return this._req('/crm/funis/' + id, { method: 'DELETE' }); },
   moveCard(cardId, faseId) { return this._json('/crm/cards/' + cardId, 'PATCH', { faseId }); },
   addCardCliente(faseId, dados) { return this._json('/crm/cards/novo', 'POST', { faseId, ...dados }); },
+  toggleCardFixar(cardId, fixado) { return this._json('/crm/cards/' + cardId + '/fixar', 'PATCH', { fixado }); },
   deleteCard(cardId) { return this._req('/crm/cards/' + cardId, { method: 'DELETE' }); },
   addFase(funilId, nome, cor_funil) { return this._json('/crm/funis/' + funilId + '/fases', 'POST', { nome, cor_funil }); },
   updateFase(id, patch) { return this._json('/crm/fases/' + id, 'PATCH', patch); },
@@ -82,19 +84,93 @@ const API = {
   createConta(dto) { return this._json('/financeiro/contas', 'POST', dto); },
   updateConta(id, dto) { return this._json('/financeiro/contas/' + id, 'PATCH', dto); },
   deleteConta(id) { return this._req('/financeiro/contas/' + id, { method: 'DELETE' }); },
+  setContaVisibilidade(id, oculto) { return this._json('/financeiro/contas/' + id + '/visibilidade', 'PATCH', { oculto }); },
   // --- Financeiro: lançamentos (entradas/saidas) ---
   getEntradas(tipo) { return this._req('/financeiro/entradas' + (tipo ? ('?tipo=' + tipo) : '')); },
+  getEntradasDaConta(contaId) { return this._req('/financeiro/entradas?conta=' + contaId); },
   createEntrada(dto) { return this._json('/financeiro/entradas', 'POST', dto); },
   updateEntrada(id, dto) { return this._json('/financeiro/entradas/' + id, 'PATCH', dto); },
   deleteEntrada(id) { return this._req('/financeiro/entradas/' + id, { method: 'DELETE' }); },
+  // --- Financeiro: movimentações de conta ---
+  transferir(dto) { return this._json('/financeiro/transferencias', 'POST', dto); },
+  encerrarConta(id, dto) { return this._json('/financeiro/contas/' + id + '/encerrar', 'POST', dto); },
+  // --- Financeiro: categorias de movimentação ---
+  getFinCategorias() { return this._req('/financeiro/categorias'); },
+  createFinCategoria(dto) { return this._json('/financeiro/categorias', 'POST', dto); },
+  deleteFinCategoria(id) { return this._req('/financeiro/categorias/' + id, { method: 'DELETE' }); },
+
+  // --- Leads (comercial) ---
+  getLeads() { return this._req('/leads'); },
+  createLead(dto) { return this._json('/leads', 'POST', dto); },
+  updateLead(id, dto) { return this._json('/leads/' + id, 'PATCH', dto); },
+  deleteLead(id) { return this._req('/leads/' + id, { method: 'DELETE' }); },
+
+  // --- Agenda: compromissos ---
+  getAgenda() { return this._req('/agenda'); },
+  getUsuarios() { return this._req('/agenda/usuarios'); },
+  getCategorias() { return this._req('/agenda/categorias'); },
+  createCategoria(dto) { return this._json('/agenda/categorias', 'POST', dto); },
+  updateCategoria(id, dto) { return this._json('/agenda/categorias/' + id, 'PATCH', dto); },
+  deleteCategoria(id) { return this._req('/agenda/categorias/' + id, { method: 'DELETE' }); },
+  getAgendaConfig() { return this._req('/agenda/config'); },
+  saveAgendaConfig(dto) { return this._json('/agenda/config', 'PUT', dto); },
+  // --- Notificações ---
+  getNotificacoes() { return this._req('/notificacoes'); },
+  markNotificacaoRead(id) { return this._json('/notificacoes/' + id, 'PATCH', { lida: true }); },
+  markAllNotificacoesRead() { return this._req('/notificacoes/ler-todas', { method: 'POST' }); },
+  deleteNotificacao(id) { return this._req('/notificacoes/' + id, { method: 'DELETE' }); },
+  createAppt(dto) { return this._json('/agenda', 'POST', dto); },
+  updateApptApi(id, dto) { return this._json('/agenda/' + id, 'PATCH', dto); },
+  deleteApptApi(id) { return this._req('/agenda/' + id, { method: 'DELETE' }); },
+  // --- Agenda: tarefas ---
+  getTarefas() { return this._req('/agenda/tarefas'); },
+  createTarefa(dto) { return this._json('/agenda/tarefas', 'POST', dto); },
+  updateTarefa(id, dto) { return this._json('/agenda/tarefas/' + id, 'PATCH', dto); },
+  deleteTarefa(id) { return this._req('/agenda/tarefas/' + id, { method: 'DELETE' }); },
 
   // --- Contatos / nova conversa ---
   getClientes(q) { return this._req('/chatbot/clientes' + (q ? ('?q=' + encodeURIComponent(q)) : '')); },
   openContato(clienteId) { return this._json('/chatbot/contatos', 'POST', { clienteId }); },
   setContatoStatus(id, statuschat) { return this._json('/chatbot/contatos/' + id, 'PATCH', { statuschat }); },
+  fixarContato(id, fixado) { return this._json('/chatbot/contatos/' + id + '/fixar', 'PATCH', { fixado }); },
+  bloquearContato(id, bloquear) { return this._json('/chatbot/contatos/' + id + '/bloquear', 'PATCH', { bloquear }); },
+  limparContato(id) { return this._req('/chatbot/contatos/' + id + '/mensagens', { method: 'DELETE' }); },
+  apagarContato(id) { return this._req('/chatbot/contatos/' + id, { method: 'DELETE' }); },
   createClienteContato(nome, telefone, canal) { return this._json('/chatbot/clientes-contato', 'POST', { nome, telefone, canal }); },
 };
 window.API = API;
+
+// ───────── Store de notificações (compartilhado entre o sino e a página) ─────────
+let NOTIFS = [];
+const NOTIF_LISTENERS = new Set();
+function notifyNotifListeners() { NOTIF_LISTENERS.forEach((fn) => fn()); }
+async function refreshNotifs() {
+  try { const r = await API.getNotificacoes(); NOTIFS = r.notificacoes || []; notifyNotifListeners(); } catch (e) {}
+}
+function useNotifs() {
+  const [, force] = React.useReducer((x) => x + 1, 0);
+  React.useEffect(() => { NOTIF_LISTENERS.add(force); return () => NOTIF_LISTENERS.delete(force); }, []);
+  return NOTIFS;
+}
+async function markNotifRead(id) {
+  NOTIFS = NOTIFS.map((n) => n.id === id ? { ...n, read: true } : n); notifyNotifListeners();
+  try { await API.markNotificacaoRead(id); } catch (e) {}
+}
+async function markAllNotifsRead() {
+  NOTIFS = NOTIFS.map((n) => ({ ...n, read: true })); notifyNotifListeners();
+  try { await API.markAllNotificacoesRead(); } catch (e) {}
+}
+// "agora", "X min", "X h", "X d" a partir de uma data ISO
+function relativeTime(iso) {
+  if (!iso) return '';
+  const d = new Date(iso); if (isNaN(d)) return '';
+  const s = Math.floor((Date.now() - d.getTime()) / 1000);
+  if (s < 60) return 'agora';
+  const m = Math.floor(s / 60); if (m < 60) return m + ' min';
+  const h = Math.floor(m / 60); if (h < 24) return h + ' h';
+  return Math.floor(h / 24) + ' d';
+}
+Object.assign(window, { refreshNotifs, useNotifs, markNotifRead, markAllNotifsRead, relativeTime });
 
 // ---------- helpers de formatação ----------
 function fmtHora(iso) {
@@ -105,6 +181,27 @@ function fmtHora(iso) {
   const mesmoDia = d.toDateString() === hoje.toDateString();
   if (mesmoDia) return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0');
   return String(d.getDate()).padStart(2, '0') + '/' + String(d.getMonth() + 1).padStart(2, '0');
+}
+// Data "inteligente" da lista de contatos (canto superior direito):
+//   hoje            -> hora  (07h36)
+//   ontem           -> "Ontem"
+//   2 a 6 dias atrás -> dia da semana (Terça, Segunda, Domingo, Sábado, Sexta...)
+//   7+ dias atrás    -> data curta (28 MAI 26)
+function fmtContatoData(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const now = new Date();
+  const ymd = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate());
+  const diffDias = Math.round((ymd(now) - ymd(d)) / 86400000);
+  if (diffDias <= 0) return String(d.getHours()).padStart(2, '0') + 'h' + String(d.getMinutes()).padStart(2, '0');
+  if (diffDias === 1) return 'Ontem';
+  if (diffDias <= 6) {
+    const dias = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
+    return dias[d.getDay()];
+  }
+  const meses = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+  return String(d.getDate()).padStart(2, '0') + ' ' + meses[d.getMonth()] + ' ' + String(d.getFullYear() % 100).padStart(2, '0');
 }
 function fmtTamanho(bytes) {
   if (!bytes && bytes !== 0) return '';
@@ -129,13 +226,18 @@ function dbContatoToConv(c) {
     tags: c.tags || [],        // [{id,nome,cor}]
     tag: (c.tags && c.tags[0] && c.tags[0].nome) || null,
     unread: c.naoLidas || 0,
-    lastTime: fmtHora(c.ultimaMsg),
-    preview: '',
+    lastTime: fmtContatoData(c.ultimaMsg),
+    preview: c.ultimaMensagem || '',
+    midiaTipo: c.ultimaMidiaTipo || null,     // imagem|audio|video|arquivo|null (ícone na prévia)
+    sentByMe: !!c.ultimaPorEmpresa,           // última msg foi enviada pela empresa
+    delivered: c.ultimaEntregue !== false,    // chegou ao destino? (check duplo x simples)
     phone: c.telefone || '',
     email: c.email || '',
     messages: null,            // carregado sob demanda ao abrir
     clienteId: c.clienteId,
     fixado: c.fixado,
+    blocked: c.status === 'bloqueado', // status cru do back (bloquear)
+    aiHandled: !!c.ia,                  // conduzida pela IA (true) ou humano (false) — ícone sob o avatar
   };
 }
 

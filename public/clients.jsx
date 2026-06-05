@@ -560,7 +560,7 @@
           defaultResponsible={apptFor.attendant && apptFor.attendant !== '—' && apptFor.attendant !== 'Agente IA' ? apptFor.attendant : ''} />}
         {pdvFor &&
         <Modal title="PDV de Venda" onClose={() => setPdvFor(null)} size="sm"
-        footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={() => setPdvFor(null)}>Cancelar</button><button className="btn btn-primary" onClick={() => setPdvFor(null)}><Ic name="cart" size={13} /> Iniciar venda</button></>}>
+        footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={() => setPdvFor(null)}>Voltar</button><button className="btn btn-primary" onClick={() => setPdvFor(null)}><Ic name="cart" size={13} /> Iniciar venda</button></>}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '14px 8px' }}>
               <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--accent-soft)', color: 'var(--accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Ic name="cart" size={26} />
@@ -575,7 +575,7 @@
         <Modal title="Excluir cliente" onClose={() => setConfirmDelete(null)} size="sm"
         footer={(close) => <>
               <div style={{ flex: 1 }} />
-              <button className="btn" onClick={() => close()}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
               <button className="btn btn-delete" onClick={() => close(() => deleteClient(confirmDelete.id))}>
                 <Ic name="trash" size={13} /> Excluir
               </button>
@@ -749,7 +749,7 @@
       <Drawer title="Nova ficha de cliente" subtitle="Cadastro completo da carteira de clientes" onClose={onClose} width={760}
       footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <button className="btn" onClick={() => close()}>Cancelar</button>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
           <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .5 }} onClick={() => close(() => handleSave())}><Ic name="check" size={13} /> Criar cliente</button>
         </>}>
         <style>{`
@@ -855,7 +855,7 @@
   function ImportClientsDrawer({ onClose }) {
     return (
       <Drawer title="Importar Clientes" subtitle="Importe sua base a partir de uma planilha (CSV/XLSX)" onClose={onClose} width="40vw"
-      footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" onClick={onClose}><Ic name="upload" size={13} /> Importar</button></>}>
+      footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><button className="btn btn-primary" onClick={onClose}><Ic name="upload" size={13} /> Importar</button></>}>
         <div className="col" style={{ gap: 14 }}>
           <div style={{ padding: 24, border: '2px dashed var(--border-strong)', borderRadius: 12, textAlign: 'center', background: 'var(--surface-2)' }}>
             <Ic name="upload" size={28} style={{ color: 'var(--text-faint)' }} />

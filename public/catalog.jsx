@@ -327,7 +327,7 @@
           <Modal title="Excluir item" onClose={() => setConfirmDel(null)} size="sm"
             footer={<>
               <div style={{ flex: 1 }} />
-              <button className="btn" onClick={() => setConfirmDel(null)}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={() => setConfirmDel(null)}>Voltar</button>
               <button className="btn" style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white' }} onClick={() => deleteItem(confirmDel.id)}>
                 <Ic name="trash" size={13} /> Excluir
               </button>

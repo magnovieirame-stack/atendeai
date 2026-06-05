@@ -10,12 +10,13 @@
     const [hov, setHov] = React.useState(false);
     return (
       <button
+        className="crml-actbtn"
         onClick={(e) => {e.stopPropagation();onClick && onClick();}}
         title={title}
         onMouseEnter={() => setHov(true)}
         onMouseLeave={() => setHov(false)}
         style={{
-          width: 30, height: 30, borderRadius: 7, border: 'none', cursor: 'default',
+          width: 28, height: 28, borderRadius: 7, border: 'none', cursor: 'default',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           background: hov ? 'var(--surface-2)' : 'transparent',
           color: hov ? tint || 'var(--text)' : tint || 'var(--text-faint)',
@@ -420,6 +421,8 @@
     return (
       <style>{`
         .crml-row { display: grid; grid-template-columns: ${gridTemplate}; gap: 14px; padding: 10px 16px; align-items: center; }
+        /* Uniformiza os 5 ícones de ação da linha (cada glifo tem tamanho próprio no icons.jsx). */
+        .crml-actbtn svg { width: 20px !important; height: 20px !important; }
         .crml-body { background: var(--surface); border: 1px solid var(--border); border-left-width: 2px; border-radius: 10px; margin: 0 8px; transition: background .15s, box-shadow .15s, transform .15s, border-color .15s; position: relative; overflow: visible; }
         .crml-body.crml-pinned { margin-top: 0; }
         .crml-body:hover { background: var(--surface); box-shadow: 0 2px 10px rgba(15,23,42,.06); border-color: var(--border-strong); transform: translateY(-1px); }

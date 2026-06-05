@@ -375,7 +375,7 @@ function _AdminAgent_legacy() {
   const [showTest, setShowTest] = React.useState(false);
   return (
     <Page title={isNew ? 'Configurar novo agente' : `Agente · ${agentName}`} subtitle="Personalize o comportamento, voz e regras do agente" actions={
-    <button className="btn" onClick={() => setRoute('agent')}><Ic name="arrow-left" size={14} /> Voltar para agentes</button>
+    <button className="btn fin-btn-back" onClick={() => setRoute('agent')}><Ic name="arrow-left" size={14} /> Voltar para agentes</button>
     }>
       <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 'var(--pad-3)', alignItems: 'flex-start' }}>
         <div className="col" style={{ gap: 'var(--pad-3)' }}>
@@ -472,7 +472,7 @@ function _AdminAgent_legacy() {
           </div>
 
           <div style={{ display: 'flex', gap: 8 }}>
-            <button className="btn" style={{ flex: 1 }}>Cancelar</button>
+            <button className="btn fin-btn-back" style={{ flex: 1 }}>Voltar</button>
             <button className="btn btn-primary" style={{ flex: 1 }}>Salvar e publicar</button>
           </div>
         </div>
@@ -773,7 +773,7 @@ function MemberModal({ initial, onClose, onSave, onDelete }) {
         return <>
         {isEdit && <button className="btn btn-delete-soft" onClick={() => setConfirmDel(true)}><Ic name="trash" size={13} /> Excluir</button>}
         <div style={{ flex: 1 }} />
-        <button className="btn" onClick={() => close()}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
         {!isEdit && <button className="btn" onClick={() => close(handleSave)}><Ic name="mail" size={13} /> Salvar e enviar convite</button>}
         <button className="btn btn-save" onClick={() => close(handleSave)}><Ic name="check" size={13} /> {isEdit ? 'Salvar alterações' : 'Salvar membro'}</button>
       </>;
@@ -902,7 +902,7 @@ function MemberModal({ initial, onClose, onSave, onDelete }) {
             <div style={{ fontWeight: 600, fontSize: 'var(--type-md)' }}>Excluir {initial?.name}?</div>
             <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 6 }}>Essa ação removerá o membro permanentemente. As conversas e vendas associadas permanecem no histórico.</div>
             <div className="row" style={{ gap: 8, marginTop: 16, justifyContent: 'flex-end' }}>
-              <button className="btn" onClick={() => setConfirmDel(false)}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={() => setConfirmDel(false)}>Voltar</button>
               <button className="btn btn-delete" onClick={() => {
                 setDelClosing(true);
                 setTimeout(() => {
@@ -1337,7 +1337,7 @@ function AdminSettings() {
         </div>
       </div>
       <div className="row" style={{ justifyContent: 'flex-end', gap: 8 }}>
-        <button className="btn">Cancelar</button>
+        <button className="btn fin-btn-back">Voltar</button>
         <button className="btn btn-primary">Salvar alterações</button>
       </div>
     </Page>);

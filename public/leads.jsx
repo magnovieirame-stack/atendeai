@@ -48,17 +48,14 @@
   function enrichLead(l, i) {
     const initial = (l.name || '?')[0].toUpperCase();
     const colorIdx = (l.name || '').length % AVATAR_BG.length;
-    const tagsCount = i % 3 + 1;
-    const tagsStart = i % TAGS_POOL.length;
-    const tags = [];
-    for (let k = 0; k < tagsCount; k++) tags.push(TAGS_POOL[(tagsStart + k) % TAGS_POOL.length]);
+    const tags = Array.isArray(l.tags) ? l.tags : [];
     const email = l.email || `${(l.name || 'lead').toLowerCase().split(' ')[0].normalize('NFD').replace(/[\u0300-\u036f]/g, '')}@email.com`;
     const dur = ['18 min', '34 min', '1h 12min', '52 min', '8 min', '2h 04min', '12 min'][i % 7];
     const hh = String((7 + i * 3) % 24).padStart(2, '0');
     const mm = String(i * 7 % 60).padStart(2, '0');
     const timeStr = `${hh}h${mm}min`;
     // Spread attendants — every 3rd lead handled by Agente IA
-    const attendant = i % 3 === 0 ? 'Agente IA' : ATTENDANTS[i % (ATTENDANTS.length - 2)];
+    const attendant = l.attendant || (i % 3 === 0 ? 'Agente IA' : ATTENDANTS[i % (ATTENDANTS.length - 2)]);
     return {
       id: 'l' + i,
       ...l,
@@ -100,7 +97,8 @@
     const [showNew, setShowNew] = React.useState(false);
     const [showImport, setShowImport] = React.useState(false);
     const [selected, setSelected] = React.useState(new Set());
-    const [allLeads, setAllLeads] = React.useState(() => buildLeads());
+    const [allLeads, setAllLeads] = React.useState([]);
+    React.useEffect(() => { API.getLeads().then((r) => setAllLeads((r.leads || []).map((l, i) => enrichLead(l, i)))).catch(() => setAllLeads([])); }, []);
     const [visibleCols, setVisibleCols] = React.useState(() => new Set(ALL_COLUMNS.map((c) => c.id)));
     const [filterStages, setFilterStages] = React.useState(() => new Set());
     const [filterTags, setFilterTags] = React.useState(() => new Set());
@@ -118,6 +116,7 @@
       setPinnedIds(s);
     };
     const deleteLead = (id) => {
+      API.deleteLead(id).catch(() => {});
       setAllLeads((prev) => prev.filter((l) => l.id !== id));
       setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
       setPinnedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
@@ -415,7 +414,7 @@
           </div>
         </div>
 
-        {showNew && <NewLeadDrawer onClose={() => setShowNew(false)} onSave={(l) => { setAllLeads((p) => [enrichLead(l, p.length), ...p]); setShowNew(false); }} />}
+        {showNew && <NewLeadDrawer onClose={() => setShowNew(false)} onSave={async (l) => { setShowNew(false); try { const r = await API.createLead(l); setAllLeads((p) => [enrichLead(r.lead, 0), ...p]); } catch (e) {} }} />}
         {viewLead && window.CRMCardDetail && <window.CRMCardDetail
           card={{
             name: viewLead.name,
@@ -434,7 +433,7 @@
             defaultResponsible={apptFor.attendant && apptFor.attendant !== '—' && apptFor.attendant !== 'Agente IA' ? apptFor.attendant : ''} />}
         {pdvFor &&
           <Modal title="PDV de Venda" onClose={() => setPdvFor(null)} size="sm"
-            footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={() => setPdvFor(null)}>Cancelar</button><button className="btn btn-primary" onClick={() => setPdvFor(null)}><Ic name="cart" size={13} /> Iniciar venda</button></>}>
+            footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={() => setPdvFor(null)}>Voltar</button><button className="btn btn-primary" onClick={() => setPdvFor(null)}><Ic name="cart" size={13} /> Iniciar venda</button></>}>
             <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 14, padding: '14px 8px' }}>
               <div style={{ width: 56, height: 56, borderRadius: '50%', background: 'var(--accent-soft)', color: 'var(--accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
                 <Ic name="cart" size={26} />
@@ -449,7 +448,7 @@
           <Modal title="Excluir lead" onClose={() => setConfirmDelete(null)} size="sm"
             footer={(close) => <>
               <div style={{ flex: 1 }} />
-              <button className="btn" onClick={() => close()}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
               <button className="btn btn-delete" onClick={() => close(() => deleteLead(confirmDelete.id))}>
                 <Ic name="trash" size={13} /> Excluir
               </button>
@@ -512,14 +511,14 @@
   }
 
   function NewLeadDrawer({ onClose, onSave }) {
-    const [f, setF] = React.useState({ name: '', phone: '', email: '', company: '', value: 0, source: 'Instagram', stage: 'novo', date: new Date().toLocaleDateString('pt-BR'), attendant: ATTENDANTS[0] });
+    const [f, setF] = React.useState({ name: '', phone: '', email: '', company: '', value: 0, source: 'Instagram', stage: 'novo', date: new Date().toLocaleDateString('pt-BR'), attendant: ATTENDANTS[0], obs: '' });
     const set = (k, v) => setF((p) => ({ ...p, [k]: v }));
     const valid = f.name.trim().length >= 2;
     return (
       <Drawer title="Novo Lead" subtitle="Cadastre uma nova oportunidade no funil" onClose={onClose} width="50vw"
       footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <button className="btn" onClick={() => close()}>Cancelar</button>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
           <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .5 }} onClick={() => close(() => onSave(f))}><Ic name="check" size={13} /> Criar lead</button>
         </>}>
         <div className="col" style={{ gap: 12 }}>
@@ -544,7 +543,7 @@
             </div>
             <div><label className="label">Atendente</label><select className="input" value={f.attendant} onChange={(e) => set('attendant', e.target.value)}>{ATTENDANTS.filter((a) => a !== '—').map((a) => <option key={a} value={a}>{a}</option>)}</select></div>
           </div>
-          <div><label className="label">Observações</label><textarea className="input" rows={3} /></div>
+          <div><label className="label">Observações</label><textarea className="input" rows={3} value={f.obs} onChange={(e) => set('obs', e.target.value)} /></div>
         </div>
       </Drawer>);
   }
@@ -552,7 +551,7 @@
   function ImportLeadsDrawer({ onClose }) {
     return (
       <Drawer title="Importar Leads" subtitle="Importe leads de uma planilha (CSV/XLSX)" onClose={onClose} width="40vw"
-      footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-primary" onClick={onClose}><Ic name="upload" size={13} /> Importar</button></>}>
+      footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><button className="btn btn-primary" onClick={onClose}><Ic name="upload" size={13} /> Importar</button></>}>
         <div className="col" style={{ gap: 14 }}>
           <div style={{ padding: 24, border: '2px dashed var(--border-strong)', borderRadius: 12, textAlign: 'center', background: 'var(--surface-2)' }}>
             <Ic name="upload" size={28} style={{ color: 'var(--text-faint)' }} />

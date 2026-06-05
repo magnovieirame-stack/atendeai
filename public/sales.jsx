@@ -302,6 +302,7 @@
             </div>
             <div className="sale-cell sale-cell-code">Código</div>
             <div className="sale-cell sale-cell-client">Cliente</div>
+            <div className="sale-cell sale-cell-spacer" aria-hidden="true"></div>
             <div className="sale-cell sale-cell-date">Data/Hora</div>
             <div className="sale-cell sale-cell-seller">Vendedor</div>
             <div className="sale-cell sale-cell-pay">Pagamento</div>
@@ -338,6 +339,7 @@
                         <div className="sale-client-s"><Ic name="map-pin" size={11} style={{ flexShrink: 0, opacity: .8 }} /><span>{s.cidade}</span></div>
                       </div>
                     </div>
+                    <div className="sale-cell sale-cell-spacer" aria-hidden="true"></div>
                     <div className="sale-cell sale-cell-date">
                       <div className="sale-line"><Ic name="calendar" size={12} /><span className="sale-line-l">DATA/HORA</span></div>
                       <span className="sale-line-v">{s.dateStr}</span>
@@ -380,7 +382,7 @@
         {cancelOf && <SaleCancelModal sale={cancelOf} onClose={() => setCancelOf(null)} onConfirm={(reason) => {cancelSale(cancelOf.id, reason);setCancelOf(null);}} />}
         {confirmDel &&
         <Modal title="Excluir venda" onClose={() => setConfirmDel(null)} size="sm"
-        footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={() => setConfirmDel(null)}>Cancelar</button>
+        footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={() => setConfirmDel(null)}>Voltar</button>
               <button className="btn" style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white' }} onClick={() => deleteSale(confirmDel.id)}><Ic name="trash" size={13} /> Excluir</button></>}>
             <div style={{ display: 'flex', gap: 12, padding: '6px 4px' }}>
               <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'color-mix(in oklab, #dc2626 12%, white)', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name="trash" size={18} /></div>
@@ -533,7 +535,7 @@
     const addItem = () => setItems((p) => [...p, { name: 'Novo item', qty: 1, price: 0 }]);
     return (
       <Drawer title={`Editar venda Nº ${sale.code}`} subtitle={`${sale.dateStr} · cliente ${sale.client}`} onClose={onClose} width={580}
-      footer={(close) => <><div style={{ flex: 1 }} /><button className="btn" onClick={() => close()}>Cancelar</button>
+      footer={(close) => <><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
           <button className="btn btn-save" onClick={() => close(() => onSave({ client, seller, loja, method, discount: Number(discount) || 0, notes, items, subtotal, value }))}><Ic name="check" size={13} /> Salvar alterações</button>
         </>}>
         <div className="col" style={{ gap: 12 }}>
@@ -615,7 +617,7 @@
     const [notes, setNotes] = React.useState('');
     return (
       <Modal title="Cancelar venda" onClose={onClose} size="md"
-      footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onClose}>Voltar</button>
+      footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
           <button className="btn" style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white' }} onClick={() => onConfirm(notes ? `${reason} — ${notes}` : reason)}><Ic name="x" size={13} /> Cancelar venda</button></>}>
         <div style={{ display: 'flex', gap: 12, padding: '4px 0 12px' }}>
           <div style={{ width: 40, height: 40, borderRadius: '50%', background: '#fef2f2', color: '#b91c1c', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name="x" size={18} /></div>
@@ -695,7 +697,7 @@
         .sales-chip:hover { border-color: var(--border-strong); color: var(--text); }
         .sales-chip.on { border-color: var(--accent); background: var(--accent-soft); color: var(--accent-700); }
 
-        .sale-row { display: grid; grid-template-columns: min-content 116px minmax(249px, 0.75fr) minmax(0, 130px) minmax(0, 124px) minmax(0, 136px) minmax(0, 110px) minmax(16px, 1fr) 44px; gap: 16px; padding: 12px 16px; align-items: center; }
+        .sale-row { display: grid; grid-template-columns: min-content 116px minmax(249px, 0.75fr) minmax(16px, 1fr) minmax(0, 130px) minmax(0, 124px) minmax(0, 136px) minmax(0, 110px) minmax(16px, 1fr) 44px; gap: 16px; padding: 12px 16px; align-items: center; }
         .sale-body { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; margin: 0 8px; transition: box-shadow .15s, border-color .15s; }
         .sale-body:hover { box-shadow: 0 2px 10px rgba(15,23,42,.06); border-color: var(--border-strong); }
         .sale-body.sale-canceled { opacity: .68; }

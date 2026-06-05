@@ -1,6 +1,38 @@
 // crm.jsx — CRM Kanban: list, board, card detail
 
-function BoardCard({ board, onOpen, onEdit }) {
+// Data de criação do card no formato "04 JUN 26" (dia, mês PT abreviado, ano 2 dígitos).
+const CRM_MESES3 = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+function fmtCardDate(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const dd = String(d.getDate()).padStart(2, '0');
+  const mmm = CRM_MESES3[d.getMonth()];
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd} ${mmm} ${yy}`;
+}
+
+// Estilos do card do CRM (injetados uma vez):
+//  • rodapé: força os 5 ícones ao MESMO tamanho (cada glifo tem override próprio no icons.jsx)
+//  • linha de tags: ícone de overflow menor + popover das tags ocultas
+(function injectCrmCardStyles() {
+  if (typeof document === 'undefined' || document.getElementById('__crm_card_styles')) return;
+  const s = document.createElement('style');
+  s.id = '__crm_card_styles';
+  s.textContent = `
+    .crm-foot-ic svg { width: 20px !important; height: 20px !important; }
+    .crm-tagmore svg { width: 16px !important; height: 16px !important; }
+    /* ícone na frente dos campos do card — altura = 1em (proporcional à fonte) */
+    .crm-fic { width: 1em !important; height: 1em !important; flex-shrink: 0; color: var(--text-faint); }
+    .crm-tagpop { position: fixed; z-index: 1000; display: flex; flex-wrap: wrap; gap: 4px;
+      max-width: 240px; padding: 8px; border-radius: 10px;
+      background: var(--surface); border: 1px solid var(--border);
+      box-shadow: 0 14px 36px -10px rgba(15,23,42,.30), 0 4px 10px -4px rgba(15,23,42,.12); }
+  `;
+  document.head.appendChild(s);
+})();
+
+function BoardCard({ board, onOpen, onEdit, onDelete }) {
   const [hover, setHover] = React.useState(false);
   const totalValue = (board.columns || []).reduce((s, c) => s + (c.value || 0), 0);
   const totalCards = (board.columns || []).reduce((s, c) => s + (c.count || 0), 0) || board.cards;
@@ -12,6 +44,8 @@ function BoardCard({ board, onOpen, onEdit }) {
       className="card"
       style={{
         overflow: 'hidden',
+        display: 'flex',
+        flexDirection: 'column',
         cursor: 'pointer',
         transform: hover ? 'translateY(-2px)' : 'translateY(0)',
         boxShadow: hover ?
@@ -21,17 +55,17 @@ function BoardCard({ board, onOpen, onEdit }) {
         transition: 'transform .18s ease, box-shadow .18s ease, border-color .18s ease'
       }}>
       <div style={{ height: 6, background: board.color }} />
-      <div className="card-pad">
+      <div className="card-pad" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: 16 }}>
         <div className="row">
-          <div className="h3">{board.name}</div>
-          <div className="spacer" />
-          <span className="badge badge-accent">{totalCards} cards</span>
+          <div className="h3" style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{board.name}</div>
+          <span className="badge badge-accent" style={{ flexShrink: 0, marginLeft: 8 }}>{totalCards} cards</span>
         </div>
-        <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>{board.desc}</div>
+        <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4, height: 34, lineHeight: '17px', overflow: 'hidden', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical' }}>{board.desc}</div>
 
-        {/* Mini stats — vertical color strokes per column with count + value below */}
-        {board.columns && board.columns.length > 0 &&
-        <div style={{ marginTop: 14, padding: '10px 2px 4px', borderTop: '1px dashed var(--border)' }}>
+        {/* Área de colunas — altura FIXA sempre (em branco quando o funil não tem colunas) */}
+        <div style={{ boxSizing: 'border-box', height: 106, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)', overflow: 'hidden' }}>
+          {board.columns && board.columns.length > 0 &&
+          <>
             <div style={{
             display: 'grid',
             gridTemplateColumns: `repeat(${board.columns.length}, 1fr)`,
@@ -65,10 +99,11 @@ function BoardCard({ board, onOpen, onEdit }) {
               <span style={{ textTransform: 'uppercase', fontWeight: 600 }}>{board.columns.length} colunas</span>
               <span style={{ fontWeight: 700, color: 'var(--text)', fontSize: 12 }}>{formatBRL(totalValue)}</span>
             </div>
-          </div>
-        }
+          </>
+          }
+        </div>
 
-        <div className="row" style={{ marginTop: 12, gap: 10, fontSize: 'var(--type-xs)', color: 'var(--text-faint)' }}>
+        <div className="row" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)', gap: 10, fontSize: 'var(--type-xs)', color: 'var(--text-faint)' }}>
           <span className="row" style={{ gap: 4 }}><Ic name="clock" size={12} /> {board.updated}</span>
           <div className="spacer" />
           <button
@@ -76,6 +111,12 @@ function BoardCard({ board, onOpen, onEdit }) {
             title="Editar funil"
             onClick={(e) => {e.stopPropagation();onEdit && onEdit();}}>
             <Ic name="edit" size={13} />
+          </button>
+          <button
+            className="btn btn-ghost btn-icon crm-del-btn"
+            title="Excluir funil"
+            onClick={(e) => {e.stopPropagation();onDelete && onDelete();}}>
+            <Ic name="trash" size={13} />
           </button>
         </div>
       </div>
@@ -94,7 +135,7 @@ function BoardFormModal({ mode, initial, onClose, onSave }) {
       onClose={onClose}
       size="sm"
       footer={(close) => <>
-        <button className="btn" onClick={() => close()}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
         <button className="btn btn-save" disabled={!name.trim() || !color} onClick={() => close(() => onSave({ name: name.trim(), desc: desc.trim(), color }))}>
           {isEdit ? 'Salvar' : 'Criar'}
         </button>
@@ -126,6 +167,7 @@ function CRMList() {
   const [boards, setBoards] = React.useState(null); // null = carregando
   const [showNew, setShowNew] = React.useState(false);
   const [editing, setEditing] = React.useState(null);
+  const [deleting, setDeleting] = React.useState(null);
   React.useEffect(() => { API.getFunis().then((r) => setBoards(r.funis || [])).catch(() => setBoards([])); }, []);
 
   const handleCreate = async (data) => {
@@ -136,9 +178,14 @@ function CRMList() {
     const id = editing.id; setEditing(null);
     try { await API.updateFunil(id, data.name, data.desc, data.color); setBoards((bs) => (bs || []).map((b) => b.id === id ? { ...b, name: data.name, desc: data.desc, color: data.color } : b)); } catch (e) {}
   };
+  const handleDelete = async (board) => {
+    setDeleting(null);
+    try { await API.deleteFunil(board.id); setBoards((bs) => (bs || []).filter((b) => b.id !== board.id)); } catch (e) {}
+  };
 
   return (
     <Page title="CRM Kanban" subtitle="Boards independentes para diferentes funis" actions={<button className="fin-new-btn" onClick={() => setShowNew(true)} aria-label="Novo CRM"><span className="fin-new-label">{'Novo CRM\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>}>
+      <style>{`.crm-del-btn:hover { color: #dc2626 !important; background: #fef2f2 !important; }`}</style>
       {boards === null ?
       <div className="muted" style={{ padding: 30 }}>Carregando funis…</div> :
       boards.length === 0 ?
@@ -149,11 +196,20 @@ function CRMList() {
           key={b.id}
           board={b}
           onOpen={() => setRoute('crm-board', b.id)}
-          onEdit={() => setEditing(b)} />
+          onEdit={() => setEditing(b)}
+          onDelete={() => setDeleting(b)} />
         )}
       </div>}
       {showNew && <BoardFormModal mode="new" onClose={() => setShowNew(false)} onSave={handleCreate} />}
       {editing && <BoardFormModal mode="edit" initial={editing} onClose={() => setEditing(null)} onSave={handleSaveEdit} />}
+      {deleting &&
+      <Modal title="Excluir funil" onClose={() => setDeleting(null)} size="sm" footer={(close) => <>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
+          <button className="btn btn-delete" onClick={() => close(() => handleDelete(deleting))}>Excluir</button>
+        </>}>
+          <div style={{ fontSize: 'var(--type-sm)' }}>Tem certeza que deseja excluir o funil <strong>{deleting.name}</strong>? Todas as fases e os cards deste funil também serão removidos. Esta ação não pode ser desfeita.</div>
+        </Modal>
+      }
     </Page>);
 
 }
@@ -171,7 +227,7 @@ function CRMBoard() {
   const [funil, setFunil] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
 
-  const cardFromApi = (c) => ({ _id: 'c' + c.id, _cardId: c.id, phase: c.faseId, name: c.name, company: c.company, phone: c.phone, email: c.email, value: c.value, foto: c.foto, tags: [], pinned: false });
+  const cardFromApi = (c) => ({ _id: 'c' + c.id, _cardId: c.id, clienteId: c.clienteId, phase: c.faseId, name: c.name, company: c.company, phone: c.phone, email: c.email, value: c.value, foto: c.foto, date: fmtCardDate(c.criadoEm), tags: c.tags || [], tipo: c.tipo || 'cliente', pinned: c.fixado === true, pinnedAt: c.fixado === true ? 1 : null });
 
   React.useEffect(() => {
     let alive = true;
@@ -235,7 +291,12 @@ function CRMBoard() {
     };
   }, [draggingId, findPhaseAt]);
 
-  const togglePin = (id) => setCards((cs) => cs.map((c) => c._id === id ? { ...c, pinned: !c.pinned, pinnedAt: !c.pinned ? Date.now() : null } : c));
+  const togglePin = (id) => setCards((cs) => cs.map((c) => {
+    if (c._id !== id) return c;
+    const nv = !c.pinned;
+    if (c._cardId) API.toggleCardFixar(c._cardId, nv).catch(() => {}); // persiste no banco (best-effort)
+    return { ...c, pinned: nv, pinnedAt: nv ? Date.now() : null };
+  }));
   const removeCard = (id) => setCards((cs) => { const card = cs.find((c) => c._id === id); if (card && card._cardId) API.deleteCard(card._cardId).catch(() => {}); return cs.filter((c) => c._id !== id); });
   const moveCardToPhase = (cardId, phaseId) => {
     // o phaseId do arrasto pode vir como string; normaliza p/ o id real da fase (número)
@@ -258,7 +319,7 @@ function CRMBoard() {
   });
   const addCard = async (phaseId, data) => {
     try {
-      const r = await API.addCardCliente(phaseId, { nome: data.name, empresa: data.company, telefone: data.phone, email: data.email, valor: data.value });
+      const r = await API.addCardCliente(phaseId, { nome: data.name, empresa: data.company, telefone: data.phone, email: data.email, valor: data.value, tags: data.tags || [], tipo: data.tipo || 'cliente' });
       setCards((cs) => [...cs, cardFromApi(r.card)]);
     } catch (e) {}
   };
@@ -424,7 +485,8 @@ function CRMBoard() {
       {apptCard && window.NewAppointment &&
       <window.NewAppointment
         onClose={() => setApptCard(null)}
-        defaultClient={apptCard.name}
+        defaultParticipante={{ name: apptCard.name, clienteId: apptCard.clienteId || null, phone: apptCard.phone || '', tipo: apptCard.tipo || null }}
+        onSave={(dto) => { API.createAppt(dto).catch(() => {}); setApptCard(null); }}
         defaultResponsible={apptCard.attendant && apptCard.attendant !== '—' && apptCard.attendant !== 'Agente IA' ? apptCard.attendant : ''} />}
       {chatCard && window.QueuePreviewDrawer && (() => {
         const chatChannel = chatCard.channel || 'whatsapp';
@@ -472,7 +534,7 @@ function CRMBoard() {
       )}
       {confirmDel &&
       <Modal title="Excluir card" onClose={() => setConfirmDel(null)} size="sm" footer={(close) => <>
-          <button className="btn" onClick={() => close()}>Cancelar</button>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
           <button className="btn btn-delete" onClick={() => close(() => removeCard(confirmDel._id))}>Excluir</button>
         </>}>
           <div style={{ fontSize: 'var(--type-sm)' }}>Tem certeza que deseja excluir o card de <strong>{confirmDel.name}</strong>? Esta ação não pode ser desfeita.</div>
@@ -521,7 +583,7 @@ function NewPhaseModal({ phases, onSave, onClose }) {
   const [idx, setIdx] = React.useState(phases.length);
   return (
     <Modal title="Nova coluna" onClose={onClose} size="sm" footer={<>
-      <button className="btn" onClick={onClose}>Cancelar</button>
+      <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
       <button className="btn btn-primary" disabled={!label.trim() || !color} onClick={() => onSave({ id: `ph-${Date.now()}`, label: label.toUpperCase(), color, value: 0 }, idx)}>Criar</button>
     </>}>
       <div className="col" style={{ gap: 12 }}>
@@ -560,7 +622,7 @@ function EditPhaseModal({ phase, phases, onSave, onDelete, onClose }) {
   return (
     <Modal title="Editar fase" onClose={onClose} size="sm" footer={(close) => <>
       <button className="btn btn-delete-soft" onClick={() => setConfirmDel(true)} style={{ marginRight: 'auto' }}><Ic name="trash" size={13} /> Excluir</button>
-      <button className="btn" onClick={() => close()}>Cancelar</button>
+      <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
       <button className="btn btn-save" onClick={() => close(() => onSave(label, idx, color))}>Salvar</button>
     </>}>
       <div className="col" style={{ gap: 12 }}>
@@ -585,7 +647,7 @@ function EditPhaseModal({ phase, phases, onSave, onDelete, onClose }) {
       </div>
       {confirmDel &&
       <Modal title="Excluir fase" onClose={() => setConfirmDel(false)} size="sm" footer={(close) => <>
-          <button className="btn" onClick={() => close()}>Cancelar</button>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
           <button className="btn btn-delete" onClick={() => close(() => { onDelete && onDelete(); })}>Excluir fase</button>
         </>}>
           <div style={{ fontSize: 'var(--type-sm)' }}>Tem certeza que deseja excluir a fase <strong>{phase.label}</strong>? Os cards desta fase também serão removidos. Esta ação não pode ser desfeita.</div>
@@ -632,7 +694,7 @@ function TagPicker({ value = [], onChange, presets = CRM_TAG_PRESETS }) {
         {value.length === 0 && <span style={{ color: 'var(--text-faint)', fontSize: 'var(--type-sm)' }}>Selecione ou digite uma tag...</span>}
         {value.map((t) =>
         <span key={t.label} style={{
-          fontSize: 11, fontWeight: 600, padding: '3px 8px 3px 10px', borderRadius: 12,
+          fontSize: 11, fontWeight: 600, textTransform: 'uppercase', padding: '3px 8px 3px 10px', borderRadius: 12,
           background: `color-mix(in oklab, ${t.color} 14%, #fff)`, color: t.color,
           border: `1px solid color-mix(in oklab, ${t.color} 30%, #fff)`,
           display: 'inline-flex', alignItems: 'center', gap: 6
@@ -656,7 +718,7 @@ function TagPicker({ value = [], onChange, presets = CRM_TAG_PRESETS }) {
             const on = has(t.label);
             return (
               <span key={t.label} onClick={() => toggle(t)} style={{
-                fontSize: 11, fontWeight: 600, padding: '4px 10px', borderRadius: 12, cursor: 'pointer',
+                fontSize: 11, fontWeight: 600, textTransform: 'uppercase', padding: '4px 10px', borderRadius: 12, cursor: 'pointer',
                 background: on ? t.color : `color-mix(in oklab, ${t.color} 10%, #fff)`,
                 color: on ? '#fff' : t.color,
                 border: `1px solid ${on ? t.color : `color-mix(in oklab, ${t.color} 30%, #fff)`}`,
@@ -681,12 +743,13 @@ function AddCardModal({ phase, onSave, onClose }) {
   const [phone, setPhone] = React.useState('');
   const [email, setEmail] = React.useState('');
   const [value, setValue] = React.useState('');
+  const [tipo, setTipo] = React.useState('cliente');
   const [tags, setTags] = React.useState([]);
   const today = new Date().toLocaleDateString('pt-BR', { day: '2-digit', month: 'short', year: 'numeric' }).replace('.', '');
   return (
     <Modal title={`Novo card · ${phase.label}`} onClose={onClose} size="md" footer={(close) => <>
-      <button className="btn" onClick={() => close()}>Cancelar</button>
-      <button className="btn btn-save" onClick={() => close(() => onSave({ name: name || 'Sem nome', company, phone, email, value: parseFloat(value) || 0, tags, date: today, ai: false }))}>Adicionar</button>
+      <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
+      <button className="btn btn-save" onClick={() => close(() => onSave({ name: name || 'Sem nome', company, phone, email, value: Mask.moneyToNumber(value), tipo, tags, date: today, ai: false }))}>Adicionar</button>
     </>}>
       <div className="col" style={{ gap: 12 }}>
         <div className="row" style={{ gap: 10 }}>
@@ -699,13 +762,19 @@ function AddCardModal({ phase, onSave, onClose }) {
         </div>
         <div className="row" style={{ gap: 10 }}>
           <div style={{ flex: 1 }}><label className="label">Valor estimado</label><MoneyInput value={value} onChange={(v) => setValue(v)} /></div>
-          <div style={{ flex: 1 }} />
+          <div style={{ flex: 1 }}>
+            <label className="label">Tipo de contato</label>
+            <select className="input" value={tipo} onChange={(e) => setTipo(e.target.value)}>
+              <option value="cliente">Cliente</option>
+              <option value="lead">Lead</option>
+            </select>
+          </div>
         </div>
         <div>
           <label className="label">Tags</label>
           <TagPicker value={tags} onChange={setTags} />
         </div>
-        <div style={{ fontSize: 'var(--type-xs)', color: 'var(--text-faint)' }}>Card será adicionado à fase <strong style={{ color: phase.color }}>{phase.label}</strong> com data {today}.</div>
+        <div style={{ fontSize: 'var(--type-xs)', color: 'var(--text-faint)' }}>Card será adicionado à fase <strong style={{ color: phase.color }}>{phase.label}</strong> com data {today}.{tipo === 'lead' ? ' Também será cadastrado na página de Leads.' : ''}</div>
       </div>
     </Modal>);
 
@@ -716,6 +785,33 @@ function CRMCard({ card, phaseColor, isDragging, floating, floatingX, floatingY,
   const stop = (e, fn) => {e.stopPropagation();fn && fn();};
   const wrapRef = React.useRef(null);
   const downRef = React.useRef(null);
+
+  // Linha de tags: mantém 1 linha só e detecta overflow p/ mostrar o ícone "mais tags".
+  const tagsRef = React.useRef(null);
+  const [tagOverflow, setTagOverflow] = React.useState(false);
+  const [tagPop, setTagPop] = React.useState(null); // {top,left} do popover, ou null
+  React.useLayoutEffect(() => {
+    const el = tagsRef.current;
+    if (!el) return;
+    const check = () => setTagOverflow(el.scrollWidth - el.clientWidth > 1);
+    check();
+    let ro;
+    if (window.ResizeObserver) { ro = new ResizeObserver(check); ro.observe(el); }
+    return () => { if (ro) ro.disconnect(); };
+  }, [card.tags]);
+  React.useEffect(() => {
+    if (!tagPop) return;
+    const close = () => setTagPop(null);
+    window.addEventListener('click', close);
+    window.addEventListener('resize', close);
+    window.addEventListener('scroll', close, true);
+    return () => { window.removeEventListener('click', close); window.removeEventListener('resize', close); window.removeEventListener('scroll', close, true); };
+  }, [tagPop]);
+  const openTagPop = (e) => {
+    e.stopPropagation();
+    const r = e.currentTarget.getBoundingClientRect();
+    setTagPop({ top: r.bottom + 4, left: Math.max(8, Math.min(r.left, window.innerWidth - 252)) });
+  };
 
   const handleMouseDown = (e) => {
     if (floating) return;
@@ -759,6 +855,7 @@ function CRMCard({ card, phaseColor, isDragging, floating, floatingX, floatingY,
   };
   const iconBtn = (name, title, onClick, tint, sz) =>
   <button
+    className="crm-foot-ic"
     onClick={(e) => stop(e, onClick)}
     title={title}
     style={{
@@ -820,36 +917,64 @@ function CRMCard({ card, phaseColor, isDragging, floating, floatingX, floatingY,
       {/* Header: name + date */}
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={{ fontWeight: 700, fontSize: 13, letterSpacing: '.02em', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{card.name}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 3, fontWeight: 600, letterSpacing: '.02em' }}>{card.company}</div>
-          <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2 }}>{card.phone}</div>
-          {card.email && <div style={{ fontSize: 11, color: 'var(--text-muted)', marginTop: 2, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.email}</div>}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 13, minWidth: 0 }}>
+            <Ic name="user" className="crm-fic" />
+            <span style={{ fontWeight: 700, letterSpacing: '.02em', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{card.name}</span>
+          </div>
+          {card.company && <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 3, minWidth: 0 }}>
+            <Ic name="building" className="crm-fic" />
+            <span style={{ color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.company}</span>
+          </div>}
+          {card.phone && <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 2, minWidth: 0 }}>
+            <Ic name="phone" className="crm-fic" />
+            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.phone}</span>
+          </div>}
+          {card.email && <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 2, minWidth: 0 }}>
+            <Ic name="mail" className="crm-fic" />
+            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.email}</span>
+          </div>}
         </div>
-        <div style={{ fontSize: 10.5, color: 'var(--text-faint)', whiteSpace: 'nowrap', paddingTop: 1 }}>{card.date}</div>
+        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.04em', color: 'var(--text-faint)', whiteSpace: 'nowrap', paddingTop: 1, flexShrink: 0 }}>{card.date}</div>
       </div>
 
-      {/* Tags + menu icon row */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, marginBottom: 2, minHeight: 22 }}>
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, minWidth: 0 }}>
-          {card.tags && card.tags.map((t, i) =>
+      {/* Tags — altura fixa (igual com/sem tag), sempre 1 linha. Ícone de overflow
+          fica invisível e só aparece quando as tags não cabem; clicando, abre o popover. */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 6, marginBottom: 2, height: 24 }}>
+        <div ref={tagsRef} style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, flex: 1, minWidth: 0, overflow: 'hidden', alignItems: 'center' }}>
+          {(card.tags || []).map((t, i) =>
           <span key={i} style={{
-            fontSize: 9, fontWeight: 700, letterSpacing: '.04em',
+            fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase',
+            padding: '2px 6px', borderRadius: 999,
+            background: `${t.color}1A`, color: t.color,
+            border: `1px solid ${t.color}33`,
+            whiteSpace: 'nowrap', flexShrink: 0
+          }}>{t.label}</span>
+          )}
+        </div>
+        <button
+          className="crm-tagmore"
+          onClick={openTagPop}
+          title="Mostrar todas as tags"
+          style={{ background: 'transparent', border: 'none', cursor: 'default', color: 'var(--text-faint)', padding: '2px 4px', display: 'flex', alignItems: 'center', borderRadius: 6, transition: 'background .12s ease, color .12s ease', flexShrink: 0, visibility: tagOverflow ? 'visible' : 'hidden' }}
+          onMouseEnter={(e) => {e.currentTarget.style.background = 'var(--surface-2)';e.currentTarget.style.color = 'var(--text)';}}
+          onMouseLeave={(e) => {e.currentTarget.style.background = 'transparent';e.currentTarget.style.color = 'var(--text-faint)';}}>
+          <Ic name="more" size={16} />
+        </button>
+      </div>
+      {tagPop && ReactDOM.createPortal(
+        <div className="crm-tagpop" style={{ top: tagPop.top, left: tagPop.left }} onClick={(e) => e.stopPropagation()} onMouseDown={(e) => e.stopPropagation()}>
+          {(card.tags || []).map((t, i) =>
+          <span key={i} style={{
+            fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase',
             padding: '2px 6px', borderRadius: 999,
             background: `${t.color}1A`, color: t.color,
             border: `1px solid ${t.color}33`,
             whiteSpace: 'nowrap'
           }}>{t.label}</span>
           )}
-        </div>
-        <button
-          onClick={(e) => stop(e)}
-          title="Mais opções"
-          style={{ background: 'transparent', border: 'none', cursor: 'default', color: 'var(--text-faint)', padding: '4px 6px', display: 'flex', alignItems: 'center', borderRadius: 6, transition: 'background .12s ease, color .12s ease', flexShrink: 0 }}
-          onMouseEnter={(e) => {e.currentTarget.style.background = 'var(--surface-2)';e.currentTarget.style.color = 'var(--text)';}}
-          onMouseLeave={(e) => {e.currentTarget.style.background = 'transparent';e.currentTarget.style.color = 'var(--text-faint)';}}>
-          <Ic name="lines-3" size={15} />
-        </button>
-      </div>
+        </div>,
+        document.body)
+      }
 
       {/* Divider */}
       <div style={{ height: 1, background: 'var(--border)', margin: '2px -4px 8px' }} />
@@ -884,7 +1009,7 @@ function LeadProfileLeft({ card, subtab, setSubtab }) {
         {tags.length > 0 &&
         <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', marginTop: 8 }}>
             {tags.map((t, i) =>
-          <span key={i} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `color-mix(in oklab, ${t.color} 14%, #fff)`, color: t.color, fontWeight: 600, border: `1px solid color-mix(in oklab, ${t.color} 30%, transparent)` }}>{t.label}</span>
+          <span key={i} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `color-mix(in oklab, ${t.color} 14%, #fff)`, color: t.color, fontWeight: 600, textTransform: 'uppercase', border: `1px solid color-mix(in oklab, ${t.color} 30%, transparent)` }}>{t.label}</span>
           )}
             <button style={{ width: 18, height: 18, borderRadius: '50%', border: '1px solid var(--border)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, cursor: 'pointer' }}>+</button>
           </div>
@@ -1628,7 +1753,7 @@ function NewContractDrawer({ card, onClose }) {
       onClose={onClose} width={620}
       rightHead={<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, marginRight: 6 }}><span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '.06em' }}>NÚMERO</span><strong className="tnum" style={{ fontSize: 12, color: 'var(--text)' }}>{num}</strong></div>}
       footer={(close) => <>
-        <button className="btn" onClick={() => close()}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
         <div style={{ flex: 1 }} />
         <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close()}><Ic name="check" size={13} /> Salvar contrato</button>
       </>}>

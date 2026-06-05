@@ -91,7 +91,7 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
             Quanto mais detalhado, melhor o agente vende e tira dúvidas.
           </span>
         </div>
-        <button className="btn" onClick={() => close()}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
         <button className="btn btn-save" onClick={() => close(save)}>
           <Ic name="check" size={13} /> {isEdit ? 'Salvar alterações' : 'Salvar item'}
         </button>

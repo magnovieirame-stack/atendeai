@@ -107,7 +107,7 @@
                   letterSpacing: '-.015em'
                 }} />
             </div>
-            <button className="btn btn-sm" onClick={onClose}>Cancelar</button>
+            <button className="btn btn-sm fin-btn-back" onClick={onClose}>Voltar</button>
             <button className="btn btn-save btn-sm" onClick={save}>
               <Ic name="check" size={13} /> {isNew ? 'Criar template' : 'Salvar'}
             </button>

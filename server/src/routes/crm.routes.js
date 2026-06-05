@@ -7,6 +7,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
+import { adminClient } from '../lib/supabase.js';
+import { criarNotificacao } from '../lib/notify.js';
 
 export const crmRouter = Router();
 crmRouter.use(requireAuth);
@@ -33,10 +35,48 @@ function mapCard(rel, cli) {
     email: cli ? cli.email || null : null,
     value: cli ? cli.valor || 0 : 0,
     foto: cli ? cli.fotolink || null : null,
+    criadoEm: rel.created_at || null,   // data de criação do card (crm-clientesfunil)
+    // tags jsonb [{label,color}] — todo card tem no mínimo a tag do tipo (Cliente/Lead)
+    tags: withTipoTag(Array.isArray(rel.tags) ? rel.tags : [], rel.tipo === 'lead' ? 'lead' : 'cliente'),
+    fixado: rel.fixado === true,        // card fixado no topo (coluna opcional)
+    tipo: rel.tipo === 'lead' ? 'lead' : 'cliente', // cliente | lead (coluna opcional)
   };
 }
 
 const SEL_CLI = 'id,nome,empresa,telefone,email,valor,fotolink';
+
+// Tag automática por tipo de card (jsonb {label,color}) — todo card tem pelo menos uma.
+const CARD_TIPO_TAG = {
+  cliente: { label: 'Cliente', color: '#16A34A' }, // verde
+  lead: { label: 'Lead', color: '#3B82F6' },       // azul
+};
+
+// Garante que a empresa tenha as 2 tags padrão no catálogo (tabela 'tags').
+// Idempotente: cria se faltar, ajusta a cor canônica se divergir. Best-effort.
+async function ensureCrmDefaultTags(req, empresaId) {
+  if (!empresaId) return;
+  try {
+    const { data: ex } = await req.supabase.from('tags').select('id,nome,cor').eq('empresaid', empresaId);
+    const byName = {};
+    (ex || []).forEach((t) => { byName[(t.nome || '').trim().toLowerCase()] = t; });
+    for (const key of ['cliente', 'lead']) {
+      const def = CARD_TIPO_TAG[key];
+      const cur = byName[def.label.toLowerCase()];
+      if (!cur) {
+        await req.supabase.from('tags').insert({ nome: def.label, cor: def.color, empresaid: empresaId });
+      } else if ((cur.cor || '').toLowerCase() !== def.color.toLowerCase()) {
+        await req.supabase.from('tags').update({ cor: def.color }).eq('id', cur.id);
+      }
+    }
+  } catch (e) { /* best-effort: não bloqueia o fluxo */ }
+}
+
+// Mescla a tag do tipo (Cliente/Lead) com as tags escolhidas, sem duplicar.
+function withTipoTag(tags, tipo) {
+  const base = CARD_TIPO_TAG[tipo] || CARD_TIPO_TAG.cliente;
+  const rest = (Array.isArray(tags) ? tags : []).filter((t) => (t.label || '').trim().toLowerCase() !== base.label.toLowerCase());
+  return [base, ...rest];
+}
 
 function fmtData(iso) {
   if (!iso) return '';
@@ -49,11 +89,16 @@ function fmtData(iso) {
 // ---- GET /api/crm/funis — lista de funis com estatísticas por fase ----
 crmRouter.get('/funis', async (req, res, next) => {
   try {
-    const { data: funis, error } = await req.supabase.from('crm-funil')
-      .select('id,nome,descricao,cor_funil,created_at').order('created_at', { ascending: true });
-    if (error) throw error;
-    const { data: fases } = await req.supabase.from('crm-fasefunil').select('id,nome,cor_funil,pos,funil');
-    const { data: rels } = await req.supabase.from('crm-clientesfunil').select('id,cliente,fase');
+    // funis, fases e cards são independentes -> em PARALELO (4 round-trips viram 2).
+    const [funisRes, fasesRes, relsRes] = await Promise.all([
+      req.supabase.from('crm-funil').select('id,nome,descricao,cor_funil,created_at').order('created_at', { ascending: true }),
+      req.supabase.from('crm-fasefunil').select('id,nome,cor_funil,pos,funil'),
+      req.supabase.from('crm-clientesfunil').select('id,cliente,fase'),
+    ]);
+    if (funisRes.error) throw funisRes.error;
+    const funis = funisRes.data;
+    const fases = fasesRes.data;
+    const rels = relsRes.data;
 
     const cliIds = [...new Set((rels || []).map((r) => r.cliente).filter(Boolean))];
     const valorByCli = {};
@@ -79,13 +124,20 @@ crmRouter.get('/funis', async (req, res, next) => {
 crmRouter.get('/funis/:id', async (req, res, next) => {
   try {
     const id = uuid.parse(req.params.id);
-    const { data: funil, error } = await req.supabase.from('crm-funil').select('id,nome,descricao,cor_funil').eq('id', id).single();
-    if (error || !funil) return res.status(404).json({ error: 'Funil não encontrado.' });
-    const { data: fases } = await req.supabase.from('crm-fasefunil').select('id,nome,cor_funil,pos').eq('funil', id).order('pos', { ascending: true });
+    // semeia as tags padrão (Cliente/Lead) da empresa — automático ao abrir o CRM.
+    ensureCrmDefaultTags(req, await getEmpresaId(req)).catch(() => {});
+    // funil e fases dependem só do :id (não um do outro) -> em PARALELO.
+    const [funilRes, fasesRes] = await Promise.all([
+      req.supabase.from('crm-funil').select('id,nome,descricao,cor_funil').eq('id', id).single(),
+      req.supabase.from('crm-fasefunil').select('id,nome,cor_funil,pos').eq('funil', id).order('pos', { ascending: true }),
+    ]);
+    if (funilRes.error || !funilRes.data) return res.status(404).json({ error: 'Funil não encontrado.' });
+    const funil = funilRes.data;
+    const fases = fasesRes.data;
     const faseIds = (fases || []).map((f) => f.id);
     let cards = [];
     if (faseIds.length) {
-      const { data: rels } = await req.supabase.from('crm-clientesfunil').select('id,cliente,fase').in('fase', faseIds);
+      const { data: rels } = await req.supabase.from('crm-clientesfunil').select('*').in('fase', faseIds);
       const cliIds = [...new Set((rels || []).map((r) => r.cliente).filter(Boolean))];
       const cliById = {};
       if (cliIds.length) { const { data: cls } = await req.supabase.from('clientes').select(SEL_CLI).in('id', cliIds); (cls || []).forEach((c) => { cliById[c.id] = c; }); }
@@ -116,7 +168,7 @@ crmRouter.post('/cards', validateBody(addCardSchema), async (req, res, next) => 
   try {
     const empresaId = await getEmpresaId(req);
     const { data, error } = await req.supabase.from('crm-clientesfunil')
-      .insert({ cliente: req.body.clienteId, fase: req.body.faseId, empresa_id: empresaId }).select('id,cliente,fase').single();
+      .insert({ cliente: req.body.clienteId, fase: req.body.faseId, empresa_id: empresaId }).select('id,cliente,fase,created_at').single();
     if (error) throw error;
     const { data: cli } = await req.supabase.from('clientes').select(SEL_CLI).eq('id', req.body.clienteId).single();
     res.status(201).json({ card: mapCard(data, cli) });
@@ -131,19 +183,49 @@ const novoCardSchema = z.object({
   telefone: z.string().trim().max(40).optional().default(''),
   email: z.string().trim().max(120).optional().default(''),
   valor: z.coerce.number().optional().default(0),
+  tipo: z.enum(['cliente', 'lead']).optional().default('cliente'),
+  tags: z.array(z.object({ label: z.string().trim().max(60), color: z.string().trim().max(20) })).optional().default([]),
 }).strip();
 crmRouter.post('/cards/novo', validateBody(novoCardSchema), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
     const { nome, empresa, telefone, email, valor, faseId } = req.body;
+    const tipo = req.body.tipo === 'lead' ? 'lead' : 'cliente';
+    const tagList = Array.isArray(req.body.tags) ? req.body.tags : [];
+    const finalTags = withTipoTag(tagList, tipo); // todo card nasce com a tag Cliente/Lead
+    // garante as 2 tags padrão no catálogo da empresa
+    await ensureCrmDefaultTags(req, empresaId);
     const cliIns = await req.supabase.from('clientes')
       .insert({ nome, empresa: empresa || null, telefone, email, valor, empresa_id: empresaId }).select(SEL_CLI).single();
     if (cliIns.error) throw cliIns.error;
     const cli = cliIns.data;
     const relIns = await req.supabase.from('crm-clientesfunil')
-      .insert({ cliente: cli.id, fase: faseId, empresa_id: empresaId }).select('id,cliente,fase').single();
+      .insert({ cliente: cli.id, fase: faseId, empresa_id: empresaId }).select('id,cliente,fase,created_at').single();
     if (relIns.error) throw relIns.error;
-    res.status(201).json({ card: mapCard(relIns.data, cli) });
+    // tags/tipo: gravação "best-effort" — sempre grava as tags (mínimo a do tipo).
+    await req.supabase.from('crm-clientesfunil').update({ tags: finalTags }).eq('id', relIns.data.id);
+    await req.supabase.from('crm-clientesfunil').update({ tipo }).eq('id', relIns.data.id);
+    // Se o card é um Lead, cadastra também na tabela de leads (página Comercial > Leads).
+    if (tipo === 'lead') {
+      try {
+        const lrow = { nome, empresa: empresa || null, telefone: telefone || null, email: email || null, valor: valor || 0, fase: 'novo', origem: 'CRM', tags: [] };
+        if (empresaId) lrow.empresa_id = empresaId;
+        const { data: ld } = await adminClient().from('leads').insert(lrow).select('id,nome').single();
+        if (ld) await criarNotificacao({ empresaId, kind: 'lead', texto: 'Novo lead: ' + (ld.nome || 'sem nome'), link: 'leads' });
+      } catch (e) { /* best-effort: não impede a criação do card */ }
+    }
+    res.status(201).json({ card: mapCard({ ...relIns.data, tags: finalTags, tipo }, cli) });
+  } catch (err) { next(err); }
+});
+
+// ---- PATCH /api/crm/cards/:id/fixar — fixar/desafixar card (best-effort) ----
+const fixarSchema = z.object({ fixado: z.coerce.boolean() }).strip();
+crmRouter.patch('/cards/:id/fixar', validateBody(fixarSchema), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    // best-effort: se a coluna 'fixado' não existir, o update falha silenciosamente.
+    await req.supabase.from('crm-clientesfunil').update({ fixado: req.body.fixado }).eq('id', id);
+    res.json({ ok: true, fixado: req.body.fixado });
   } catch (err) { next(err); }
 });
 
@@ -183,6 +265,23 @@ crmRouter.patch('/funis/:id', validateBody(funilSchema), async (req, res, next) 
       .select('id,nome,descricao,cor_funil').single();
     if (error) throw error;
     res.json({ funil: { id: data.id, name: data.nome, desc: data.descricao || '', color: data.cor_funil } });
+  } catch (err) { next(err); }
+});
+
+// ---- DELETE /api/crm/funis/:id — remove o funil, suas fases e os cards (cascata) ----
+crmRouter.delete('/funis/:id', async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    // fases do funil -> remove primeiro os cards (crm-clientesfunil) dessas fases
+    const { data: fases } = await req.supabase.from('crm-fasefunil').select('id').eq('funil', id);
+    const faseIds = (fases || []).map((f) => f.id);
+    if (faseIds.length) {
+      await req.supabase.from('crm-clientesfunil').delete().in('fase', faseIds);
+      await req.supabase.from('crm-fasefunil').delete().eq('funil', id);
+    }
+    const { error } = await req.supabase.from('crm-funil').delete().eq('id', id);
+    if (error) throw error;
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 

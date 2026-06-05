@@ -69,7 +69,7 @@
     const valid = f.nome.trim().length >= 2;
     return (
       <Modal title="Cadastrar novo cliente" onClose={onClose} size="sm"
-        footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onClose}>Cancelar</button><button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => { if (valid) onSave(f); }}><Ic name="check" size={13} /> Salvar cliente</button></>}>
+        footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => { if (valid) onSave(f); }}><Ic name="check" size={13} /> Salvar cliente</button></>}>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
           <Field label="Nome / Razão social"><input className="input" autoFocus value={f.nome} onChange={(e) => set('nome', e.target.value)} placeholder="Nome do cliente..." /></Field>
           <div className="lg-grid-2">
@@ -123,7 +123,7 @@
         title={<span className="row" style={{ gap: 10 }}><span className="fin-drawer-ic" style={{ background: 'color-mix(in oklab, #8b5cf6 16%, white)', color: '#6d28d9' }}><Ic name="contracts" size={16} /></span><span>{isEdit ? 'Editar contrato' : 'Novo contrato'}</span></span>}
         onClose={onClose} width={780}
         rightHead={<div className="fin-drawer-code fin-drawer-code-head"><span style={{ fontWeight: 500 }}>NÚMERO</span><strong className="tnum fin-code-pill">{num}</strong></div>}
-        footer={(close) => (<><button className="btn fin-btn-back btn-fixed" onClick={() => close()}><Ic name="arrow-left" size={13} /> {isEdit ? 'Cancelar' : 'Voltar'}</button><div style={{ flex: 1 }} /><button className="btn btn-save btn-fixed" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close(handleSave)}><Ic name="check" size={13} /> Salvar</button></>)}>
+        footer={(close) => (<><button className="btn fin-btn-back btn-fixed" onClick={() => close()}><Ic name="arrow-left" size={13} /> Voltar</button><div style={{ flex: 1 }} /><button className="btn btn-save btn-fixed" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close(handleSave)}><Ic name="check" size={13} /> Salvar</button></>)}>
         <LegalFormStyles />
 
         {/* Bloco 1 — Cliente */}

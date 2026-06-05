@@ -78,7 +78,7 @@ function Forgot() {
   const { setRoute } = useStore();
   return (
     <AuthShell>
-      <button className="btn btn-ghost btn-sm" onClick={()=>setRoute('login')} style={{marginBottom:14}}><Ic name="chevron-left" size={14}/> Voltar</button>
+      <button className="btn btn-ghost btn-sm fin-btn-back" onClick={()=>setRoute('login')} style={{marginBottom:14}}><Ic name="chevron-left" size={14}/> Voltar</button>
       <div className="h1">Recuperar senha</div>
       <div className="muted" style={{marginTop:6}}>Te enviamos um link de redefinição válido por 30 minutos.</div>
       <div className="col" style={{gap:14, marginTop:28}}>
@@ -147,7 +147,7 @@ function Onboarding() {
               </div>}
             </div>
             <div className="row" style={{borderTop:'1px solid var(--border)', paddingTop:14, marginTop:14}}>
-              {step>1 && <button className="btn" onClick={()=>setStep(step-1)}><Ic name="chevron-left" size={14}/> Voltar</button>}
+              {step>1 && <button className="btn fin-btn-back" onClick={()=>setStep(step-1)}><Ic name="chevron-left" size={14}/> Voltar</button>}
               <span className="btn btn-ghost btn-sm" style={{cursor:'default'}} onClick={()=>step===4?setRoute('dashboard'):setStep(step+1)}>Pular esta etapa</span>
               <div className="spacer"/>
               <button className="btn btn-primary" onClick={()=>step===4?setRoute('dashboard'):setStep(step+1)}>{step===4?'Concluir':'Próximo'} {step<4 && <Ic name="chevron-right" size={14}/>}</button>

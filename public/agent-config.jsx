@@ -171,7 +171,7 @@ function AdminAgent() {
       subtitle={isNew ? 'Personalize o comportamento, voz e regras do agente' : initial.title}
       actions={
         <>
-          <button className="btn" onClick={() => setRoute('agent')}><Ic name="arrow-left" size={14} /> Voltar</button>
+          <button className="btn fin-btn-back" onClick={() => setRoute('agent')}><Ic name="arrow-left" size={14} /> Voltar</button>
           <button className="btn" onClick={() => setShowTest(true)}><Ic name="play" size={14} /> Testar agente</button>
           <button className="btn btn-primary"><Ic name="check" size={14} /> Salvar e publicar</button>
         </>

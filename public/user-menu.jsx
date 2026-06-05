@@ -417,7 +417,8 @@ Object.assign(window, { UserMenu, HelpWidget, NotifMenu, SidebarUserMenu });
 function NotifMenu() {
   const { setRoute } = useStore();
   const [open, setOpen] = React.useState(false);
-  const [items, setItems] = React.useState(() => typeof NOTIFICATIONS !== 'undefined' ? NOTIFICATIONS.map((n) => ({ ...n })) : []);
+  const items = useNotifs();
+  React.useEffect(() => { if (typeof refreshNotifs === 'function') refreshNotifs(); }, []);
   const closeTimer = React.useRef(null);
   const wrapRef = React.useRef(null);
 
@@ -442,11 +443,13 @@ function NotifMenu() {
     queue: { icon: 'inbox', color: 'var(--accent)' },
     urgent: { icon: 'flag', color: '#ef4444' },
     transfer: { icon: 'users', color: 'var(--hue-blue)' },
-    schedule: { icon: 'agenda', color: 'var(--hue-violet)' }
+    schedule: { icon: 'agenda', color: 'var(--hue-violet)' },
+    lead: { icon: 'leads', color: 'var(--accent)' },
+    info: { icon: 'bell', color: 'var(--text-muted)' }
   };
 
-  const markAll = (e) => {e.stopPropagation();setItems((s) => s.map((n) => ({ ...n, read: true })));};
-  const markOne = (id) => setItems((s) => s.map((n) => n.id === id ? { ...n, read: true } : n));
+  const markAll = (e) => {e.stopPropagation();markAllNotifsRead();};
+  const markOne = (id) => markNotifRead(id);
   const seeAll = () => {setOpen(false);setRoute('notifs');};
 
   return (
@@ -495,7 +498,7 @@ function NotifMenu() {
                   </span>
                   <div className="nm-body">
                     <div className="nm-text">{n.text}</div>
-                    <div className="nm-time">{n.time}</div>
+                    <div className="nm-time">{relativeTime(n.createdAt)}</div>
                   </div>
                   {!n.read && <span className="nm-unread-dot" />}
                 </button>);

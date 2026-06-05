@@ -35,6 +35,13 @@ function App() {
 function AppInner() {
   const { route, tweaks } = useStore();
   const [collapsed, setCollapsed] = React.useState(false);
+  const isMobile = useIsMobile();              // true em telas de celular (<= 768px)
+  const [navOpen, setNavOpen] = React.useState(false); // drawer mobile aberto?
+
+  // Fecha o drawer ao navegar para outra tela.
+  React.useEffect(() => { setNavOpen(false); }, [route]);
+  // Ao voltar para desktop, garante que o drawer não fique "preso" aberto.
+  React.useEffect(() => { if (!isMobile) setNavOpen(false); }, [isMobile]);
 
   // Auth/onboarding routes — full-screen, no shell
   const fullscreen = ['login','forgot','onboarding'];
@@ -104,8 +111,14 @@ function AppInner() {
   }
 
   return (
-    <div className={`app-shell ${collapsed ? 'collapsed' : ''}`}>
-      <Sidebar collapsed={collapsed} setCollapsed={setCollapsed}/>
+    <div className={`app-shell ${collapsed ? 'collapsed' : ''} ${navOpen ? 'nav-open' : ''}`}>
+      {isMobile && (
+        <button className="app-mobile-menu-btn" onClick={() => setNavOpen(true)} aria-label="Abrir menu">
+          <Ic name="menu-closed" size={22}/>
+        </button>
+      )}
+      {isMobile && <div className="app-nav-backdrop" onClick={() => setNavOpen(false)}/>}
+      <Sidebar collapsed={collapsed && !isMobile} setCollapsed={setCollapsed} isMobile={isMobile} onNavigate={() => setNavOpen(false)}/>
       <main className="app-main">
         {tweaks.profile==='super' && <div className="impersonate-ribbon"><Ic name="shield" size={13}/> Modo Super Admin · você está vendo a plataforma como operador</div>}
         <div key={route} className="page-enter" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>

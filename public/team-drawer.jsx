@@ -136,7 +136,7 @@ function TeamDrawer({ initial, allMembers, onClose, onSave, onDelete }) {
             <Ic name="trash" size={13} /> Excluir equipe
           </button>}
         <div style={{ flex: 1 }} />
-        <button className="btn" onClick={() => close()}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
         <button className="btn btn-save" onClick={() => close(handleSave)} disabled={!valid} style={{ opacity: valid ? 1 : .5 }}>
           <Ic name="check" size={13} /> {isEdit ? 'Salvar alterações' : 'Criar equipe'}
         </button>
@@ -455,7 +455,7 @@ function TeamDrawer({ initial, allMembers, onClose, onSave, onDelete }) {
             <div style={{ fontWeight: 700, fontSize: 'var(--type-md)' }}>Excluir a equipe {f.teamName}?</div>
             <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 6 }}>Esta ação remove a equipe permanentemente. Os membros não serão excluídos da plataforma.</div>
             <div className="row" style={{ gap: 8, marginTop: 18, justifyContent: 'flex-end' }}>
-              <button className="btn" onClick={() => setConfirmDel(false)}>Cancelar</button>
+              <button className="btn fin-btn-back" onClick={() => setConfirmDel(false)}>Voltar</button>
               <button className="btn btn-delete" onClick={() => {
                 setDelClosing(true);
                 setTimeout(() => {

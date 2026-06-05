@@ -25,7 +25,7 @@ function AwayModal({ onConfirm, onClose }) {
   return (
     <Modal title="Definir como indisponível" onClose={onClose} size="md" footer={
     <>
-        <button className="btn" onClick={onClose}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
         <button className="btn btn-primary" disabled={!reason} onClick={submit} style={{ opacity: reason ? 1 : 0.5 }}><Ic name="check" size={13} /> Confirmar pausa</button>
       </>
     }>
@@ -69,7 +69,7 @@ function AwayBadge({ away, onResume }) {
         {away.note && <div className="muted" style={{ fontSize: 'var(--type-xs)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{away.note}</div>}
       </div>
       <span className="tnum" style={{ fontSize: 'var(--type-sm)', fontWeight: 600, color: away.color, fontVariantNumeric: 'tabular-nums' }}>{fmtElapsed(elapsed)}</span>
-      <button className="btn btn-sm" onClick={onResume} style={{ borderColor: away.color, color: away.color }}>Voltar</button>
+      <button className="btn btn-sm fin-btn-back" onClick={onResume} style={{ borderColor: away.color, color: away.color }}>Voltar</button>
     </div>);
 
 }
@@ -384,6 +384,38 @@ function Inbox() {
       .catch((e) => { setDbConvs((p) => p || []); setConvError(e.message || 'Erro ao carregar conversas'); });
   }, []);
   React.useEffect(() => { refetchContatos(); }, [refetchContatos]);
+  // Ações do menu de cada conversa (atualiza local na hora + persiste no back).
+  const fixarConv = (id, fixar) => {
+    setDbConvs((cs) => (cs || []).map((x) => x.id === id ? { ...x, fixado: fixar } : x));
+    API.fixarContato(id, fixar).catch(() => {});
+  };
+  const bloquearConv = (id, bloquear) => {
+    setDbConvs((cs) => (cs || []).map((x) => x.id === id ? { ...x, blocked: bloquear } : x));
+    API.bloquearContato(id, bloquear).catch(() => {});
+  };
+  const limparConv = (id) => {
+    setDbConvs((cs) => (cs || []).map((x) => x.id === id ? { ...x, preview: '', midiaTipo: null, sentByMe: false, messages: null } : x));
+    API.limparContato(id).catch(() => {});
+  };
+  const apagarConv = (id) => {
+    setDbConvs((cs) => (cs || []).filter((x) => x.id !== id));
+    setSelectedId((sid) => sid === id ? null : sid);
+    API.apagarContato(id).catch(() => {});
+  };
+  // Ao enviar qualquer mensagem: atualiza hora e joga a conversa pro topo na hora
+  // (a ordenação fixados-primeiro mantém as fixadas acima). Depois sincroniza com o back.
+  const onConvSent = (id) => {
+    setDbConvs((cs) => {
+      if (!cs) return cs;
+      const i = cs.findIndex((x) => x.id === id);
+      if (i < 0) return cs;
+      const d = new Date();
+      const hora = String(d.getHours()).padStart(2, '0') + 'h' + String(d.getMinutes()).padStart(2, '0');
+      const moved = { ...cs[i], lastTime: hora };
+      return [moved, ...cs.filter((x) => x.id !== id)];
+    });
+    refetchContatos();
+  };
   // todas as tags da empresa (para o filtro), independente de estarem ou não em uma conversa
   const [tagList, setTagList] = React.useState([]);
   React.useEffect(() => { API.getTags().then((r) => setTagList((r.tags || []).map((t) => t.nome))).catch(() => {}); }, []);
@@ -424,6 +456,10 @@ function Inbox() {
   const [showAwayModal, setShowAwayModal] = React.useState(false);
   const [selectedTags, setSelectedTags] = React.useState([]);
   const [selectedPhases, setSelectedPhases] = React.useState([]);
+  const singlePane = useIsMobile(900);     // <=900 (celular + tablet retrato): um painel por vez
+  const isNarrow = useIsMobile(1100);      // 901–1100 (tablet paisagem): lista + conversa, sem a 3ª coluna (IA)
+  // Quando single-pane, mostramos um painel por vez: 'list' (conversas) | 'thread' (chat) | 'ai' (contexto).
+  const [mobilePane, setMobilePane] = React.useState('list');
 
   const empty = tweaks.dataState === 'empty';
   const matchesFilter = (c) => {
@@ -443,7 +479,8 @@ function Inbox() {
   const allTags = tagList; // todas as tags da empresa
   const allPhases = (typeof CRM_PHASES !== 'undefined' ? CRM_PHASES : []).map((p) => ({ id: p.id, label: p.label, color: p.color }));
   const ALL_CONVS = [...extraConvs, ...SOURCE];
-  const list = empty ? [] : ALL_CONVS.filter((c) => matchesFilter(c) && matchesRefine(c));
+  // fixados primeiro (igual CRM); sort estável preserva a ordem por recência dentro de cada grupo.
+  const list = empty ? [] : ALL_CONVS.filter((c) => matchesFilter(c) && matchesRefine(c)).sort((a, b) => (b.fixado ? 1 : 0) - (a.fixado ? 1 : 0));
   const conv = ALL_CONVS.find((c) => c.id === selectedId) || ALL_CONVS[0];
   const counts = {
     alert: SOURCE.filter((c) => c.unread > 0).length,
@@ -454,8 +491,9 @@ function Inbox() {
   return (
     <div className="screen" style={{ height: '100%' }}>
       <Topbar title="Mensagens" subtitle="Inbox completo do Whatsapp, Instagram e Facebook" />
-      <div style={{ display: 'grid', gridTemplateColumns: showAI ? '370px 1fr 350px' : '370px 1fr', flex: 1, minHeight: 0 }}>
-        {/* LEFT: list */}
+      <div style={{ display: 'grid', gridTemplateColumns: singlePane ? '1fr' : (showAI && !isNarrow ? '370px 1fr 350px' : '340px 1fr'), flex: 1, minHeight: 0 }}>
+        {/* LEFT: list (no mobile só aparece quando mobilePane==='list') */}
+        {(!singlePane || mobilePane === 'list') && (
         <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface)', position: 'relative', overflow: 'hidden' }}>
           <InboxHeader
             available={available}
@@ -483,7 +521,8 @@ function Inbox() {
             {dbConvs === null ? <div className="muted" style={{ padding: 20, textAlign: 'center' }}>Carregando conversas…</div> :
              convError ? <EmptyState icon="inbox" title="Erro ao carregar" desc={convError} /> :
              list.length === 0 ? <EmptyState icon="inbox" title="Sem conversas" desc="Conecte um canal para começar." /> : list.map((c) =>
-            <ConvRow key={c.id} c={c} active={c.id === selectedId} onClick={() => setSelectedId(c.id)} />
+            <ConvRow key={c.id} c={c} active={c.id === selectedId} onClick={() => { setSelectedId(c.id); refetchContatos(); if (singlePane) setMobilePane('thread'); }}
+              onFixar={(v) => fixarConv(c.id, v)} onBloquear={(v) => bloquearConv(c.id, v)} onLimpar={() => limparConv(c.id)} onApagar={() => apagarConv(c.id)} />
             )}
           </div>
           {/* Floating action button — open contacts */}
@@ -515,49 +554,106 @@ function Inbox() {
             </span>
           </button>
           {/* Contacts overlay */}
-          <ContactsPanel open={showContacts} onClose={() => setShowContacts(false)} onStartConv={startConvWith} />
+          <ContactsPanel open={showContacts} onClose={() => setShowContacts(false)} onStartConv={(x) => { startConvWith(x); if (singlePane) setMobilePane('thread'); }} />
         </div>
+        )}
 
-        {/* CENTER: thread */}
-        {conv && <ConvThread conv={conv} composing={composing} setComposing={setComposing} onOpenContext={() => setShowAI(true)} onConvChanged={refetchContatos} />}
+        {/* CENTER: thread (no mobile só aparece quando mobilePane==='thread') */}
+        {conv && (!singlePane || mobilePane === 'thread') && <ConvThread conv={conv} composing={composing} setComposing={setComposing} onOpenContext={() => { setShowAI(true); if (singlePane) setMobilePane('ai'); }} onConvChanged={refetchContatos} onSent={onConvSent} onBack={singlePane ? () => setMobilePane('list') : null} />}
 
-        {/* RIGHT: AI panel or context */}
-        {showAI && conv && <AIPanel conv={conv} setComposing={setComposing} inline={true} onDataChanged={refetchContatos} />}
+        {/* RIGHT: AI panel or context (desktop: showAI; mobile: mobilePane==='ai') */}
+        {conv && ((!singlePane && showAI && !isNarrow) || (singlePane && mobilePane === 'ai')) && <AIPanel conv={conv} setComposing={setComposing} inline={true} onDataChanged={refetchContatos} onBack={singlePane ? () => setMobilePane('thread') : null} />}
       </div>
       {showAwayModal && <AwayModal onClose={() => setShowAwayModal(false)} onConfirm={(a) => {setAway(a);setAvailable(false);setShowAwayModal(false);}} />}
     </div>);
 
 }
 
-function ConvRow({ c, active, onClick }) {
-  const handlerIcon = c.handler === 'agent' ? <Ic name="sparkles" size={11} style={{ color: 'var(--ai)' }} /> : c.handler === 'queue' ? <Ic name="clock" size={11} style={{ color: 'var(--hue-amber)' }} /> : c.handler === 'human' ? <Ic name="user" size={11} style={{ color: 'var(--accent)' }} /> : <Ic name="check-double" size={11} />;
+function ConvRow({ c, active, onClick, onFixar, onBloquear, onLimpar, onApagar }) {
+  const [hover, setHover] = React.useState(false);
+  const [menu, setMenu] = React.useState(null);     // {top,left} | null
+  const [confirm, setConfirm] = React.useState(null); // 'limpar' | 'apagar' | null
+  const btnRef = React.useRef(null);
+  const openMenu = (e) => {
+    e.stopPropagation();
+    const r = btnRef.current.getBoundingClientRect();
+    setMenu({ top: r.top, left: r.right + 8 }); // popup ao lado direito do ícone/contato
+  };
+  const closeMenu = () => setMenu(null);
+  const act = (e, fn) => { e.stopPropagation(); closeMenu(); fn(); };
+  // fundo: ativo > fixado (verde, igual CRM) > hover > normal
+  const bg = active ? 'var(--accent-soft)' : (c.fixado ? (hover ? '#DDF1E3' : '#E8F6EC') : (hover ? '#FAFBFD' : 'transparent'));
   return (
     <div
       onClick={onClick}
-      onMouseEnter={(e) => {if (!active) e.currentTarget.style.background = '#FAFBFD';}}
-      onMouseLeave={(e) => {if (!active) e.currentTarget.style.background = 'transparent';}}
-      style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)', cursor: 'default', background: active ? 'var(--accent-soft)' : 'transparent', display: 'flex', gap: 10, position: 'relative', transition: 'background .12s ease' }}>
-      
-      <div style={{ position: 'relative' }}>
-        <Avatar name={c.client} src={c.photo} />
-        <span style={{ position: 'absolute', bottom: -2, right: -2, background: 'var(--surface)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid var(--surface)', fontSize: "16px", height: "22px", width: "22px" }}>
-          <ChannelIcon ch={c.channel} size={10} />
-        </span>
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      style={{ padding: '10px 12px 10px 9px', borderLeft: '3px solid ' + (c.fixado ? '#16A872' : 'transparent'), borderBottom: '1px solid var(--border)', cursor: 'default', background: bg, display: 'flex', gap: 10, position: 'relative', transition: 'background .12s ease' }}>
+
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+        <div style={{ position: 'relative' }}>
+          <Avatar name={c.client} src={c.photo} />
+          <span style={{ position: 'absolute', bottom: -3, right: -3, background: 'var(--surface)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--surface)', lineHeight: 0, height: 16, width: 16, boxSizing: 'border-box' }}>
+            <ChannelIcon ch={c.channel} size={12} />
+          </span>
+        </div>
+        <div style={{ flex: 1, minHeight: 8 }} />
+        {/* ícone sob o avatar, alinhado à linha das tags: IA (sparkles) ou humano (user) */}
+        <Ic name={c.aiHandled ? 'sparkles' : 'user'} className="conv-handler-ic" title={c.aiHandled ? 'Conduzida pela IA' : 'Conduzida por humano'} style={{ color: c.aiHandled ? 'var(--ai)' : 'var(--text-faint)', flexShrink: 0 }} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
+        {/* Linha 1: nome + data/hora */}
         <div className="row" style={{ gap: 6 }}>
-          <span style={{ fontWeight: 600, fontSize: 'var(--type-sm)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.client}</span>
-          <span className="muted" style={{ fontSize: 11 }}>{c.lastTime}</span>
+          <span style={{ fontWeight: 600, fontSize: 'var(--type-sm)', flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 5 }}>
+            {c.fixado && <Ic name="pin" size={12} style={{ color: '#16A872', flexShrink: 0 }} />}
+            <span style={{ minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.client}</span>
+          </span>
+          <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{c.lastTime}</span>
         </div>
-        <div className="row" style={{ gap: 6, marginTop: 2 }}>
-          {handlerIcon}
-          <span className="muted" style={{ fontSize: 'var(--type-xs)', flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.preview}</span>
-          {c.unread > 0 && <span style={{ background: 'var(--accent)', color: 'white', borderRadius: 999, padding: '1px 6px', fontSize: 10, fontWeight: 600 }}>{c.unread}</span>}
+        {/* Linha 2: prévia + (não-lidas e seta, abaixo da data/hora) */}
+        <div className="row" style={{ gap: 4, marginTop: 2 }}>
+          {c.sentByMe && c.preview && <Ic name={c.delivered ? 'check-double' : 'check'} size={16} style={{ color: c.delivered ? '#53BDEB' : 'var(--text-faint)', flexShrink: 0 }} />}
+          {c.midiaTipo && <Ic name={{ imagem: 'image', audio: 'mic', video: 'video', arquivo: 'file-text' }[c.midiaTipo] || 'file'} className="conv-midia-ic" style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
+          {c.blocked && <Ic name="lock" size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
+          <span className="muted" style={{ fontSize: 'var(--type-xs)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.preview}</span>
+          {c.unread > 0 && <span style={{ background: 'var(--accent)', color: 'white', minWidth: 16, height: 16, borderRadius: 999, fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', boxSizing: 'border-box', flexShrink: 0 }}>{c.unread}</span>}
         </div>
-        {c.tags && c.tags.length > 0 && <div className="row" style={{ marginTop: 6, gap: 4, flexWrap: 'wrap' }}>
-          {c.tags.map((t) => <span key={t.id} className="badge" style={{ background: t.cor || '#64748b', color: corContraste(t.cor), fontSize: 9, padding: '2px 6px', border: '1px solid rgba(0,0,0,.06)' }}>{t.nome}</span>)}
-        </div>}
+        {/* Linha 3: tags + seta do menu (seta alinhada à direita, em coluna com data/hora e badge) */}
+        <div className="row" style={{ marginTop: 6, gap: 4, alignItems: 'center' }}>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, minWidth: 0 }}>
+            {(c.tags || []).map((t) => { const col = t.cor || '#64748b'; return <span key={t.id} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 999, background: `${col}1A`, color: col, border: `1px solid ${col}33`, whiteSpace: 'nowrap' }}>{t.nome}</span>; })}
+          </div>
+          <button ref={btnRef} onClick={openMenu} title="Opções" style={{ background: 'transparent', border: 0, padding: 0, cursor: 'default', color: 'var(--text-faint)', display: 'flex', alignItems: 'center', flexShrink: 0, opacity: (hover || menu) ? 1 : 0, transition: 'opacity .12s ease' }}>
+            <Ic name="chevron-down" size={16} />
+          </button>
+        </div>
       </div>
+      {menu && ReactDOM.createPortal(
+        <>
+          <div onClick={(e) => { e.stopPropagation(); closeMenu(); }} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
+          <div className="sale-menu" style={{ top: menu.top, left: menu.left, width: 180 }} onClick={(e) => e.stopPropagation()}>
+            <button className="sale-menu-item" onClick={(e) => act(e, () => onFixar(!c.fixado))}><Ic name={c.fixado ? 'pin-off' : 'pin'} size={16} /> {c.fixado ? 'Desafixar' : 'Fixar'}</button>
+            <button className="sale-menu-item" onClick={(e) => act(e, () => onBloquear(!c.blocked))}><Ic name="lock" size={16} /> {c.blocked ? 'Desbloquear' : 'Bloquear'}</button>
+            <button className="sale-menu-item" onClick={(e) => act(e, () => setConfirm('limpar'))}><Ic name="refresh" size={16} /> Limpar</button>
+            <div className="sale-menu-sep" />
+            <button className="sale-menu-item danger" onClick={(e) => act(e, () => setConfirm('apagar'))}><Ic name="trash" size={16} /> Apagar</button>
+          </div>
+        </>,
+        document.body)}
+      {confirm === 'limpar' && ReactDOM.createPortal(
+        <Modal title="Limpar conversa" size="sm" onClose={() => setConfirm(null)} footer={(close) => <>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
+          <button className="btn btn-delete" onClick={() => close(() => onLimpar())}><Ic name="refresh" size={12} /> Limpar</button>
+        </>}>
+          <div style={{ fontSize: 'var(--type-sm)' }}>Tem certeza que deseja limpar as mensagens da conversa com <strong>{c.client}</strong>? As mensagens serão apagadas, mas a conversa permanece.</div>
+        </Modal>, document.body)}
+      {confirm === 'apagar' && ReactDOM.createPortal(
+        <Modal title="Apagar conversa" size="sm" onClose={() => setConfirm(null)} footer={(close) => <>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
+          <button className="btn btn-delete" onClick={() => close(() => onApagar())}><Ic name="trash" size={12} /> Apagar</button>
+        </>}>
+          <div style={{ fontSize: 'var(--type-sm)' }}>Tem certeza que deseja apagar a conversa com <strong>{c.client}</strong>? Esta ação não pode ser desfeita.</div>
+        </Modal>, document.body)}
     </div>);
 
 }
@@ -724,7 +820,7 @@ function ContactPickerModal({ onClose, onPick }) {
         <div className="muted" style={{ fontSize: 'var(--type-sm)', flex: 1 }}>
           {selected ? `Selecionado: ${selected.name}` : `${filtered.length} contato${filtered.length===1?'':'s'}`}
         </div>
-        <button className="btn" onClick={onClose}>Cancelar</button>
+        <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
         <button className="btn btn-primary" disabled={!selected} onClick={() => selected && send(selected)} style={{ opacity: selected ? 1 : .5 }}>
           <Ic name="send" size={13} /> Enviar
         </button>
@@ -852,7 +948,7 @@ function DevolverIAModal({ conv, onClose, onConfirm }) {
   const [keepNotes, setKeepNotes] = React.useState(true);
   return (
     <Modal title="Devolver para a IA" onClose={onClose} size="sm" footer={<>
-      <button className="btn" onClick={onClose}>Cancelar</button>
+      <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
       <button className="btn btn-primary" onClick={() => onConfirm({ reason, keepNotes })}><Ic name="bot" size={13} /> Devolver à IA</button>
     </>}>
       <div className="col" style={{ gap: 12 }}>
@@ -896,7 +992,7 @@ function TransferirModal({ conv, onClose, onConfirm }) {
   };
   return (
     <Modal title="Transferir conversa" onClose={onClose} size="md" footer={<>
-      <button className="btn" onClick={onClose}>Cancelar</button>
+      <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
       <button className="btn btn-primary" disabled={!selected} onClick={submit} style={{ opacity: selected ? 1 : 0.5 }}><Ic name="users" size={13} /> Transferir</button>
     </>}>
       <div className="col" style={{ gap: 14 }}>
@@ -961,7 +1057,7 @@ function EncerrarModal({ conv, onClose, onConfirm }) {
   const submit = () => {if (!outcome) return;onConfirm({ outcome: outcome.id, label: outcome.label, note });};
   return (
     <Modal title="Encerrar conversa" onClose={onClose} size="sm" footer={<>
-      <button className="btn" onClick={onClose}>Cancelar</button>
+      <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
       <button className="btn btn-primary" disabled={!outcome} onClick={submit} style={{ opacity: outcome ? 1 : 0.5 }}><Ic name="check" size={13} /> Encerrar</button>
     </>}>
       <div className="col" style={{ gap: 12 }}>
@@ -992,7 +1088,7 @@ function EncerrarModal({ conv, onClose, onConfirm }) {
 
 }
 
-function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChanged }) {
+function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChanged, onSent, onBack }) {
   const [messages, setMessages] = React.useState([]);
   const [loadingMsgs, setLoadingMsgs] = React.useState(false);
   const fileRef = React.useRef(null);
@@ -1045,6 +1141,7 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       try {
         const r = await API.sendTexto(conv.id, t);
         setMessages((prev) => [...prev, dbMsgToUi(r.mensagem)]);
+        if (onSent) onSent(conv.id); // joga a conversa pro topo + atualiza a hora
       } catch (e) {
         setToast({ kind: 'error', text: e.message || 'Falha ao enviar' });
       }
@@ -1075,6 +1172,7 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       const r = await API.sendMidia(conv.id, file, file.name);
       setMessages((prev) => [...prev, dbMsgToUi(r.mensagem)]);
       setToast(null);
+      if (onSent) onSent(conv.id); // joga a conversa pro topo + atualiza a hora
     } catch (e) {
       setToast({ kind: 'error', text: e.message || 'Falha no upload' });
     }
@@ -1099,6 +1197,7 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
   return (
     <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface-2)', position: 'relative' }}>
       <div onClick={onOpenContext} title="Abrir contexto do cliente" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', cursor: 'default', transition: 'background .12s', height: "80px" }} className="row conv-head">
+        {onBack && <button className="btn btn-ghost btn-icon" onClick={(e) => { e.stopPropagation(); onBack(); }} title="Voltar" style={{ width: "30px", height: "30px", marginRight: 2, flexShrink: 0 }}><Ic name="arrow-left" size={18} /></button>}
         <Avatar name={conv.client} src={conv.photo} />
         <div style={{ flex: 1, marginLeft: 10 }}>
           <div className="row" style={{ gap: 8 }}><span style={{ fontWeight: 600 }}>{conv.client}</span><ChannelIcon ch={conv.channel} size={13} /></div>
@@ -1388,7 +1487,8 @@ function ActionButtons({ conv, currentUser, inline, onAppointmentRequest }) {
   const [showNewAppt, setShowNewAppt] = React.useState(false);
   const NewAppointment = window.NewAppointment;
   const handleAppt = () => {
-    if (inline) onAppointmentRequest?.();
+    // Se o pai delega (ex.: fila usa formulário próprio), encaminha; senão abre aqui (inbox).
+    if (onAppointmentRequest) onAppointmentRequest();
     else setShowNewAppt(true);
   };
   return (
@@ -1396,10 +1496,11 @@ function ActionButtons({ conv, currentUser, inline, onAppointmentRequest }) {
       <button className="btn-action"><Ic name="cart" size={15} /> PDV de Venda</button>
       <span style={{ width: 1, height: 18, background: 'var(--border-strong)', margin: '0 14px' }} />
       <button className="btn-action" onClick={handleAppt}><Ic name="agenda" size={15} /> Agendamento</button>
-      {showNewAppt && NewAppointment && !inline &&
+      {showNewAppt && NewAppointment &&
         <NewAppointment
           onClose={() => setShowNewAppt(false)}
-          defaultClient={conv?.client || ''}
+          defaultParticipante={{ name: conv?.client || '', clienteId: conv?.clienteId || null, phone: conv?.phone || '' }}
+          onSave={(dto) => { API.createAppt(dto).catch(() => {}); setShowNewAppt(false); }}
           defaultResponsible={currentUser || ''} />}
     </div>);
 
@@ -1520,7 +1621,7 @@ function TabFicha({ conv }) {
           </button>
         ) : (
           <div className="row" style={{ gap: 4 }}>
-            <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setEditing(false)}>Cancelar</button>
+            <button className="btn btn-sm btn-ghost fin-btn-back" style={{ padding: '4px 8px' }} onClick={() => setEditing(false)}>Voltar</button>
             <button className="btn btn-sm btn-save" style={{ padding: '4px 10px' }} disabled={saving} onClick={save}>
               <Ic name="check" size={12} /> {saving ? 'Salvando…' : 'Salvar'}
             </button>
@@ -1591,7 +1692,7 @@ function TabRespostas({ setComposing, onNew, inline }) {
           <textarea className="input" rows={2} placeholder="Conteúdo da resposta..." value={draft.body} onChange={e => setDraft({ ...draft, body: e.target.value })} style={{ resize: 'none', fontSize: 'var(--type-sm)' }} />
           <div className="row" style={{ gap: 6 }}>
             <div className="spacer" />
-            <button className="btn btn-sm" onClick={() => { setShowNew(false); setDraft({ shortcut: '', title: '', body: '' }); }}>Cancelar</button>
+            <button className="btn btn-sm fin-btn-back" onClick={() => { setShowNew(false); setDraft({ shortcut: '', title: '', body: '' }); }}>Voltar</button>
             <button className="btn btn-sm btn-primary" disabled={!draft.title.trim()} style={{ opacity: draft.title.trim() ? 1 : .5 }} onClick={createNew}>
               <Ic name="check" size={12} /> Adicionar
             </button>
@@ -1607,7 +1708,7 @@ function TabRespostas({ setComposing, onNew, inline }) {
             <textarea className="input" rows={2} value={draft.body} onChange={e => setDraft({ ...draft, body: e.target.value })} style={{ resize: 'none', fontSize: 'var(--type-sm)' }} />
             <div className="row" style={{ gap: 6 }}>
               <div className="spacer" />
-              <button className="btn btn-sm" onClick={() => setEditingId(null)}>Cancelar</button>
+              <button className="btn btn-sm fin-btn-back" onClick={() => setEditingId(null)}>Voltar</button>
               <button className="btn btn-sm btn-save" onClick={saveEdit}>
                 <Ic name="check" size={12} /> Salvar
               </button>
@@ -1648,17 +1749,18 @@ function TabRespostas({ setComposing, onNew, inline }) {
 function TabTags({ conv, onManage, inline, onDataChanged }) {
   const [clientTags, setClientTags] = React.useState((conv.tags || []).map(t => t.nome));
   const [allTags, setAllTags] = React.useState([]); // [{id,name,color}]
-  const [showPicker, setShowPicker] = React.useState(false);
+  const [showManage, setShowManage] = React.useState(false);
   const [draftName, setDraftName] = React.useState('');
   const [draftColor, setDraftColor] = React.useState('#3b82f6');
-  const [editingTag, setEditingTag] = React.useState(null);
 
   const loadTags = () => API.getTags().then((r) => setAllTags((r.tags || []).map(t => ({ id: t.id, name: t.nome, color: t.cor })))).catch(() => {});
   React.useEffect(() => { loadTags(); }, []);
   React.useEffect(() => { setClientTags((conv.tags || []).map(t => t.nome)); }, [conv.id]);
   const idOf = (name) => { const t = allTags.find(x => x.name === name); return t && t.id; };
+  const colorOf = (name) => { const t = allTags.find(x => x.name === name); return (t && t.color) || '#71717a'; };
   const notify = () => { if (onDataChanged) onDataChanged(); };
 
+  // adiciona a tag selecionada ao contato
   const addToClient = async (name) => {
     if (clientTags.includes(name)) return;
     const tagId = idOf(name); if (!tagId) return;
@@ -1670,107 +1772,80 @@ function TabTags({ conv, onManage, inline, onDataChanged }) {
     setClientTags(t => t.filter(x => x !== name));
     try { if (tagId) await API.removeTag(conv.id, tagId); notify(); } catch (e) {}
   };
+  // cria uma tag NOVA no catálogo (só na lista; não vincula ao contato automaticamente)
   const createTag = async () => {
     const nome = draftName.trim(); if (!nome) return;
-    try { await API.assignTag(conv.id, { nome, cor: draftColor }); await loadTags(); setClientTags(t => t.includes(nome) ? t : [...t, nome]); notify(); } catch (e) {}
+    try { await API.createTag(nome, draftColor); await loadTags(); } catch (e) {}
     setDraftName(''); setDraftColor('#3b82f6');
   };
+  // apaga a tag do catálogo (e remove do contato, se estiver)
   const deleteTag = async (name) => {
     const tagId = idOf(name); if (!tagId) return;
     try { await API.deleteTag(tagId); await loadTags(); setClientTags(t => t.filter(x => x !== name)); notify(); } catch (e) {}
   };
-  const saveEditTag = async () => {
-    const { name: old, draft } = editingTag;
-    const tagId = idOf(old);
-    try { if (tagId) { await API.updateTag(tagId, draft.name || old, draft.color); await loadTags(); setClientTags(t => t.map(x => x === old ? (draft.name || old) : x)); notify(); } } catch (e) {}
-    setEditingTag(null);
-  };
-  const handleAddClick = () => {
-    if (inline) setShowPicker(s => !s);
-    else onManage?.();
-  };
+  // chip estilo CRM: fundo claro + fonte na cor, sem borda
+  const chip = (color) => ({ padding: '4px 10px', borderRadius: 999, fontSize: 'var(--type-xs)', fontWeight: 700, background: `${color}1A`, color, display: 'inline-flex', alignItems: 'center', gap: 6, lineHeight: 1.4 });
 
   return (
     <div style={{ padding: '14px 16px' }}>
       <div className="row">
         <span style={{ fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.06em', color: 'var(--text-faint)' }}>TAGS DO CLIENTE</span>
         <div className="spacer" />
-        <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px' }} onClick={handleAddClick} title="Adicionar tag">
-          <Ic name={showPicker ? 'x' : 'plus'} size={13} />
+        <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setShowManage(true)} title="Gerenciar tags">
+          <Ic name="plus" size={13} />
         </button>
       </div>
 
-      {/* Client tags */}
+      {/* Tags do cliente (cores estilo CRM) */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
         {clientTags.map(name => {
-          const cfg = allTags.find(t => t.name === name) || { color: '#71717a' };
+          const color = colorOf(name);
           return (
-            <span key={name} style={{ padding: '4px 10px', borderRadius: 14, fontSize: 'var(--type-xs)', fontWeight: 600, color: 'white', background: cfg.color, display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+            <span key={name} style={chip(color)}>
               {name}
-              {inline && (
-                <Ic name="x" size={11} style={{ opacity: .85, cursor: 'pointer' }} onClick={() => removeFromClient(name)} />
-              )}
+              <Ic name="x" size={11} style={{ opacity: .8, cursor: 'pointer' }} onClick={() => removeFromClient(name)} />
             </span>
           );
         })}
         {clientTags.length === 0 && (
           <div className="muted" style={{ fontSize: 'var(--type-sm)', padding: 14, textAlign: 'center', border: '1px dashed var(--border-strong)', borderRadius: 8, width: '100%' }}>
-            Nenhuma tag · clique em + para adicionar
+            Nenhuma tag · clique em + para gerenciar
           </div>
         )}
       </div>
 
-      {/* Inline picker / manager */}
-      {inline && showPicker && (
-        <div style={{ marginTop: 14, padding: 12, background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 10 }}>
-          {/* Create new tag */}
-          <div>
-            <div style={{ fontSize: 'var(--type-xs)', fontWeight: 700, color: 'var(--text-faint)', letterSpacing: '.06em', marginBottom: 6 }}>NOVA TAG</div>
-            <div className="row" style={{ gap: 6 }}>
-              <input className="input" placeholder="Nome da tag" value={draftName} onChange={e => setDraftName(e.target.value)} style={{ flex: 1, height: 30, fontSize: 'var(--type-sm)' }} />
-              <input type="color" className="input" value={draftColor} onChange={e => setDraftColor(e.target.value)} style={{ width: 38, height: 30, padding: 2 }} />
-              <button className="btn btn-sm btn-primary" disabled={!draftName.trim()} style={{ opacity: draftName.trim() ? 1 : .5 }} onClick={createTag}>
-                <Ic name="plus" size={12} />
-              </button>
+      {/* Modal "Gerenciar tags" — cadastra/apaga no catálogo e seleciona p/ adicionar ao contato */}
+      {showManage && ReactDOM.createPortal(
+        <Modal title="Gerenciar tags" onClose={() => setShowManage(false)} footer={<><button className="btn fin-btn-back" onClick={() => setShowManage(false)}>Fechar</button></>}>
+          <div className="col" style={{ gap: 14 }}>
+            <div>
+              <label className="label">Nova tag</label>
+              <div className="row" style={{ gap: 6 }}>
+                <input className="input" placeholder="Nome da tag" value={draftName} onChange={e => setDraftName(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') createTag(); }} style={{ flex: 1 }} />
+                <input type="color" className="input" value={draftColor} onChange={e => setDraftColor(e.target.value)} style={{ width: 46, padding: 2 }} />
+                <button className="btn btn-primary" disabled={!draftName.trim()} style={{ opacity: draftName.trim() ? 1 : .5 }} onClick={createTag}><Ic name="plus" size={13} /></button>
+              </div>
             </div>
-          </div>
-
-          {/* Available tags */}
-          <div style={{ marginTop: 12 }}>
-            <div style={{ fontSize: 'var(--type-xs)', fontWeight: 700, color: 'var(--text-faint)', letterSpacing: '.06em', marginBottom: 6 }}>DISPONÍVEIS · CLIQUE PARA ADICIONAR</div>
-            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
-              {allTags.map(t => {
-                const isOn = clientTags.includes(t.name);
-                const isEditing = editingTag?.name === t.name;
-                if (isEditing) {
+            <div>
+              <div style={{ fontSize: 'var(--type-xs)', fontWeight: 600, color: 'var(--text-faint)', textTransform: 'uppercase', letterSpacing: '.06em', marginBottom: 8 }}>Disponíveis · clique para adicionar</div>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {allTags.length === 0 && <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>Nenhuma tag cadastrada ainda.</div>}
+                {allTags.map(t => {
+                  const isOn = clientTags.includes(t.name);
                   return (
-                    <div key={t.name} className="row" style={{ gap: 4, padding: '3px 6px', background: 'var(--surface)', border: '1px solid var(--accent)', borderRadius: 14 }}>
-                      <input className="input" value={editingTag.draft.name} onChange={e => setEditingTag({ ...editingTag, draft: { ...editingTag.draft, name: e.target.value } })} style={{ height: 22, fontSize: 11, padding: '0 6px', width: 100 }} />
-                      <input type="color" value={editingTag.draft.color} onChange={e => setEditingTag({ ...editingTag, draft: { ...editingTag.draft, color: e.target.value } })} style={{ width: 22, height: 22, padding: 0, border: 'none', cursor: 'pointer' }} />
-                      <button className="btn btn-ghost btn-icon" style={{ width: 22, height: 22 }} onClick={saveEditTag} title="Salvar">
-                        <Ic name="check" size={11} />
-                      </button>
-                      <button className="btn btn-ghost btn-icon" style={{ width: 22, height: 22 }} onClick={() => setEditingTag(null)} title="Cancelar">
-                        <Ic name="x" size={11} />
-                      </button>
-                    </div>
-                  );
-                }
-                return (
-                  <span key={t.name} className="row" style={{ padding: '4px 10px', borderRadius: 14, fontSize: 'var(--type-xs)', fontWeight: 600, color: 'white', background: t.color, gap: 6, alignItems: 'center', opacity: isOn ? .6 : 1 }}>
-                    <span onClick={() => !isOn && addToClient(t.name)} style={{ cursor: isOn ? 'default' : 'pointer' }}>
-                      <span style={{ display: 'inline-block', width: 6, height: 6, borderRadius: '50%', background: isOn ? 'rgba(255,255,255,.95)' : 'transparent', border: '1px solid rgba(255,255,255,.7)', marginRight: 4, verticalAlign: 'middle' }} />
-                      {t.name}
+                    <span key={t.id} style={{ ...chip(t.color), opacity: isOn ? .55 : 1 }}>
+                      <span onClick={() => !isOn && addToClient(t.name)} style={{ display: 'inline-flex', alignItems: 'center', gap: 6, cursor: isOn ? 'default' : 'pointer' }} title={isOn ? 'Já adicionada' : 'Adicionar ao contato'}>
+                        <span style={{ width: 7, height: 7, borderRadius: '50%', background: isOn ? t.color : 'transparent', border: `1.5px solid ${t.color}`, flexShrink: 0 }} />
+                        {t.name}
+                      </span>
+                      <Ic name="trash" size={11} style={{ opacity: .7, cursor: 'pointer' }} onClick={() => deleteTag(t.name)} title="Excluir tag" />
                     </span>
-                    <Ic name="edit" size={10} style={{ opacity: .75, cursor: 'pointer' }} onClick={() => setEditingTag({ name: t.name, draft: { name: t.name, color: t.color } })} title="Editar" />
-                    <Ic name="trash" size={10} style={{ opacity: .75, cursor: 'pointer' }} onClick={() => deleteTag(t.name)} title="Excluir" />
-                  </span>
-                );
-              })}
+                  );
+                })}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        </Modal>, document.body)}
     </div>
   );
 }
@@ -1869,7 +1944,7 @@ function TabHistorico() {
 
 function NewQuickReplyModal({ onClose }) {
   return (
-    <Modal title="Nova resposta rápida" onClose={onClose} footer={(close) => <><button className="btn" onClick={() => close()}>Cancelar</button><button className="btn btn-save" onClick={() => close()}>Salvar</button></>}>
+    <Modal title="Nova resposta rápida" onClose={onClose} footer={(close) => <><button className="btn fin-btn-back" onClick={() => close()}>Voltar</button><button className="btn btn-save" onClick={() => close()}>Salvar</button></>}>
       <div className="col" style={{ gap: 10 }}>
         <div><label className="label">Atalho</label><input className="input" placeholder="/atalho" /></div>
         <div><label className="label">Título</label><input className="input" placeholder="Ex: Saudação inicial" /></div>
@@ -1923,7 +1998,7 @@ function TagsManagerModal({ onClose }) {
 
 }
 
-function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChanged }) {
+function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChanged, onBack }) {
   const { tweaks } = useStore();
   const currentUser = tweaks.profile === 'super'
     ? 'Magno Vieira'
@@ -1950,6 +2025,7 @@ function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChang
 
   return (
     <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+      {onBack && <div className="row" style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8, flexShrink: 0 }}><button className="btn btn-ghost btn-icon" onClick={onBack} title="Voltar" style={{ width: "30px", height: "30px" }}><Ic name="arrow-left" size={18} /></button><span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>Contexto do cliente</span></div>}
       <FunnelBar />
       <AvatarHero conv={conv} onUpload={() => setShowUpload(true)} onAddCard={() => setShowCard(true)} />
       <ActionButtons conv={conv} currentUser={currentUser} inline={inline} onAppointmentRequest={onAppointmentRequest} />
@@ -1966,7 +2042,7 @@ function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChang
       {showTags && !inline && <TagsManagerModal onClose={() => setShowTags(false)} />}
       {showCard && <CRMCardDetail card={leadCard} onClose={() => setShowCard(false)} />}
       {showUpload && !inline &&
-      <Modal title="Foto do cliente" onClose={() => setShowUpload(false)} footer={(close) => <><button className="btn" onClick={() => close()}>Cancelar</button><button className="btn btn-save" onClick={() => close()}>Salvar</button></>}>
+      <Modal title="Foto do cliente" onClose={() => setShowUpload(false)} footer={(close) => <><button className="btn fin-btn-back" onClick={() => close()}>Voltar</button><button className="btn btn-save" onClick={() => close()}>Salvar</button></>}>
           <div className="col" style={{ gap: 14, alignItems: 'center', textAlign: 'center', padding: '14px 0' }}>
             <div style={{ width: 120, height: 120, borderRadius: '50%', background: colorFor(conv.client), color: 'white', fontWeight: 700, fontSize: 42, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>{initials(conv.client)}</div>
             <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>Arraste uma imagem ou escolha do dispositivo</div>
@@ -1986,16 +2062,24 @@ function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChang
 
 // Notifications
 function Notifs() {
-  const map = { queue: ['inbox', 'var(--accent)'], urgent: ['flag', '#ef4444'], transfer: ['users', 'var(--hue-blue)'], schedule: ['agenda', 'var(--hue-violet)'] };
+  const items = useNotifs();
+  React.useEffect(() => { if (typeof refreshNotifs === 'function') refreshNotifs(); }, []);
+  const map = { queue: ['inbox', 'var(--accent)'], urgent: ['flag', '#ef4444'], transfer: ['users', 'var(--hue-blue)'], schedule: ['agenda', 'var(--hue-violet)'], lead: ['leads', 'var(--accent)'], info: ['bell', 'var(--text-muted)'] };
+  const unread = items.filter((n) => !n.read).length;
   return (
-    <Page title="Notificações" subtitle="Alertas em tempo real">
+    <Page title="Notificações" subtitle="Alertas em tempo real" actions={unread > 0 ? <button className="btn" onClick={() => markAllNotifsRead()}><Ic name="check-double" size={14} /> Marcar todas como lidas</button> : null}>
       <div className="card">
-        {NOTIFICATIONS.map((n) => {
+        {items.length === 0 ?
+        <div style={{ padding: 40, textAlign: 'center', color: 'var(--text-faint)' }}>
+          <Ic name="bell" size={28} style={{ opacity: .4 }} />
+          <div style={{ marginTop: 10, fontWeight: 600, color: 'var(--text-muted)' }}>Nenhuma notificação</div>
+        </div> :
+        items.map((n) => {
           const [ic, col] = map[n.kind] || ['bell', 'var(--text-muted)'];
           return (
-            <div key={n.id} className="row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', gap: 12, background: n.read ? 'transparent' : 'var(--accent-soft)' }}>
+            <div key={n.id} onClick={() => !n.read && markNotifRead(n.id)} className="row" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', gap: 12, background: n.read ? 'transparent' : 'var(--accent-soft)', cursor: n.read ? 'default' : 'pointer' }}>
               <div style={{ width: 32, height: 32, borderRadius: 8, background: `color-mix(in oklab, ${col} 15%, var(--surface))`, color: col, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name={ic} size={16} /></div>
-              <div style={{ flex: 1 }}><div style={{ fontWeight: n.read ? 500 : 600, fontSize: 'var(--type-sm)' }}>{n.text}</div><div className="muted" style={{ fontSize: 'var(--type-xs)' }}>{n.time}</div></div>
+              <div style={{ flex: 1 }}><div style={{ fontWeight: n.read ? 500 : 600, fontSize: 'var(--type-sm)' }}>{n.text}</div><div className="muted" style={{ fontSize: 'var(--type-xs)' }}>{relativeTime(n.createdAt)}</div></div>
               {!n.read && <span className="dot dot-online" style={{ boxShadow: 'none' }} />}
             </div>);
 
@@ -2010,7 +2094,7 @@ function ClientProfile() {
   const c = CONVERSATIONS[0];
   const { back } = useStore();
   return (
-    <Page title="Perfil do cliente" actions={<button className="btn" onClick={back}><Ic name="chevron-left" size={14} /> Voltar</button>}>
+    <Page title="Perfil do cliente" actions={<button className="btn fin-btn-back" onClick={back}><Ic name="chevron-left" size={14} /> Voltar</button>}>
       <div className="card card-pad row" style={{ gap: 18, alignItems: 'flex-start' }}>
         <Avatar name={c.client} size="xl" online />
         <div style={{ flex: 1 }}>

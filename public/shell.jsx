@@ -173,7 +173,7 @@ function NavSubInner({ children }) {
 
 }
 
-function Sidebar({ collapsed = false, setCollapsed = () => {} }) {
+function Sidebar({ collapsed = false, setCollapsed = () => {}, isMobile = false, onNavigate = () => {} }) {
   const { tweaks, setTweak, route, setRoute } = useStore();
 
   // Routes that should keep the parent nav item highlighted (e.g. drilling into a board
@@ -225,6 +225,7 @@ function Sidebar({ collapsed = false, setCollapsed = () => {} }) {
   const goto = (id) => {
     if (!AVAILABLE_ROUTES.has(id)) return;
     setRoute(id);
+    onNavigate(); // fecha o drawer no mobile após escolher um item
   };
 
   return (
@@ -238,8 +239,8 @@ function Sidebar({ collapsed = false, setCollapsed = () => {} }) {
           <img src="assets/simbolo.png" alt="Pk360" style={{ width: "36px", height: "36px" }} />
         </div>
         <div className="brand-name">Pk360<small>{TENANT.name.toUpperCase()}</small></div>
-        <div className="menu-toggle brand-toggle" onClick={() => {setOpen({});setCollapsed(!collapsed);}} title={collapsed ? 'Expandir menu' : 'Recolher menu'}>
-          <Ic name={collapsed ? 'menu-closed' : 'menu-open'} size={20} />
+        <div className="menu-toggle brand-toggle" onClick={() => { if (isMobile) { onNavigate(); return; } setOpen({}); setCollapsed(!collapsed); }} title={isMobile ? 'Fechar menu' : (collapsed ? 'Expandir menu' : 'Recolher menu')}>
+          <Ic name={isMobile ? 'x' : (collapsed ? 'menu-closed' : 'menu-open')} size={20} />
         </div>
       </div>
       <nav className="sidebar-nav scroll">

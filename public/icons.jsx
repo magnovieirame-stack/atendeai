@@ -38,8 +38,8 @@ const Ic = ({ name, size = 18, ...rest }) => {
 
     // Channels (brand fills kept)
     case 'whatsapp':return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" {...rest} style={{ fill: "rgb(28, 215, 98)", width: size, height: size }}><path d="M17.5 14.4c-.3-.1-1.7-.8-2-.9s-.5-.1-.7.1-.8.9-.9 1.1-.3.2-.6.1-1.2-.4-2.3-1.4c-.8-.7-1.4-1.7-1.5-1.9-.2-.3 0-.5.1-.6l.4-.5c.1-.2.2-.3.3-.5s0-.4 0-.5-.7-1.7-1-2.3c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.7.4-.3.3-1 1-1 2.4s1 2.7 1.2 2.9c.1.2 2 3.1 4.9 4.4.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.5-.1 1.7-.7 1.9-1.3s.2-1.2.2-1.3c-.1-.2-.3-.2-.5-.3zM12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3a10 10 0 1 0 5-18.7zm6 14.5a8.3 8.3 0 0 1-12.6 1l-.3-.2-3 .8.8-2.9-.2-.3A8.3 8.3 0 1 1 18 16.5z" /></svg>;
-    case 'instagram':return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...rest} style={{ width: "18px", height: "18px" }}><rect x="3.5" y="3.5" width="17" height="17" rx="4.5" /><circle cx="12" cy="12" r="3.8" /><circle cx="17.2" cy="6.8" r=".9" fill="currentColor" /></svg>;
-    case 'facebook':return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" {...rest} style={{ width: "18px", height: "18px" }}><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H8v-2.9h2.4v-2c0-2.4 1.4-3.7 3.5-3.7 1 0 2.1.2 2.1.2v2.3h-1.2c-1.2 0-1.5.7-1.5 1.5v1.7H16l-.4 2.9h-2.2V22A10 10 0 0 0 22 12z" /></svg>;
+    case 'instagram':return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...rest} style={{ width: size, height: size }}><rect x="3.5" y="3.5" width="17" height="17" rx="4.5" /><circle cx="12" cy="12" r="3.8" /><circle cx="17.2" cy="6.8" r=".9" fill="currentColor" /></svg>;
+    case 'facebook':return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" {...rest} style={{ width: size, height: size }}><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H8v-2.9h2.4v-2c0-2.4 1.4-3.7 3.5-3.7 1 0 2.1.2 2.1.2v2.3h-1.2c-1.2 0-1.5.7-1.5 1.5v1.7H16l-.4 2.9h-2.2V22A10 10 0 0 0 22 12z" /></svg>;
 
     // Communication
     case 'phone':return <svg {...props} style={{ width: "16px", height: "16px" }}><path d="M21.5 16.8v2.7a2 2 0 0 1-2.2 2 19.5 19.5 0 0 1-8.4-3 19.2 19.2 0 0 1-5.9-5.9 19.5 19.5 0 0 1-3-8.5A2 2 0 0 1 4 2h2.7a2 2 0 0 1 2 1.7c.1.9.3 1.7.6 2.5a2 2 0 0 1-.5 2.1L7.5 9.6a16 16 0 0 0 6 6l1.3-1.3a2 2 0 0 1 2.1-.5c.8.3 1.6.5 2.5.6a2 2 0 0 1 1.7 2z" /></svg>;
@@ -84,6 +84,7 @@ const Ic = ({ name, size = 18, ...rest }) => {
     case 'clock':return <svg {...props} style={{ width: "18px", height: "18px" }}><circle cx="12" cy="12" r="8.5" /><path d="M12 7.5V12l3 1.8" /></svg>;
     case 'history':return <svg {...props} style={{ width: "18px", height: "18px" }}><path d="M3.5 12a8.5 8.5 0 1 0 2.8-6.3l-2.8 2.6" /><path d="M3.5 3v5h5" /><path d="M12 8v4l2.5 1.5" /></svg>;
     case 'eye':return <svg {...props} style={{ width: "18px", height: "18px" }}><path d="M2.5 12s4-7 9.5-7 9.5 7 9.5 7-4 7-9.5 7S2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></svg>;
+    case 'eye-on':return <svg {...props}><path d="M2.5 12s4-7 9.5-7 9.5 7 9.5 7-4 7-9.5 7S2.5 12 2.5 12z" /><circle cx="12" cy="12" r="3" /></svg>;
     case 'eye-off':return <svg {...props}><path d="M9.9 4.2A10 10 0 0 1 21.5 12s-.9 1.6-2.6 3.3M6.6 6.6A10 10 0 0 0 2.5 12s4 7 9.5 7c1.9 0 3.6-.5 5-1.4M10 10a3 3 0 0 0 4 4" /><path d="m3.5 3.5 17 17" /></svg>;
 
     // Documents / items

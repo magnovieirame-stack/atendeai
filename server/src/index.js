@@ -8,6 +8,7 @@ import cookieParser from 'cookie-parser';
 import path from 'node:path';
 
 import { config, logConfigStatus } from './config.js';
+import { startLembretesWorker } from './lib/lembretes.js';
 import { helmetMiddleware, apiLimiter } from './middleware/security.js';
 import { apiNotFound, errorHandler } from './middleware/errorHandler.js';
 import { healthRouter } from './routes/health.routes.js';
@@ -15,6 +16,9 @@ import { authRouter } from './routes/auth.routes.js';
 import { chatbotRouter } from './routes/chatbot.routes.js';
 import { crmRouter } from './routes/crm.routes.js';
 import { financeiroRouter } from './routes/financeiro.routes.js';
+import { agendaRouter } from './routes/agenda.routes.js';
+import { leadsRouter } from './routes/leads.routes.js';
+import { notificacoesRouter } from './routes/notificacoes.routes.js';
 
 const app = express();
 
@@ -34,6 +38,9 @@ api.use(authRouter);
 api.use('/chatbot', chatbotRouter);
 api.use('/crm', crmRouter);
 api.use('/financeiro', financeiroRouter);
+api.use('/agenda', agendaRouter);
+api.use('/leads', leadsRouter);
+api.use('/notificacoes', notificacoesRouter);
 // (próximos módulos entram aqui)
 app.use('/api', api);
 app.use('/api', apiNotFound); // 404 JSON p/ rotas de API inexistentes
@@ -57,6 +64,8 @@ if (!process.env.VERCEL) {
     console.log('  Frontend + API:  http://localhost:' + config.port);
     console.log('  Health check:    http://localhost:' + config.port + '/api/health');
     logConfigStatus();
+    startLembretesWorker(); // dispara lembretes de agendamento no tempo de antecedência
+    console.log('  Worker de lembretes: ativo (verifica a cada 1 min)');
     console.log('  (Ctrl+C para parar)\n');
   });
 }

@@ -802,7 +802,7 @@
         onClose={onClose}
         footer={(close) =>
           <>
-            <button className="btn" onClick={() => close()}>Cancelar</button>
+            <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
             <span className="spacer" style={{ flex: 1 }} />
             <button className={'btn ' + (tone === 'danger' ? 'btn-delete' : tone === 'warn' ? 'btn-warn' : 'btn-save')} onClick={() => close(onConfirm)}>
               <Ic name={tone === 'danger' ? 'trash' : tone === 'warn' ? 'alert' : 'check'} size={12} /> {confirmLabel}
@@ -1373,7 +1373,7 @@
         width={720}
         footer={(close) =>
           <>
-            <button className="btn" onClick={() => close()}>Cancelar</button>
+            <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
             <span className="spacer" style={{ flex: 1 }} />
             <button className="btn btn-save" disabled={!canSave} onClick={() => close(() => onSave(form))}>
               <Ic name="check" size={12} /> {isEdit ? 'Salvar alterações' : 'Criar regra'}
@@ -1708,7 +1708,7 @@
         onClose={onClose}
         footer={
           <>
-            <button className="btn" onClick={onClose}>Cancelar</button>
+            <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
             <span className="spacer" style={{ flex: 1 }} />
             <button className="btn btn-primary" onClick={() => onConfirm({ date, method, note })}>
               <Ic name="dollar" size={12} /> Confirmar pagamento · {fmtBRL(total)}
@@ -1833,7 +1833,7 @@
         onClose={onClose}
         footer={
           <>
-            <button className="btn" onClick={onClose}>Cancelar</button>
+            <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
             <span className="spacer" style={{ flex: 1 }} />
             <button className="btn btn-primary" disabled={selected.size === 0} onClick={() => onPay(Array.from(selected), { date, method, note })}>
               <Ic name="dollar" size={12} /> Pagar {fmtBRL(total)} ({selected.size})

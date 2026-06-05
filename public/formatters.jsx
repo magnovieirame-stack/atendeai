@@ -391,7 +391,7 @@ function maskTime(v) {
   if (d.length <= 2) return d;
   return `${d.slice(0,2)}:${d.slice(2)}`;
 }
-function TimeInput({ value, onChange, placeholder='hh:mm', startHour=0, endHour=24, step=15, className, ...rest }) {
+function TimeInput({ value, onChange, placeholder='hh:mm', startHour=0, endHour=24, step=15, startTime, endTime, className, ...rest }) {
   const controlled = value !== undefined;
   const [open, setOpen] = useState(false);
   const [internal, setInternal] = useState(value || '');
@@ -411,14 +411,16 @@ function TimeInput({ value, onChange, placeholder='hh:mm', startHour=0, endHour=
   }, [open]);
 
   const slots = useMemo(() => {
+    const toMin = (t) => { const p = String(t || '').split(':'); return (parseInt(p[0], 10) || 0) * 60 + (parseInt(p[1], 10) || 0); };
+    const from = startTime ? toMin(startTime) : startHour * 60;
+    const to = endTime ? toMin(endTime) : endHour * 60 - 1;
+    const st = Math.max(1, step | 0);
     const r = [];
-    for (let h = startHour; h < endHour; h++) {
-      for (let m = 0; m < 60; m += step) {
-        r.push(`${String(h).padStart(2,'0')}:${String(m).padStart(2,'0')}`);
-      }
+    for (let mn = from; mn <= to; mn += st) {
+      r.push(`${String(Math.floor(mn / 60)).padStart(2, '0')}:${String(mn % 60).padStart(2, '0')}`);
     }
     return r;
-  }, [startHour, endHour, step]);
+  }, [startHour, endHour, step, startTime, endTime]);
 
   useEffect(() => {
     if (!open || !listRef.current) return;

@@ -38,9 +38,35 @@ function tipoDoMime(mime = '') {
 
 // DB -> DTO limpo (não expomos nomes de coluna crus pro frontend).
 // O nome/foto/telefone "de verdade" vêm da tabela clientes (via cliente_id).
-function mapContato(r, cliente, tags) {
+// Normaliza o tipo de mídia da última mensagem (p/ o frontend escolher o ícone).
+function normMidia(tipo) {
+  switch (tipo) {
+    case 'imagem': return 'imagem';
+    case 'audio': return 'audio';
+    case 'video': return 'video';
+    case 'arquivo': case 'docx': case 'xlsx': case 'pdf': return 'arquivo';
+    default: return null;
+  }
+}
+// Rótulo curto p/ o preview quando a última mensagem é mídia (sem texto).
+function rotuloMidia(tipo) {
+  switch (tipo) {
+    case 'imagem': return 'Foto';
+    case 'audio': return 'Áudio';
+    case 'video': return 'Vídeo';
+    case 'arquivo': return 'Arquivo';
+    default: return '';
+  }
+}
+
+function mapContato(r, cliente, tags, ultima) {
   const nomeContato = r.nome && r.nome !== 'null' ? r.nome : null;
   const nomeCliente = cliente && cliente.nome && cliente.nome !== 'null' ? cliente.nome : null;
+  const um = ultima || null;
+  const temTexto = !!(um && um.texto && um.texto !== 'null');
+  const midiaTipo = (um && !temTexto) ? normMidia(um.tipomidia) : null;
+  const preview = temTexto ? um.texto : (midiaTipo ? rotuloMidia(midiaTipo) : '');
+  const porEmpresa = !!(um && um.enviadopor && String(um.enviadopor).trim()); // empresa enviou a última msg
   return {
     id: r.id,
     nome: nomeCliente || nomeContato || 'Contato sem nome',
@@ -49,14 +75,36 @@ function mapContato(r, cliente, tags) {
     telefone: cliente ? cliente.telefone || null : null,
     email: cliente ? cliente.email || null : null,
     canal: r.origemcontato || 'whatsapp',
+    ia: !(r.atendente && String(r.atendente).trim() && r.atendente !== 'null'), // sem atendente humano => conduzida pela IA
     status: r.statuschat || 'ativo',
     departamento: r.departamento || null,
     naoLidas: r.qtd_mensagem_nao_lida || 0,
     novaMensagem: !!r.nova_mensagem,
     fixado: !!r.fixado,
     ultimaMsg: r.ultimamsg || null,
+    // preview da última mensagem (estilo WhatsApp)
+    ultimaMensagem: preview,
+    ultimaMidiaTipo: midiaTipo,                        // imagem|audio|video|arquivo|null
+    ultimaPorEmpresa: porEmpresa,
+    ultimaEntregue: um ? um.entregue !== false : true, // coluna opcional; ausente => entregue
     tags: tags || [],
   };
+}
+
+// Tag padrão por tipo de contato (Cliente/Lead) — todo contato exibe ao menos uma (igual ao CRM).
+const CONTATO_TIPO_TAG = {
+  cliente: { id: 'auto-cliente', nome: 'Cliente', cor: '#16A34A' },
+  lead: { id: 'auto-lead', nome: 'Lead', cor: '#3B82F6' },
+};
+const normNome = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+const soDigitos = (s) => (s || '').replace(/\D/g, '');
+
+// Garante a tag Cliente/Lead no contato (nível de exibição; não grava no banco).
+function ensureTipoTag(tags, isLead) {
+  const arr = Array.isArray(tags) ? tags : [];
+  const jaTem = arr.some((t) => { const n = (t.nome || '').toLowerCase(); return n === 'cliente' || n === 'lead'; });
+  if (jaTem) return arr;
+  return [isLead ? CONTATO_TIPO_TAG.lead : CONTATO_TIPO_TAG.cliente, ...arr];
 }
 
 function mapMensagem(r) {
@@ -84,38 +132,77 @@ chatbotRouter.get('/contatos', async (req, res, next) => {
   try {
     const { data: contatos, error } = await req.supabase
       .from('chatbot-contatos')
-      .select('id,nome,cliente_id,origemcontato,statuschat,departamento,qtd_mensagem_nao_lida,nova_mensagem,fixado,ultimamsg')
+      .select('id,nome,cliente_id,origemcontato,statuschat,departamento,qtd_mensagem_nao_lida,nova_mensagem,fixado,ultimamsg,atendente')
       .order('ultimamsg', { ascending: false, nullsFirst: false });
     if (error) throw error;
     const rows = contatos || [];
-
-    // 1) clientes (nome/foto/telefone/email)
     const clienteIds = [...new Set(rows.map((r) => r.cliente_id).filter(Boolean))];
-    const clientesById = {};
-    if (clienteIds.length) {
-      const { data: cls } = await req.supabase.from('clientes').select('id,nome,fotolink,telefone,email').in('id', clienteIds);
-      (cls || []).forEach((c) => { clientesById[c.id] = c; });
-    }
-
-    // 2) tags de cada contato (tags-contatos -> tags)
     const contatoIds = rows.map((r) => r.id);
-    const tagsByContato = {};
-    if (contatoIds.length) {
-      const { data: rel } = await req.supabase.from('tags-contatos').select('tagid,contatoid').in('contatoid', contatoIds);
-      const tagIds = [...new Set((rel || []).map((x) => x.tagid).filter(Boolean))];
-      const tagsById = {};
-      if (tagIds.length) {
-        const { data: tgs } = await req.supabase.from('tags').select('id,nome,cor').in('id', tagIds);
-        (tgs || []).forEach((t) => { tagsById[t.id] = t; });
-      }
-      (rel || []).forEach((x) => {
-        const t = tagsById[x.tagid];
-        if (!t) return;
-        (tagsByContato[x.contatoid] = tagsByContato[x.contatoid] || []).push({ id: t.id, nome: t.nome, cor: t.cor });
-      });
-    }
 
-    res.json({ contatos: rows.map((r) => mapContato(r, clientesById[r.cliente_id], tagsByContato[r.id])) });
+    // clientes e tags são independentes entre si -> buscamos em PARALELO (corta 1 round-trip).
+    const [clientesById, tagsByContato, leadKeys, ultimaMsgByContato] = await Promise.all([
+      // 1) clientes (nome/foto/telefone/email)
+      (async () => {
+        const map = {};
+        if (clienteIds.length) {
+          const { data: cls } = await req.supabase.from('clientes').select('id,nome,fotolink,telefone,email').in('id', clienteIds);
+          (cls || []).forEach((c) => { map[c.id] = c; });
+        }
+        return map;
+      })(),
+      // 2) tags de cada contato (tags-contatos -> tags). q4 depende de q3, então fica encadeado aqui dentro.
+      (async () => {
+        const map = {};
+        if (!contatoIds.length) return map;
+        const { data: rel } = await req.supabase.from('tags-contatos').select('tagid,contatoid').in('contatoid', contatoIds);
+        const tagIds = [...new Set((rel || []).map((x) => x.tagid).filter(Boolean))];
+        const tagsById = {};
+        if (tagIds.length) {
+          const { data: tgs } = await req.supabase.from('tags').select('id,nome,cor').in('id', tagIds);
+          (tgs || []).forEach((t) => { tagsById[t.id] = t; });
+        }
+        (rel || []).forEach((x) => {
+          const t = tagsById[x.tagid];
+          if (!t) return;
+          (map[x.contatoid] = map[x.contatoid] || []).push({ id: t.id, nome: t.nome, cor: t.cor });
+        });
+        return map;
+      })(),
+      // 3) chaves dos leads (nome/telefone) p/ detectar se o contato é Lead (como no CRM).
+      (async () => {
+        const keys = new Set();
+        try {
+          const { data: mem } = await req.supabase.from('empresa_membros').select('empresa_id').limit(1);
+          const empresaId = mem && mem[0] ? mem[0].empresa_id : null;
+          if (empresaId) {
+            const { data: leads } = await adminClient().from('leads').select('nome,telefone').eq('empresa_id', empresaId);
+            (leads || []).forEach((l) => { if (l.nome) keys.add('n:' + normNome(l.nome)); const d = soDigitos(l.telefone); if (d) keys.add('p:' + d); });
+          }
+        } catch (e) { /* best-effort: na dúvida, trata como cliente */ }
+        return keys;
+      })(),
+      // 4) última mensagem de cada contato (texto + quem enviou + entrega) p/ o preview.
+      (async () => {
+        const map = {};
+        if (!contatoIds.length) return map;
+        // select('*') p/ ser resiliente caso a coluna 'entregue' ainda não exista.
+        const { data: msgs } = await req.supabase
+          .from('chatbot-mensagens')
+          .select('*')
+          .in('contato', contatoIds)
+          .order('created_at', { ascending: false })
+          .limit(1000);
+        (msgs || []).forEach((m) => { if (!map[m.contato]) map[m.contato] = m; }); // 1ª = mais recente
+        return map;
+      })(),
+    ]);
+
+    res.json({ contatos: rows.map((r) => {
+      const cli = clientesById[r.cliente_id];
+      const dig = cli ? soDigitos(cli.telefone) : '';
+      const isLead = !!(cli && ((cli.nome && leadKeys.has('n:' + normNome(cli.nome))) || (dig && leadKeys.has('p:' + dig))));
+      return mapContato(r, cli, ensureTipoTag(tagsByContato[r.id], isLead), ultimaMsgByContato[r.id]);
+    }) });
   } catch (err) { next(err); }
 });
 
@@ -317,6 +404,57 @@ chatbotRouter.patch('/contatos/:id', validateBody(statusSchema), async (req, res
       .update({ statuschat: req.body.statuschat }).eq('id', id).select('id,statuschat').single();
     if (error) throw error;
     res.json({ contato: { id: data.id, status: data.statuschat } });
+  } catch (err) { next(err); }
+});
+
+// ---- PATCH /api/chatbot/contatos/:id/fixar { fixado }  (fixar/desafixar) ----
+const fixarSchema = z.object({ fixado: z.coerce.boolean() }).strip();
+chatbotRouter.patch('/contatos/:id/fixar', validateBody(fixarSchema), async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const { data, error } = await req.supabase.from('chatbot-contatos')
+      .update({ fixado: req.body.fixado }).eq('id', id).select('id,fixado').single();
+    if (error) throw error;
+    res.json({ contato: { id: data.id, fixado: !!data.fixado } });
+  } catch (err) { next(err); }
+});
+
+// ---- PATCH /api/chatbot/contatos/:id/bloquear { bloquear }  (bloquear/desbloquear) ----
+const bloquearSchema = z.object({ bloquear: z.coerce.boolean() }).strip();
+chatbotRouter.patch('/contatos/:id/bloquear', validateBody(bloquearSchema), async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const { data, error } = await req.supabase.from('chatbot-contatos')
+      .update({ statuschat: req.body.bloquear ? 'bloqueado' : 'ativo' }).eq('id', id).select('id,statuschat').single();
+    if (error) throw error;
+    res.json({ contato: { id: data.id, status: data.statuschat } });
+  } catch (err) { next(err); }
+});
+
+// ---- DELETE /api/chatbot/contatos/:id/mensagens  (limpar: apaga as mensagens, mantém a conversa) ----
+chatbotRouter.delete('/contatos/:id/mensagens', async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const empresaId = await getEmpresaId(req);
+    const { data: ct } = await adminClient().from('chatbot-contatos').select('id,empresa_id').eq('id', id).single();
+    if (!ct || (empresaId && ct.empresa_id !== empresaId)) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    await adminClient().from('chatbot-mensagens').delete().eq('contato', id);
+    await adminClient().from('chatbot-contatos').update({ ultimamsg: null, qtd_mensagem_nao_lida: 0 }).eq('id', id);
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ---- DELETE /api/chatbot/contatos/:id  (apagar: remove a conversa, mensagens e vínculos de tag) ----
+chatbotRouter.delete('/contatos/:id', async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const empresaId = await getEmpresaId(req);
+    const { data: ct } = await adminClient().from('chatbot-contatos').select('id,empresa_id').eq('id', id).single();
+    if (!ct || (empresaId && ct.empresa_id !== empresaId)) return res.status(404).json({ error: 'Conversa não encontrada.' });
+    await adminClient().from('chatbot-mensagens').delete().eq('contato', id);
+    await adminClient().from('tags-contatos').delete().eq('contatoid', id);
+    await adminClient().from('chatbot-contatos').delete().eq('id', id);
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
