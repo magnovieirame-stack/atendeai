@@ -11,13 +11,14 @@
 //   DELETE /api/integracoes/instagram            -> desconecta
 import { Router } from 'express';
 import { z } from 'zod';
-import { config, instagramReady, facebookReady, whatsappReady } from '../config.js';
+import { config, instagramReady, facebookReady, whatsappReady, googleReady } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { signState, verifyState, randomToken } from '../lib/crypto.js';
 import * as ig from '../lib/instagram.js';
 import * as fb from '../lib/facebook.js';
 import * as wa from '../lib/whatsapp.js';
+import * as gcal from '../lib/google.js';
 import * as store from '../lib/integracoes.js';
 
 export const integracoesRouter = Router();
@@ -62,6 +63,7 @@ integracoesRouter.get('/', requireAuth, async (req, res, next) => {
       instagramDisponivel: instagramReady, // false = app da Meta ainda não configurado no .env
       facebookDisponivel: facebookReady,
       whatsappDisponivel: whatsappReady,
+      googleDisponivel: googleReady,
     });
   } catch (err) { next(err); }
 });
@@ -273,6 +275,61 @@ integracoesRouter.delete('/whatsapp', requireAuth, async (req, res, next) => {
     const empresaId = await getEmpresaId(req);
     if (!empresaId) return res.status(403).json({ error: 'Empresa não encontrada.' });
     await store.disconnect(empresaId, 'whatsapp');
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// ===================== GOOGLE CALENDAR (OAuth) =====================
+
+// ---- GET /api/integracoes/google/connect ----
+integracoesRouter.get('/google/connect', requireAuth, async (req, res, next) => {
+  try {
+    if (!googleReady) return popupClose(res, false, 'Integração ainda não configurada no servidor (.env do Google).', 'google');
+    const empresaId = await getEmpresaId(req);
+    if (!empresaId) return popupClose(res, false, 'Sua conta não está vinculada a uma empresa.', 'google');
+    const nonce = randomToken();
+    const state = signState({ empresaId, nonce, ts: Date.now(), c: 'google' });
+    res.cookie(STATE_COOKIE, nonce, stateCookieOpts);
+    return res.redirect(gcal.buildAuthUrl(state));
+  } catch (err) { next(err); }
+});
+
+// ---- GET /api/integracoes/google/callback ----
+integracoesRouter.get('/google/callback', async (req, res) => {
+  try {
+    if (!googleReady) return popupClose(res, false, 'Integração não configurada no servidor.', 'google');
+    if (req.query.error) return popupClose(res, false, String(req.query.error_description || req.query.error).slice(0, 200), 'google');
+    const code = typeof req.query.code === 'string' ? req.query.code : '';
+    const state = typeof req.query.state === 'string' ? req.query.state : '';
+    if (!code || !state) return popupClose(res, false, 'Resposta inválida do Google.', 'google');
+
+    const payload = verifyState(state);
+    const cookieNonce = req.cookies?.[STATE_COOKIE];
+    res.clearCookie(STATE_COOKIE, { ...stateCookieOpts, maxAge: undefined });
+    if (!payload || !payload.empresaId || !cookieNonce || cookieNonce !== payload.nonce) {
+      return popupClose(res, false, 'Sessão de conexão expirada ou inválida. Tente de novo.', 'google');
+    }
+    const empresaId = payload.empresaId;
+
+    const { accessToken, refreshToken } = await gcal.exchangeCode(code);
+    if (!refreshToken) {
+      // Sem refresh token não conseguimos agir depois -> peça para reconectar.
+      return popupClose(res, false, 'O Google não devolveu autorização offline. Remova o acesso do app na sua Conta Google e tente novamente.', 'google');
+    }
+    const email = await gcal.getUserEmail(accessToken);
+    await store.conectarGoogle(empresaId, { refreshToken, email, calendarId: 'primary' });
+    return popupClose(res, true, (email ? email + ' ' : '') + 'conectado com sucesso.', 'google');
+  } catch (err) {
+    return popupClose(res, false, config.isProd ? 'Erro ao conectar.' : (err?.message || 'Erro ao conectar.'), 'google');
+  }
+});
+
+// ---- DELETE /api/integracoes/google ----
+integracoesRouter.delete('/google', requireAuth, async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    if (!empresaId) return res.status(403).json({ error: 'Empresa não encontrada.' });
+    await store.disconnect(empresaId, 'google_calendar');
     res.json({ ok: true });
   } catch (err) { next(err); }
 });

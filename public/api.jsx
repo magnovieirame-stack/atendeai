@@ -148,6 +148,9 @@ const API = {
   // WhatsApp: conexão manual (sem popup) — envia Phone Number ID + token.
   connectWhatsapp(dto) { return this._json('/integracoes/whatsapp', 'POST', dto); },
   disconnectWhatsapp() { return this._req('/integracoes/whatsapp', { method: 'DELETE' }); },
+  // Google Calendar: login via popup (OAuth).
+  googleConnectUrl() { return '/api/integracoes/google/connect'; },
+  disconnectGoogle() { return this._req('/integracoes/google', { method: 'DELETE' }); },
 };
 window.API = API;
 

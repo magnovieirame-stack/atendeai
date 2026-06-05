@@ -7,6 +7,7 @@
 import { adminClient } from './supabase.js';
 import { encryptSecret, decryptSecret } from './crypto.js';
 import * as ig from './instagram.js';
+import * as gcal from './google.js';
 
 const TABLE = 'integracoes_canais';
 
@@ -118,6 +119,31 @@ export async function conectarWhatsapp(empresaId, { phoneNumberId, token, displa
   const { data, error } = await adminClient().from(TABLE).upsert(row, { onConflict: 'empresa_id,canal' }).select('*').single();
   if (error) throw error;
   return data;
+}
+
+// --- Google Calendar ---
+export async function conectarGoogle(empresaId, { refreshToken, email, calendarId }) {
+  const row = {
+    empresa_id: empresaId, canal: 'google_calendar', status: 'conectado',
+    external_id: email || null, username: email || null, nome: email || null, foto: null,
+    access_token_enc: encryptSecret(refreshToken), token_expira_em: null, escopos: null,
+    ultimo_erro: null, meta: { calendarId: calendarId || 'primary' }, updated_at: new Date().toISOString(),
+  };
+  const { data, error } = await adminClient().from(TABLE).upsert(row, { onConflict: 'empresa_id,canal' }).select('*').single();
+  if (error) throw error;
+  return data;
+}
+
+// Devolve um access token válido (gerado a partir do refresh token) + calendarId.
+// Retorna null se a empresa não conectou o Google. Não lança em caso de falha de
+// rede aqui (o chamador trata como "não sincronizado").
+export async function getGoogleAccess(empresaId) {
+  const row = await getIntegracao(empresaId, 'google_calendar');
+  if (!row || row.status !== 'conectado' || !row.access_token_enc) return null;
+  const refreshToken = decryptSecret(row.access_token_enc);
+  const { accessToken } = await gcal.refreshAccessToken(refreshToken);
+  if (!accessToken) return null;
+  return { accessToken, calendarId: (row.meta && row.meta.calendarId) || 'primary', row };
 }
 
 export async function marcarErro(empresaId, canal, msg) {

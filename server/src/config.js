@@ -53,6 +53,15 @@ export const config = {
   whatsapp: {
     webhookVerifyToken: process.env.WHATSAPP_WEBHOOK_VERIFY_TOKEN || '',
   },
+
+  // --- Google Calendar (OAuth 2.0) — sincroniza a Agenda ---
+  google: {
+    clientId: process.env.GOOGLE_CLIENT_ID || '',
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET || '',
+    scopes: process.env.GOOGLE_SCOPES || 'openid email https://www.googleapis.com/auth/calendar.events',
+    // Fuso usado ao criar eventos (a maioria dos clientes é BR).
+    timeZone: process.env.GOOGLE_TIMEZONE || 'America/Sao_Paulo',
+  },
 };
 
 // Caminhos de callback do OAuth (concatenados ao appBaseUrl).
@@ -61,6 +70,9 @@ config.instagram.redirectUri = config.appBaseUrl
   : '';
 config.facebook.redirectUri = config.appBaseUrl
   ? config.appBaseUrl + '/api/integracoes/facebook/callback'
+  : '';
+config.google.redirectUri = config.appBaseUrl
+  ? config.appBaseUrl + '/api/integracoes/google/callback'
   : '';
 // A assinatura do webhook do WhatsApp usa o segredo do mesmo app (Facebook).
 config.whatsapp.appSecret = config.facebook.appSecret;
@@ -80,6 +92,9 @@ export const facebookReady = Boolean(
 // RECEBER mensagens também é preciso o segredo do app + verify token do webhook.
 export const whatsappReady = Boolean(config.tokenEncryptionKey);
 export const whatsappWebhookReady = Boolean(config.whatsapp.appSecret && config.whatsapp.webhookVerifyToken);
+export const googleReady = Boolean(
+  config.google.clientId && config.google.clientSecret && config.appBaseUrl && config.tokenEncryptionKey,
+);
 
 export function logConfigStatus() {
   const ok = (b) => (b ? 'OK' : 'FALTANDO');
@@ -88,6 +103,7 @@ export function logConfigStatus() {
   console.log('  Instagram (Meta):       ' + ok(instagramReady) + (instagramReady ? '' : ' (IG_* + APP_BASE_URL + TOKEN_ENCRYPTION_KEY)'));
   console.log('  Facebook (Meta):        ' + ok(facebookReady) + (facebookReady ? '' : ' (FB_* + APP_BASE_URL + TOKEN_ENCRYPTION_KEY)'));
   console.log('  WhatsApp (Cloud API):   ' + ok(whatsappReady) + (whatsappWebhookReady ? '' : ' (recebimento: FB_APP_SECRET + WHATSAPP_WEBHOOK_VERIFY_TOKEN)'));
+  console.log('  Google Calendar:        ' + ok(googleReady) + (googleReady ? '' : ' (GOOGLE_CLIENT_ID/SECRET + APP_BASE_URL + TOKEN_ENCRYPTION_KEY)'));
   if (!supabaseReady) {
     console.log('  -> Auth/dados desativados até preencher o .env. Frontend funciona normalmente.');
   }

@@ -679,6 +679,21 @@ const CANAL_OAUTH_CFG = {
     botao: 'Entrar com Facebook',
     connectUrl: () => API.facebookConnectUrl(), disconnect: () => API.disconnectFacebook(),
   },
+  google: {
+    nome: 'Google', titulo: 'Google Calendar', cor: '#4285f4', icon: 'agenda', arroba: false,
+    tituloDesc: 'Conecte seu Google Calendar',
+    desc: <span>Faça login com o Google e autorize o acesso à agenda. Os compromissos criados, editados ou excluídos aqui passam a aparecer <b>automaticamente</b> no seu Google Calendar.</span>,
+    descConectado: 'Seus compromissos da Agenda são sincronizados automaticamente com o Google Calendar.',
+    botao: 'Entrar com Google',
+    connectUrl: () => API.googleConnectUrl(), disconnect: () => API.disconnectGoogle(),
+  },
+};
+
+// Mapeia o modal OAuth -> chave do canal no banco + flag de disponibilidade.
+const OAUTH_CANAIS = {
+  instagram: { canal: 'instagram', disp: 'instagramDisponivel' },
+  facebook: { canal: 'facebook', disp: 'facebookDisponivel' },
+  google: { canal: 'google_calendar', disp: 'googleDisponivel' },
 };
 
 // Modal do WhatsApp — conexão MANUAL (Phone Number ID + token).
@@ -786,8 +801,13 @@ function AdminIntegrations() {
       detail: conectado('facebook') ? nomeConta('facebook') : 'Conecte sua Página para receber mensagens',
       onConfig: () => setModal('facebook'),
     },
+    {
+      key: 'gcal', name: 'Google Calendar', icon: 'agenda', color: '#4285f4',
+      conectado: conectado('google_calendar'),
+      detail: conectado('google_calendar') ? (nomeConta('google_calendar') || 'Conta conectada') : 'Sincronize a Agenda com o Google',
+      onConfig: () => setModal('google'),
+    },
     { key: 'api', name: 'API do sistema', icon: 'database', color: '#1f2937', conectado: false, detail: 'Em breve', soon: true },
-    { key: 'gcal', name: 'Google Calendar', icon: 'agenda', color: '#4285f4', conectado: false, detail: 'Em breve', soon: true },
   ];
 
   return (
@@ -817,11 +837,11 @@ function AdminIntegrations() {
         )}
       </div>
 
-      {(modal === 'instagram' || modal === 'facebook') && (
+      {OAUTH_CANAIS[modal] && (
         <CanalOAuthModal
           cfg={CANAL_OAUTH_CFG[modal]}
-          disponivel={!!(data && data[modal + 'Disponivel'])}
-          current={info(modal)}
+          disponivel={!!(data && data[OAUTH_CANAIS[modal].disp])}
+          current={info(OAUTH_CANAIS[modal].canal)}
           onClose={() => setModal(null)}
           onConnected={() => { setModal(null); load(); }}
         />

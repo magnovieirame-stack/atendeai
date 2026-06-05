@@ -7,12 +7,36 @@ import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
+import * as integ from '../lib/integracoes.js';
+import * as gcal from '../lib/google.js';
 
 export const agendaRouter = Router();
 agendaRouter.use(requireAuth);
 
 const uuid = z.string().uuid('id inválido');
 const db = () => adminClient();
+
+// Sincroniza um compromisso com o Google Calendar (se a empresa conectou).
+// Uma via: criar/editar/excluir na Agenda reflete no Google. Best-effort: nunca
+// derruba a requisição — se o Google falhar, o compromisso continua salvo aqui.
+// 'row' é a linha CRUA da tabela agenda (data, hora, duracao, servico, ...).
+async function sincronizarGoogle(empresaId, acao, row) {
+  try {
+    const g = await integ.getGoogleAccess(empresaId);
+    if (!g) return null; // empresa não conectou o Google Calendar
+    if (acao === 'delete') {
+      if (row && row.gcal_event_id) await gcal.deleteEvent(g.accessToken, g.calendarId, row.gcal_event_id);
+      return null;
+    }
+    const evento = gcal.montarEvento(row);
+    if (acao === 'update' && row.gcal_event_id) {
+      await gcal.updateEvent(g.accessToken, g.calendarId, row.gcal_event_id, evento);
+      return row.gcal_event_id;
+    }
+    const ev = await gcal.insertEvent(g.accessToken, g.calendarId, evento); // create (ou update sem evento ainda)
+    return ev && ev.id ? ev.id : null;
+  } catch (e) { console.error('[gcal sync]', e?.message || e); return null; }
+}
 
 // empresa do usuário logado (via empresa_membros, que tem RLS própria).
 async function getEmpresaId(req) {
@@ -203,6 +227,9 @@ agendaRouter.post('/', validateBody(apptSchema), async (req, res, next) => {
     if (req.user && req.user.id) row.criado_por = req.user.id;
     const { data, error } = await db().from('agenda').insert(row).select('*').single();
     if (error) throw error;
+    // espelha no Google Calendar (se conectado) e guarda o id do evento
+    const eventId = await sincronizarGoogle(empresaId, 'create', data);
+    if (eventId) { await db().from('agenda').update({ gcal_event_id: eventId }).eq('id', data.id); data.gcal_event_id = eventId; }
     const cmap = await clientesMap([data.cliente_id]);
     // NÃO notifica na criação — o lembrete é disparado pelo worker no tempo de antecedência.
     res.status(201).json({ appt: mapAppt(data, cmap[data.cliente_id]) });
@@ -219,6 +246,9 @@ agendaRouter.patch('/:id', validateBody(apptSchema.partial()), async (req, res, 
     Object.keys(req.body).forEach((k) => { if (map[k]) patch[map[k]] = full[map[k]]; });
     const { data, error } = await db().from('agenda').update(patch).eq('id', id).eq('empresa_id', empresaId).select('*').single();
     if (error) throw error;
+    // espelha a edição no Google Calendar (cria o evento se ainda não existir)
+    const eventId = await sincronizarGoogle(empresaId, 'update', data);
+    if (eventId && eventId !== data.gcal_event_id) { await db().from('agenda').update({ gcal_event_id: eventId }).eq('id', data.id); data.gcal_event_id = eventId; }
     const cmap = await clientesMap([data.cliente_id]);
     res.json({ appt: mapAppt(data, cmap[data.cliente_id]) });
   } catch (err) { next(err); }
@@ -228,8 +258,11 @@ agendaRouter.delete('/:id', async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
     const id = uuid.parse(req.params.id);
+    // pega o id do evento no Google antes de apagar, p/ remover de lá também
+    const { data: row } = await db().from('agenda').select('gcal_event_id').eq('id', id).eq('empresa_id', empresaId).maybeSingle();
     const { error } = await db().from('agenda').delete().eq('id', id).eq('empresa_id', empresaId);
     if (error) throw error;
+    if (row && row.gcal_event_id) await sincronizarGoogle(empresaId, 'delete', row);
     res.json({ ok: true });
   } catch (err) { next(err); }
 });
