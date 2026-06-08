@@ -16,6 +16,14 @@ import * as store from '../lib/integracoes.js';
 
 export const webhooksRouter = Router();
 
+// LOG geral: registra QUALQUER chamada que chegue em /api/webhooks/* (método +
+// caminho + user-agent), antes de qualquer validação. Ajuda a descobrir se a
+// Meta está chamando, e em qual caminho. (Temporário, p/ diagnóstico.)
+webhooksRouter.use((req, res, next) => {
+  console.log(`[wh *] ${req.method} ${req.originalUrl} | ua=${(req.get('user-agent') || '').slice(0, 40)}`);
+  next();
+});
+
 const BUCKET = 'arquivos';
 
 // ============================ helpers compartilhados ============================
