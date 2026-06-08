@@ -24,9 +24,10 @@ export const helmetMiddleware = helmet({
 });
 
 // Limite geral para a API: protege contra abuso/brute force.
+// Mais folgado porque o inbox faz polling (atualização automática das conversas).
 export const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 min
-  max: 300,
+  max: 1200, // ~80/min por IP — comporta o polling do inbox sem travar
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: 'Muitas requisições. Tente novamente em alguns minutos.' },

@@ -452,6 +452,15 @@ function Inbox() {
       .catch((e) => { setDbConvs((p) => p || []); setConvError(e.message || 'Erro ao carregar conversas'); });
   }, []);
   React.useEffect(() => { refetchContatos(); }, [refetchContatos]);
+  // Atualização automática: re-busca a lista de conversas a cada 6s (mensagens
+  // novas chegam pelo webhook no Supabase; sem realtime, fazemos polling leve).
+  // Pausa quando a aba não está visível pra economizar.
+  React.useEffect(() => {
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') refetchContatos();
+    }, 6000);
+    return () => clearInterval(id);
+  }, [refetchContatos]);
   // lembra a qtd de conversas pra o skeleton mostrar o nº real
   React.useEffect(() => { if (Array.isArray(dbConvs) && dbConvs.length) skelRemember('inbox-convs', dbConvs.length); }, [dbConvs]);
   // Ações do menu de cada conversa (atualiza local na hora + persiste no back).
@@ -1201,6 +1210,26 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       setMessages(conv.messages || [{ from: 'client', kind: 'text', text: conv.preview, time: conv.lastTime }]);
     }
   }, [conv.id]);
+
+  // Atualização automática: re-busca as mensagens da conversa aberta a cada 4s.
+  // Só troca o estado se realmente mudou (evita re-render/scroll à toa).
+  React.useEffect(() => {
+    if (!conv._db) return;
+    const id = setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      API.getMensagens(conv.id)
+        .then((r) => {
+          const novas = (r.mensagens || []).map(dbMsgToUi);
+          setMessages((prev) => {
+            const a = prev[prev.length - 1], b = novas[novas.length - 1];
+            if (prev.length === novas.length && (!b || (a && a._id === b._id))) return prev;
+            return novas;
+          });
+        })
+        .catch(() => {});
+    }, 4000);
+    return () => clearInterval(id);
+  }, [conv.id, conv._db]);
 
   React.useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;

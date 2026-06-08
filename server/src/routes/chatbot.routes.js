@@ -265,9 +265,9 @@ chatbotRouter.get('/contatos', async (req, res, next) => {
 
     res.json({ contatos: rows.map((r) => {
       const cli = clientesById[r.cliente_id];
-      const dig = cli ? soDigitos(cli.telefone) : '';
-      const isLead = !!(cli && ((cli.nome && leadKeys.has('n:' + normNome(cli.nome))) || (dig && leadKeys.has('p:' + dig))));
-      return mapContato(r, cli, ensureTipoTag(tagsByContato[r.id], isLead), ultimaMsgByContato[r.id]);
+      // Sem tag forçada: o contato exibe apenas as tags realmente atribuídas.
+      // (contato novo entra sem tag; o "Cliente"/"Lead" automático foi removido)
+      return mapContato(r, cli, tagsByContato[r.id] || [], ultimaMsgByContato[r.id]);
     }) });
   } catch (err) { next(err); }
 });
