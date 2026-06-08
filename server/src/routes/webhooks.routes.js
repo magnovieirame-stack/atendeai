@@ -99,16 +99,23 @@ webhooksRouter.get('/facebook', (req, res) => {
 webhooksRouter.post('/facebook', async (req, res) => {
   const signature = req.get('x-hub-signature-256') || '';
   const raw = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
-  if (!fb.verifyWebhookSignature(raw, signature)) return res.sendStatus(403);
+  console.log('[wh fb] POST recebido | tem assinatura?', !!signature, '| bytes', raw.length, '| object', req.body && req.body.object);
+  if (!fb.verifyWebhookSignature(raw, signature)) {
+    console.error('[wh fb] ASSINATURA INVÁLIDA — confira se FB_APP_SECRET no Vercel é igual à chave do app');
+    return res.sendStatus(403);
+  }
 
   try {
     const body = req.body || {};
+    console.log('[wh fb] payload:', JSON.stringify(body).slice(0, 1000));
     if (body.object === 'page') {
       for (const entry of body.entry || []) {
         for (const ev of entry.messaging || []) {
           try { await processarMensageria('facebook', ev); } catch (e) { console.error('[wh fb]', e?.message || e); }
         }
       }
+    } else {
+      console.log('[wh fb] object não é "page":', body.object);
     }
   } catch (e) { console.error('[wh fb]', e?.message || e); }
   res.sendStatus(200);
@@ -127,13 +134,15 @@ function tipoDoAnexoMeta(t) {
 
 async function processarMensageria(canal, ev) {
   const message = ev.message;
-  if (!message || message.is_echo) return; // ignora echo (já gravamos no envio) e eventos não-msg
+  console.log(`[wh ${canal}] evento | sender=${ev.sender && ev.sender.id} recipient=${ev.recipient && ev.recipient.id} echo=${message && message.is_echo} texto=${message && message.text}`);
+  if (!message || message.is_echo) { console.log(`[wh ${canal}] ignorado (sem message ou echo)`); return; }
 
   const senderId = ev.sender?.id ? String(ev.sender.id) : null;
   const recipientId = ev.recipient?.id ? String(ev.recipient.id) : null;
-  if (!senderId || !recipientId) return;
+  if (!senderId || !recipientId) { console.log(`[wh ${canal}] sem sender/recipient`); return; }
 
   const integ = await store.findByExternalId(canal, recipientId);
+  console.log(`[wh ${canal}] integração p/ recipient ${recipientId}:`, integ ? ('achou status=' + integ.status) : 'NÃO ACHOU (id da página não bate com o conectado)');
   if (!integ || integ.status !== 'conectado') return;
   const db = adminClient();
 

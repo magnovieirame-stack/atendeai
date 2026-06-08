@@ -40,12 +40,14 @@ async function getEmpresaId(req) {
 }
 
 // Pequena página HTML que fecha o popup e avisa a janela principal.
+const CANAL_LABEL = { instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp', google: 'Google Calendar' };
 function popupClose(res, ok, mensagem, canal = 'instagram') {
+  const nome = CANAL_LABEL[canal] || 'Canal';
   const payload = JSON.stringify({ source: 'atende-integracao', canal, ok, mensagem: mensagem || '' });
   res.set('Content-Type', 'text/html; charset=utf-8');
   res.send(`<!doctype html><html lang="pt-br"><head><meta charset="utf-8"><title>Conectar canal</title>
 <style>body{font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0;display:flex;align-items:center;justify-content:center;height:100vh;margin:0;text-align:center}div{max-width:340px;padding:24px}</style></head>
-<body><div><h3>${ok ? '✅ Instagram conectado' : '⚠️ Não foi possível conectar'}</h3>
+<body><div><h3>${ok ? '✅ ' + nome + ' conectado' : '⚠️ Não foi possível conectar'}</h3>
 <p style="opacity:.8;font-size:14px">${(mensagem || (ok ? 'Pode fechar esta janela.' : 'Tente novamente.')).replace(/</g, '&lt;')}</p>
 <p style="opacity:.6;font-size:13px">Esta janela fecha sozinha…</p></div>
 <script>try{if(window.opener)window.opener.postMessage(${payload},window.location.origin);}catch(e){}setTimeout(function(){window.close();},1500);</script>
