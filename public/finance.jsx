@@ -10,6 +10,8 @@
 
   const FORMAS_PAGAMENTO = [
   'Dinheiro', 'PIX', 'Cartão de Débito', 'Cartão de Crédito', 'Boleto', 'Transferência', 'Carnê'];
+  // Formas que abrem o parcelamento (divide o valor líquido em N vezes).
+  const FORMAS_PARCELAVEIS = ['Boleto', 'Carnê', 'Cartão de Crédito'];
 
 
   const FUNCIONARIOS = [
@@ -172,6 +174,56 @@
 
   }
 
+  // Skeleton do KPI — mesma estrutura/medidas do FinKpiCard real (só o valor vira bloco).
+  function FinKpiCardSkeleton({ tone, icon, label }) {
+    const t = KPI_TONES[tone] || KPI_TONES.total;
+    return (
+      <div className="fin-kpi" style={{ borderTopColor: t.bar }}>
+        <div className="fin-kpi-head">
+          <div className="fin-kpi-icon" style={{ background: t.bg, color: t.fg }}>
+            <Ic name={icon} size={18} />
+          </div>
+          <div className="fin-kpi-label">{label}</div>
+        </div>
+        <div className="fin-kpi-value tnum" style={{ display: 'flex', alignItems: 'center' }}>
+          <Skeleton w={92} h={20} r={6} />
+        </div>
+      </div>);
+
+  }
+
+  // Skeleton da linha — reusa o mesmo grid (.fin-row) e as colunas do real.
+  function FinRowSkeleton({ isReceita }) {
+    return (
+      <div className="fin-row fin-row-body" style={{ borderLeft: '2px solid var(--border)' }}>
+        <div className="fin-c fin-c-code">
+          <span className="muted" style={{ fontSize: 10, letterSpacing: '.06em', fontWeight: 600 }}>CÓDIGO</span>
+          <Skeleton w={84} h={14} />
+        </div>
+        <div className="fin-c fin-c-name">
+          <Skeleton w={'70%'} h={14} />
+          <Skeleton w={'90%'} h={11} style={{ marginTop: 4 }} />
+        </div>
+        <div className="fin-c fin-c-venc">
+          <Skeleton w={140} h={12} />
+          <Skeleton w={80} h={18} r={999} style={{ marginTop: 6 }} />
+        </div>
+        <div className="fin-c fin-c-tipo">
+          <Skeleton w={90} h={12} />
+          <Skeleton w={70} h={11} style={{ marginTop: 4 }} />
+        </div>
+        <div className="fin-c fin-c-val">
+          <div className="fin-val-pill"><Skeleton w={88} h={16} /></div>
+        </div>
+        <div className="fin-c fin-c-act" style={{ display: 'flex', gap: 6 }}>
+          <Skeleton circle w={28} h={28} />
+          <Skeleton circle w={28} h={28} />
+          <Skeleton circle w={28} h={28} />
+        </div>
+      </div>);
+
+  }
+
   // ---------- Period filter ----------
   const PERIOD_OPTIONS = [
   { id: 'todos', label: 'TODOS', sub: '', icon: 'check-double' },
@@ -315,6 +367,7 @@
     const [to, setTo] = React.useState('');
     const [query, setQuery] = React.useState('');
     const [items, setItems] = React.useState([]);
+    const [loaded, setLoaded] = React.useState(false);
     const [contasMap, setContasMap] = React.useState({ byId: {}, byName: {} });
     // API entrada -> linha da UI
     const entradaToRow = (e) => ({
@@ -325,9 +378,14 @@
       status: e.pago ? 'paga' : 'aberto',
       venc: isoToBR(e.vencimento), valor: e.valor || 0,
       forma: e.forma || '', desc: e.descricao || '',
+      parcelas: e.parcelas || null,
+      parcTotal: e.parcelas || undefined,
+      parcAtual: e.parcelas ? 0 : undefined,
     });
+    const skelKey = 'fin-entradas';
     React.useEffect(() => {
       let alive = true;
+      setLoaded(false);
       API.getContas().then((r) => {
         if (!alive) return;
         const byId = {}, byName = {};
@@ -335,8 +393,14 @@
         setContasMap({ byId, byName });
       }).catch(() => {});
       API.getEntradas(isReceita ? 'entrada' : 'saida')
-        .then((r) => { if (alive) setItems((r.entradas || []).map(entradaToRow)); })
-        .catch(() => {});
+        .then((r) => {
+          if (!alive) return;
+          const rows = (r.entradas || []).map(entradaToRow);
+          setItems(rows);
+          skelRemember(skelKey, rows.length);
+        })
+        .catch(() => {})
+        .finally(() => { if (alive) setLoaded(true); });
       return () => { alive = false; };
     }, [isReceita]);
     const [showNew, setShowNew] = React.useState(false);
@@ -408,19 +472,25 @@
       clienteOrigem: entry.cliente || '',
       recorrente: entry.tipo === 'recorrente',
       pago: entry.status === 'paga',
+      parcelas: entry.parcelas || null,
       vencimento: entry.venc ? brToIso(entry.venc) : null,
     });
 
     const onSave = async (entry) => {
+      const editing = !!(editItem && editItem._id);
+      const nome = isReceita ? 'Receita' : 'Despesa';
       try {
-        if (editItem && editItem._id) {
+        if (editing) {
           const r = await API.updateEntrada(editItem._id, rowToDto(entry));
           setItems((prev) => prev.map((it) => it._id === editItem._id ? entradaToRow(r.entrada) : it));
         } else {
           const r = await API.createEntrada(rowToDto(entry));
           setItems((prev) => [entradaToRow(r.entrada), ...prev]);
         }
-      } catch (e) {}
+        window.showToast({ tipo: 'sucesso', titulo: editing ? nome + ' atualizada' : nome + ' criada', descricao: entry.cliente || entry.desc || '' });
+      } catch (e) {
+        window.showToast({ tipo: 'erro', titulo: 'Falha ao salvar ' + nome.toLowerCase(), descricao: (e && e.message) || 'Tente novamente.' });
+      }
       setShowNew(false); setEditItem(null);
     };
 
@@ -431,12 +501,20 @@
       try {
         const r = await API.updateEntrada(item._id, dto);
         setItems((prev) => prev.map((it) => it._id === item._id ? entradaToRow(r.entrada) : it));
-      } catch (e) {}
+        window.showToast({ tipo: 'sucesso', titulo: isReceita ? 'Recebimento registrado' : 'Pagamento registrado', descricao: (item.cliente || item.codigo || '') + ' · ' + fmtBRL(item.valor) });
+      } catch (e) {
+        window.showToast({ tipo: 'erro', titulo: isReceita ? 'Falha ao receber' : 'Falha ao pagar', descricao: (e && e.message) || 'Tente novamente.' });
+      }
       setConfirmPay(null);
       setFaturItem(null);
     };
     const onDelete = async (item) => {
-      try { if (item._id) await API.deleteEntrada(item._id); } catch (e) {}
+      try {
+        if (item._id) await API.deleteEntrada(item._id);
+        window.showToast({ tipo: 'sucesso', titulo: 'Lançamento excluído', descricao: item.codigo || '' });
+      } catch (e) {
+        window.showToast({ tipo: 'erro', titulo: 'Falha ao excluir', descricao: (e && e.message) || 'Tente novamente.' });
+      }
       setItems((prev) => prev.filter((it) => it._id !== item._id));
       setConfirmDel(null);
     };
@@ -446,20 +524,29 @@
         title={cfg.title}
         subtitle={cfg.subtitle}
         actions={
-        <button className="fin-new-btn" onClick={() => {setEditItem(null);setDrawerMode('new');setShowNew(true);}} aria-label={cfg.newLabel}>
-            <span className="fin-new-label">{cfg.newLabel + '\u00A0'}</span>
-            <span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span>
-          </button>
+        <FabNovo size="sm" label={cfg.newLabel} onClick={() => {setEditItem(null);setDrawerMode('new');setShowNew(true);}} />
         }>
         <FinStyles />
 
         {/* KPI strip */}
         <div className="fin-kpi-grid">
-          <FinKpiCard tone="total" icon="reports" label="TOTAL" value={fmtBRLcompact(kpis.total)} />
-          <FinKpiCard tone="aberto" icon="reports" label="EM ABERTO" value={fmtBRLcompact(kpis.aberto)} />
-          <FinKpiCard tone="paga" icon="check-circle" label={isReceita ? 'PAGA' : 'PAGO'} value={fmtBRLcompact(kpis.paga)} />
-          <FinKpiCard tone="vence-hoje" icon="wallet" label="VENCE HOJE" value={fmtBRLcompact(kpis['vence-hoje'])} />
-          <FinKpiCard tone="atraso" icon="alert" label="EM ATRASO" value={fmtBRLcompact(kpis.atraso)} />
+          {!loaded ? (
+            [
+              { tone: 'total', icon: 'reports', label: 'TOTAL' },
+              { tone: 'aberto', icon: 'reports', label: 'EM ABERTO' },
+              { tone: 'paga', icon: 'check-circle', label: isReceita ? 'PAGA' : 'PAGO' },
+              { tone: 'vence-hoje', icon: 'wallet', label: 'VENCE HOJE' },
+              { tone: 'atraso', icon: 'alert', label: 'EM ATRASO' }
+            ].map((k) => <FinKpiCardSkeleton key={k.tone} tone={k.tone} icon={k.icon} label={k.label} />)
+          ) : (
+            <>
+              <FinKpiCard tone="total" icon="reports" label="TOTAL" value={fmtBRLcompact(kpis.total)} />
+              <FinKpiCard tone="aberto" icon="reports" label="EM ABERTO" value={fmtBRLcompact(kpis.aberto)} />
+              <FinKpiCard tone="paga" icon="check-circle" label={isReceita ? 'PAGA' : 'PAGO'} value={fmtBRLcompact(kpis.paga)} />
+              <FinKpiCard tone="vence-hoje" icon="wallet" label="VENCE HOJE" value={fmtBRLcompact(kpis['vence-hoje'])} />
+              <FinKpiCard tone="atraso" icon="alert" label="EM ATRASO" value={fmtBRLcompact(kpis.atraso)} />
+            </>
+          )}
         </div>
 
         {/* Toolbar: search + period filter + status pills */}
@@ -518,7 +605,11 @@
           </div>
 
           <div className="fin-list scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto' }}>
-            {filtered.length === 0 ?
+            {!loaded ?
+            Array.from({ length: skelCount('fin-entradas', 3) }).map((_, i) =>
+            <FinRowSkeleton key={'skel-' + i} isReceita={isReceita} />
+            ) :
+            filtered.length === 0 ?
             <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>
                 <Ic name={isReceita ? 'coins' : 'wallet'} size={36} style={{ opacity: .35 }} />
                 <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
@@ -679,6 +770,55 @@
   }
 
   // ---------- New Entry drawer (form) ----------
+  // Busca de produto/serviço por nome (autocomplete) — puxa do catálogo (window.API.getProdutos).
+  function ProdutoAutocomplete({ value, onChange, onPick, placeholder }) {
+    const [produtos, setProdutos] = React.useState([]);
+    const [open, setOpen] = React.useState(false);
+    const [query, setQuery] = React.useState(value || '');
+    const ref = React.useRef(null);
+
+    React.useEffect(() => { setQuery(value || ''); }, [value]);
+    React.useEffect(() => {
+      let alive = true;
+      if (window.API && window.API.getProdutos) {
+        window.API.getProdutos().then((r) => { if (alive) setProdutos(r.produtos || []); }).catch(() => {});
+      }
+      return () => { alive = false; };
+    }, []);
+    React.useEffect(() => {
+      const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+      document.addEventListener('mousedown', onDoc);
+      return () => document.removeEventListener('mousedown', onDoc);
+    }, []);
+
+    const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+    const q = norm(query.trim());
+    const matches = (q ? produtos.filter((p) => norm(p.nome).includes(q)) : produtos).slice(0, 8);
+    const moeda = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+    const pick = (p) => { setQuery(p.nome); setOpen(false); onChange && onChange(p.nome); onPick && onPick(p); };
+
+    return (
+      <div ref={ref} style={{ position: 'relative' }}>
+        <input
+          className="input"
+          value={query}
+          placeholder={placeholder || 'Digite para buscar...'}
+          onChange={(e) => { setQuery(e.target.value); onChange && onChange(e.target.value); setOpen(true); }}
+          onFocus={() => setOpen(true)} />
+        {open && matches.length > 0 &&
+          <div style={{ position: 'absolute', top: 'calc(100% + 4px)', left: 0, right: 0, zIndex: 70, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', padding: 4, maxHeight: 280, overflowY: 'auto' }}>
+            {matches.map((p) =>
+              <button key={p.id} type="button" onMouseDown={(e) => e.preventDefault()} onClick={() => pick(p)}
+                style={{ display: 'flex', alignItems: 'center', gap: 10, width: '100%', textAlign: 'left', padding: '8px 10px', border: 'none', background: 'transparent', cursor: 'pointer', borderRadius: 8, fontFamily: 'inherit' }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 'var(--type-sm)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{p.nome}</span>
+                <span className="muted" style={{ fontSize: 10, textTransform: 'uppercase', letterSpacing: '.03em' }}>{p.tipo === 'servico' ? 'Serviço' : 'Produto'}</span>
+                <span className="tnum" style={{ fontSize: 'var(--type-sm)', fontWeight: 700 }}>{moeda(p.preco)}</span>
+              </button>)}
+          </div>}
+      </div>);
+  }
+
   function NewEntryDrawer({ kind, title, personLabel, personPh, valueSection, categorias, codePrefix, entry, mode = 'new', onClose, onSave }) {
     const isEntrada = kind === 'entrada';
     const today = TODAY;
@@ -711,6 +851,7 @@
           desconto: entry.desconto || 0,
           acrescimo: entry.acrescimo || 0,
           forma: entry.forma || FORMAS_PAGAMENTO[0],
+          parcelas: entry.parcTotal || 1,
           emissao: toISO(entry.emissao || entry.venc),
           venc: toISO(entry.venc),
           competencia: toISO(entry.competencia || entry.venc),
@@ -722,7 +863,7 @@
         conta: '', tipo: 'unica', desc: '',
         item: '',
         subtotal: 0, desconto: 0, acrescimo: 0,
-        forma: '', emissao: today, venc: today, competencia: today,
+        forma: '', parcelas: 1, emissao: today, venc: today, competencia: today,
         obs: ''
       };
     });
@@ -746,18 +887,23 @@
       setCatalogo((p) => ({ ...p, [label]: p[label] || [] }));
       setF((p) => ({ ...p, categoria: label, item: '' }));
       setShowCatModal(false);
-    };
-
-    const addItem = () => {
-      if (!f.categoria) return;
-      const v = window.prompt('Novo serviço / produto:');
-      if (v && v.trim()) {
-        setCatalogo((p) => ({ ...p, [f.categoria]: [...(p[f.categoria] || []), v.trim()] }));
-        setF((p) => ({ ...p, item: v.trim(), desc: p.desc || v.trim() }));
-      }
+      window.showToast({ tipo: 'sucesso', titulo: 'Categoria criada', descricao: label });
     };
 
     const liquido = (Number(f.subtotal) || 0) - (Number(f.desconto) || 0) + (Number(f.acrescimo) || 0);
+
+    // Parcelamento (boleto/carnê/cartão): valor da parcela = líquido ÷ parcelas.
+    const isParcelavel = FORMAS_PARCELAVEIS.includes(f.forma);
+    const nParc = Math.max(1, parseInt(f.parcelas, 10) || 1);
+    const valorParcela = isParcelavel ? liquido / nParc : liquido;
+
+    // Ao escolher um produto/serviço do catálogo, puxa o preço para o subtotal.
+    const pickProduto = (prod) => setF((p) => ({
+      ...p,
+      item: prod.nome,
+      subtotal: Number(prod.preco) || 0,
+      desc: (p.desc && p.desc.trim()) ? p.desc : prod.nome,
+    }));
 
     const code = React.useMemo(
       () => entry?.codigo ? entry.codigo : codePrefix + '-' + Math.floor(10000 + Math.random() * 90000),
@@ -793,8 +939,9 @@
         valor: liquido,
         forma: f.forma || FORMAS_PAGAMENTO[0],
         desc: f.desc,
-        parcTotal: f.tipo === 'carne' ? 4 : undefined,
-        parcAtual: f.tipo === 'carne' ? 0 : undefined
+        parcelas: isParcelavel && nParc > 1 ? nParc : null,
+        parcTotal: isParcelavel && nParc > 1 ? nParc : undefined,
+        parcAtual: isParcelavel && nParc > 1 ? 0 : undefined
       };
       onSave(item);
     };
@@ -821,29 +968,36 @@
         footer={(close) => readOnly ?
         <>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back btn-fixed" onClick={() => close()}>
-            <Ic name="arrow-left" size={13} /> Voltar
-          </button>
-          <button className="btn btn-edit btn-fixed" onClick={() => setReadOnly(false)}>
-            <Ic name="edit" size={13} /> Editar
-          </button>
+          <ActionButton action="voltar" size="md" onClick={() => close()} />
+          <ActionButton action="editar" size="md" onClick={() => setReadOnly(false)} />
         </> :
         <>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back btn-fixed" onClick={() => close()}>
-            <Ic name="arrow-left" size={13} /> Voltar
-          </button>
-          <button className="btn btn-save btn-fixed" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close(handleSave)}>
-            <Ic name="check" size={13} /> Salvar
-          </button>
+          <ActionButton action="voltar" size="md" onClick={() => close()} />
+          <ActionButton action="salvar" size="md" disabled={!valid} onClick={() => close(handleSave)} />
         </>}>
-        <fieldset disabled={readOnly} className={'fin-form-fieldset' + (readOnly ? ' is-view' : '')} style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}>
+        <fieldset disabled={readOnly} className={'fin-form-fieldset tpc-flat' + (readOnly ? ' is-view' : '')} style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}>
         <SectionTitle>DADOS PRINCIPAIS</SectionTitle>
         <div className="fin-section">
+          {/* Linha 1 — Cliente */}
+          <Field label={personLabel}>
+            <input className="input" value={f.cliente} onChange={(e) => set('cliente', e.target.value)} placeholder={personPh} />
+          </Field>
+
+          {/* Linha 2 — Serviço / Produto (busca no catálogo) */}
+          <Field label="Serviço / Produto">
+            <ProdutoAutocomplete
+              value={f.item}
+              onChange={(nome) => set('item', nome)}
+              onPick={pickProduto}
+              placeholder="Digite para buscar no catálogo..." />
+          </Field>
+
+          {/* Linha 3 — Categoria + Funcionário */}
           <div className="fin-grid-2">
             <Field label="Categoria">
               <div className="row" style={{ gap: 6 }}>
-                <select className="input" value={f.categoria} onChange={(e) => setF((p) => ({ ...p, categoria: e.target.value, item: '' }))} style={{ flex: 1 }}>
+                <select className="input" value={f.categoria} onChange={(e) => set('categoria', e.target.value)} style={{ flex: 1 }}>
                   <option value="">Selecione a categoria...</option>
                   {categoriasList.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
@@ -852,30 +1006,19 @@
                 </button>
               </div>
             </Field>
-            <Field label="Serviço / Produto">
-              <div className="row" style={{ gap: 6 }}>
-                <select className="input" value={f.item || ''} disabled={!f.categoria} onChange={(e) => setF((p) => ({ ...p, item: e.target.value, desc: p.desc || e.target.value }))} style={{ flex: 1, opacity: f.categoria ? 1 : .55 }}>
-                  <option value="">{f.categoria ? 'Selecione...' : 'Escolha a categoria primeiro'}</option>
-                  {(catalogo[f.categoria] || []).map((it) => <option key={it} value={it}>{it}</option>)}
-                </select>
-                <button type="button" className="btn fin-cat-add" title="Adicionar item" disabled={!f.categoria} style={{ opacity: f.categoria ? 1 : .5 }} onClick={addItem}>
-                  <Ic name="plus" size={14} />
-                </button>
-              </div>
-            </Field>
-            <Field label={personLabel}>
-              <input className="input" value={f.cliente} onChange={(e) => set('cliente', e.target.value)} placeholder={personPh} />
-            </Field>
             <Field label="Funcionário">
               <select className="input" value={f.funcionario} onChange={(e) => set('funcionario', e.target.value)}>
                 <option value="">Funcionário...</option>
                 {funcionariosOpts.map((x) => <option key={x} value={x}>{x === CURRENT_USER ? `${x} (você)` : x}</option>)}
               </select>
             </Field>
-            <Field label="Status">
-              <StatusSelect value={f.status} onChange={(v) => set('status', v)} />
-            </Field>
           </div>
+
+          {/* Linha 4 — Status */}
+          <Field label="Status">
+            <StatusSelect value={f.status} onChange={(v) => set('status', v)} />
+          </Field>
+
           <Field label="Descrição">
             <input className="input" value={f.desc} onChange={(e) => set('desc', e.target.value)} placeholder="Descrição..." />
           </Field>
@@ -913,6 +1056,19 @@
               <DateField value={f.competencia} onChange={(e) => set('competencia', e.target.value)} />
             </Field>
           </div>
+
+          {isParcelavel &&
+            <div className="fin-grid-3">
+              <Field label="Parcelas">
+                <input className="input tnum" type="number" min="1" value={f.parcelas}
+                  onChange={(e) => set('parcelas', Math.max(1, parseInt(e.target.value, 10) || 1))} />
+              </Field>
+              <Field label="Valor da parcela">
+                <div className="input tnum" style={{ display: 'flex', alignItems: 'center', fontWeight: 700, background: 'var(--surface-2)', color: 'var(--text)' }}>
+                  {nParc}× de {'R$ ' + Number(valorParcela || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </div>
+              </Field>
+            </div>}
 
           <Field label="Observações">
             <textarea className="input" rows={3} value={f.obs} onChange={(e) => set('obs', e.target.value)} placeholder="Observações..." />
@@ -969,10 +1125,8 @@
         leftHead={null}
         footer={<>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
-          <button className="btn btn-primary fin-btn-save" onClick={() => setConfirm(true)}>
-            <Ic name="dollar" size={13} /> {verbo} {fmtBRL(total)}
-          </button>
+          <ActionButton action="voltar" size="md" onClick={onClose} />
+          <ActionButton action="salvar" size="md" icon="dollar" label={`${verbo} ${fmtBRL(total)}`} onClick={() => setConfirm(true)} />
         </>}>
         <div className="fin-drawer-code">
           <span>CÓDIGO</span>

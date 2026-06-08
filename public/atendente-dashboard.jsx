@@ -19,6 +19,10 @@ function AtendenteDashboard() {
   const me = { id: 'kz', name: 'Karla Zambelly', role: 'Atendente sênior', meta: 40000, vendido: 35200 };
   const [period, setPeriod] = React.useState('semana');
 
+  // ----- skeleton de carregamento (scaffolding pronto pra API real) -----
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => { setLoading(false); }, []);
+
   const scrollRef = React.useRef(null);
   const [activeId, setActiveId] = React.useState(SECTIONS[0].id);
   const programmaticUntil = React.useRef(0);
@@ -110,14 +114,18 @@ function AtendenteDashboard() {
         <section id="sec-geral" style={{scrollMarginTop:90, display:'flex', flexDirection:'column', gap:'var(--pad-4)'}}>
           <SectionLabel icon="dashboard" title="VISÃO GERAL" sub="Resumo combinado de atendimento e comercial"/>
           <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'var(--pad-3)'}}>
+            {loading ? Array.from({length:4}).map((_,i)=><BigStatSkeleton key={i}/>) : <>
             <BigStat icon="inbox" label="Conversas atendidas" value={heavy ? '1.284' : '128'} delta="+12%" trend="up" foot="últimos 7 dias"/>
             <BigStat icon="commercial" label="Vendas no mês" value="22" delta="+5" trend="up" foot="R$ 35.200 faturado"/>
             <BigStat icon="sparkles" label="Resolução IA" value="86%" delta="+4 pp" trend="up" foot="sem transferir" accent="ai"/>
             <BigStat icon="reports" label="Meta mensal" value="88%" foot="R$ 35.200 / R$ 40.000" progress={me.vendido/me.meta}/>
+            </>}
           </div>
           <div style={{display:'grid', gridTemplateColumns:'1.6fr 1fr', gap:'var(--pad-3)'}}>
+            {loading ? <><BlockSkeleton h={300}/><BlockSkeleton h={300}/></> : <>
             <TrendCard series7={series7} totConv={totConv} totSales={totSales} totRev={totRev} period={period}/>
             <CSATCard/>
+            </>}
           </div>
         </section>
 
@@ -125,15 +133,19 @@ function AtendenteDashboard() {
         <section id="sec-atendimento" style={{scrollMarginTop:90, display:'flex', flexDirection:'column', gap:'var(--pad-4)'}}>
           <SectionLabel icon="inbox" title="ATENDIMENTO" sub="Suas conversas, tempo de resposta e qualidade"/>
           <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'var(--pad-3)'}}>
+            {loading ? Array.from({length:4}).map((_,i)=><BigStatSkeleton key={i}/>) : <>
             <BigStat icon="inbox" label="Conversas atendidas" value={heavy ? '1.284' : '128'} delta="+12%" trend="up" foot="vs. semana anterior"/>
             <BigStat icon="clock" label="Tempo médio de resposta" value="1m 42s" delta="-18s" trend="up" foot="meta < 3 min"/>
             <BigStat icon="sparkles" label="Resolução sem transferir" value="86%" delta="+4 pp" trend="up" foot={`${heavy?'1.104':'110'} de ${heavy?'1.284':'128'}`} accent="ai"/>
             <BigStat icon="leads" label="Avaliação CSAT" value="4,8" delta="+0,2" trend="up" foot="32 avaliações" ratingMax={5}/>
+            </>}
           </div>
           <div style={{display:'grid', gridTemplateColumns:'1.1fr 1fr 1fr', gap:'var(--pad-3)'}}>
+            {loading ? <><BlockSkeleton h={280}/><BlockSkeleton h={280}/><BlockSkeleton h={280}/></> : <>
             <ChannelCard heavy={heavy}/>
             <TopQuestionsCard/>
             <StatusBreakdownCard/>
+            </>}
           </div>
         </section>
 
@@ -141,10 +153,12 @@ function AtendenteDashboard() {
         <section id="sec-comercial" style={{scrollMarginTop:90, display:'flex', flexDirection:'column', gap:'var(--pad-4)'}}>
           <SectionLabel icon="commercial" title="COMERCIAL" sub="Suas vendas, conversões e ticket médio"/>
           <div style={{display:'grid', gridTemplateColumns:'repeat(4, 1fr)', gap:'var(--pad-3)'}}>
+            {loading ? Array.from({length:4}).map((_,i)=><BigStatSkeleton key={i}/>) : <>
             <BigStat icon="commercial" label="Vendas fechadas no mês" value="22" delta="+5" trend="up" foot="vs. mês anterior"/>
             <BigStat icon="finance" label="Faturamento" value="R$ 35.200" delta="+8,2%" trend="up" foot="ticket médio R$ 1.600"/>
             <BigStat icon="leads" label="Taxa de conversão" value="34%" delta="+3 pp" trend="up" foot="leads → vendas"/>
             <BigStat icon="reports" label="Meta mensal" value="88%" foot="R$ 35.200 / R$ 40.000" progress={me.vendido/me.meta}/>
+            </>}
           </div>
         </section>
 
@@ -152,8 +166,10 @@ function AtendenteDashboard() {
         <section id="sec-mapas" style={{scrollMarginTop:90, display:'flex', flexDirection:'column', gap:'var(--pad-4)'}}>
           <SectionLabel icon="reports" title="MAPAS DE CALOR" sub="Quando você atende mais e quando mais converte"/>
           <div style={{display:'grid', gridTemplateColumns:'1fr 1fr', gap:'var(--pad-3)'}}>
+            {loading ? <><BlockSkeleton h={320}/><BlockSkeleton h={320}/></> : <>
             <AttendanceHeatCard heatmap={heatmap} heatMax={heatMax} hours={hours} dayLabels={dayLabels}/>
             <SalesHeatCard hours={hours} dayLabels={dayLabels}/>
+            </>}
           </div>
         </section>
 
@@ -161,11 +177,13 @@ function AtendenteDashboard() {
         <section id="sec-funil" style={{scrollMarginTop:90, display:'flex', flexDirection:'column', gap:'var(--pad-4)'}}>
           <SectionLabel icon="leads" title="FUNIL & PIPELINE" sub="Conversão por etapa e oportunidades em aberto"/>
           <div style={{display:'grid', gridTemplateColumns:'1.4fr 1fr', gap:'var(--pad-3)'}}>
+            {loading ? <><BlockSkeleton h={340}/><BlockSkeleton h={340}/></> : <>
             <FunnelCard/>
             <GoalProgressCard me={me}/>
+            </>}
           </div>
           <div style={{display:'grid', gridTemplateColumns:'1fr', gap:'var(--pad-3)'}}>
-            <PipelineCard/>
+            {loading ? <BlockSkeleton h={260}/> : <PipelineCard/>}
           </div>
         </section>
 
@@ -173,8 +191,10 @@ function AtendenteDashboard() {
         <section id="sec-agenda" style={{scrollMarginTop:90, display:'flex', flexDirection:'column', gap:'var(--pad-4)'}}>
           <SectionLabel icon="agenda" title="AGENDA & CONVERSAS" sub="Próximos compromissos e mensagens recentes"/>
           <div style={{display:'grid', gridTemplateColumns:'1.4fr 1fr', gap:'var(--pad-3)'}}>
+            {loading ? <><BlockSkeleton h={360}/><BlockSkeleton h={360}/></> : <>
             <RecentConversationsCard/>
             <UpcomingScheduleCard/>
+            </>}
           </div>
         </section>
 
@@ -199,7 +219,18 @@ function AtendenteDashboard() {
           <table className="table">
             <thead><tr><th>ID</th><th>Cliente</th><th>Serviço/Produto</th><th>Origem</th><th>Data</th><th style={{textAlign:'right'}}>Valor</th><th>Status</th><th></th></tr></thead>
             <tbody>
-              {[
+              {loading ? Array.from({length: skelCount('atend-dash', 6)}).map((_,i)=>(
+                <tr key={i}>
+                  <td><Skeleton w={40} h={11}/></td>
+                  <td><div className="row" style={{gap:8}}><Skeleton circle w={28} h={28}/><Skeleton w={120} h={12}/></div></td>
+                  <td><Skeleton w={140} h={11}/></td>
+                  <td><Skeleton w={16} h={16} r={4}/></td>
+                  <td><Skeleton w={80} h={11}/></td>
+                  <td style={{textAlign:'right'}}><Skeleton w={70} h={12} style={{marginLeft:'auto'}}/></td>
+                  <td><Skeleton w={64} h={18} r={6}/></td>
+                  <td style={{textAlign:'right'}}><Skeleton w={24} h={24} r={6} style={{marginLeft:'auto'}}/></td>
+                </tr>
+              )) : [
                 {id:'#3812', client:'Júlia Mendes',     prod:'Pacote Noiva',           src:'whatsapp',  date:'18 mai 2026', val:2450,  st:'fechada'},
                 {id:'#3811', client:'Roberto Lima',     prod:'Consultoria Comercial',  src:'whatsapp',  date:'17 mai 2026', val:5500,  st:'fechada'},
                 {id:'#3810', client:'Fátima Coelho',    prod:'Pacote Pré-Sal Premium', src:'instagram', date:'17 mai 2026', val:3890,  st:'fechada'},
@@ -428,6 +459,40 @@ function BigStat({ icon, label, value, delta, trend='up', foot, accent, progress
       {progress != null && (
         <div className="bar" style={{marginTop:2}}><div style={{width:`${Math.min(100,progress*100)}%`}}/></div>
       )}
+    </div>
+  );
+}
+
+// Skeleton do card BigStat — mesma classe/medidas (dentro do mesmo grid)
+function BigStatSkeleton() {
+  return (
+    <div className="card" style={{padding:'var(--pad-4)', display:'flex', flexDirection:'column', gap:8, minHeight:128}}>
+      <div className="row">
+        <Skeleton w="55%" h={12}/>
+        <div className="spacer"/>
+        <Skeleton w={30} h={30} r={9}/>
+      </div>
+      <Skeleton w={90} h={30}/>
+      <div className="row" style={{gap:6, marginTop:'auto'}}>
+        <Skeleton w={48} h={18} r={6}/>
+        <Skeleton w={80} h={10}/>
+      </div>
+    </div>
+  );
+}
+
+// Skeleton de bloco simples — preenche um card (charts/heatmaps/listas no mesmo grid)
+function BlockSkeleton({ h = 300 }) {
+  return (
+    <div className="card card-pad" style={{display:'flex', flexDirection:'column', gap:12, minHeight:h}}>
+      <div className="row">
+        <div style={{flex:1, display:'flex', flexDirection:'column', gap:6}}>
+          <Skeleton w="45%" h={14}/>
+          <Skeleton w="65%" h={10}/>
+        </div>
+        <Skeleton w={70} h={22} r={999}/>
+      </div>
+      <Skeleton w="100%" h={h - 90} r={10} style={{marginTop:'auto'}}/>
     </div>
   );
 }

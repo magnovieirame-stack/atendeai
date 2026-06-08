@@ -5,10 +5,14 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermissao } from '../lib/autorizacao.js';
 import { validateBody } from '../middleware/validate.js';
 
 export const financeiroRouter = Router();
 financeiroRouter.use(requireAuth);
+// Autorização: ver para GET, gerenciar para escrita.
+financeiroRouter.use((req, res, next) =>
+  requirePermissao(req.method === 'GET' ? 'financeiro.ver' : 'financeiro.gerenciar')(req, res, next));
 
 const uuid = z.string().uuid('id inválido');
 const hexCor = z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Cor inválida.');
@@ -56,6 +60,7 @@ function mapEntrada(r, contaNome) {
     observacoes: r.observacoes && r.observacoes !== 'null' ? r.observacoes : '',
     pago: !!r.pago,
     recorrente: !!r.recorrente,
+    parcelas: r.parcelas != null ? Number(r.parcelas) : null,
     emissao: r.dataemissao || null,
     vencimento: r.datavencimento || null,
     competencia: r.datacompetencia || null,
@@ -259,11 +264,12 @@ const DEFAULT_CATEGORIAS = [
   { nome: 'Aporte de Sócio', tipo: 'Financeira' },
   { nome: 'Receita Operacional', tipo: 'Financeira' },
   { nome: 'Venda de Produto', tipo: 'Produto' },
+  { nome: 'Prestação de Serviço', tipo: 'Serviço' },
   { nome: 'Pagamento de Cliente', tipo: 'Cliente' },
 ];
 const categoriaSchema = z.object({
   nome: z.string().trim().min(1, 'Informe o nome da categoria.').max(80),
-  tipo: z.enum(['Financeira', 'Produto', 'Cliente']).default('Financeira'),
+  tipo: z.enum(['Financeira', 'Produto', 'Serviço', 'Cliente']).default('Financeira'),
 }).strip();
 
 financeiroRouter.get('/categorias', async (req, res, next) => {
@@ -318,6 +324,7 @@ const entradaSchema = z.object({
   observacoes: z.string().trim().max(300).optional().default(''),
   pago: z.coerce.boolean().optional().default(false),
   recorrente: z.coerce.boolean().optional().default(false),
+  parcelas: z.coerce.number().int().min(1).optional().nullable(),
   emissao: dataOpt,
   vencimento: dataOpt,
   competencia: dataOpt,
@@ -330,6 +337,7 @@ function entradaToDb(b, empresaId) {
     'forma-pagamento': b.forma || null, responsavel: b.responsavel || null,
     'cliente-origem': b.clienteOrigem || null, observacoes: b.observacoes || null,
     pago: b.pago, recorrente: b.recorrente,
+    parcelas: b.parcelas || null,
     dataemissao: b.emissao || null, datavencimento: b.vencimento || null, datacompetencia: b.competencia || null,
     valorsubtotal: b.valor,
   };
@@ -377,7 +385,7 @@ financeiroRouter.patch('/entradas/:id', validateBody(entradaPatchSchema), async 
     const map = {
       descricao: 'descricao', valor: 'valor', categoria: 'categoria', contaId: 'conta',
       forma: 'forma-pagamento', responsavel: 'responsavel', clienteOrigem: 'cliente-origem',
-      observacoes: 'observacoes', pago: 'pago', recorrente: 'recorrente',
+      observacoes: 'observacoes', pago: 'pago', recorrente: 'recorrente', parcelas: 'parcelas',
       emissao: 'dataemissao', vencimento: 'datavencimento', competencia: 'datacompetencia',
     };
     Object.keys(req.body).forEach((k) => { if (map[k]) patch[map[k]] = full[map[k]]; });

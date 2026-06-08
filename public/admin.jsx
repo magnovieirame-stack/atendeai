@@ -20,12 +20,67 @@ const DASH_PERIODS = {
 
 const fmtMil = (n) => Math.round(n).toLocaleString('pt-BR');
 
+// Skeleton da Dashboard (scaffolding p/ API real) — KPIs (stat-grid) + gráficos (bloco)
+function AdminDashboardSkeleton() {
+  const kpis = skelCount('admin-dash', 4);
+  return (
+    <Page title="Dashboard" subtitle="Visão executiva do atendimento — atualizado há 1 min">
+      <div className="stat-grid">
+        {Array.from({ length: kpis }).map((_, i) =>
+          <div key={i} className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+            <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+              <Skeleton w={36} h={36} r={10} />
+              <Skeleton w="50%" h={12} />
+            </div>
+            <Skeleton w="60%" h={26} />
+            <Skeleton w="70%" h={11} />
+          </div>)}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--pad-3)' }}>
+        <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <div className="row"><Skeleton w={220} h={14} /><div className="spacer" /><Skeleton w={64} h={20} r={999} /></div>
+          <Skeleton w="100%" h={160} r={8} />
+          <div className="row" style={{ gap: 14 }}><Skeleton w={140} h={11} /><Skeleton w={160} h={11} /></div>
+        </div>
+        <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+          <Skeleton w={170} h={14} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 24, justifyContent: 'center', padding: '8px 0' }}>
+            <Skeleton w={140} h={140} circle />
+            <div className="col" style={{ gap: 10 }}>
+              {Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} w={150} h={12} />)}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: '1.3fr 1fr', gap: 'var(--pad-3)' }}>
+        <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <div className="row"><Skeleton w={200} h={14} /><div className="spacer" /><Skeleton w={90} h={20} r={999} /></div>
+          {Array.from({ length: 5 }).map((_, i) =>
+            <div key={i} className="row" style={{ gap: 10, alignItems: 'center' }}>
+              <Skeleton w={14} h={12} /><Skeleton h={12} style={{ flex: 1 }} /><Skeleton w={120} h={8} r={999} /><Skeleton w={40} h={12} />
+            </div>)}
+        </div>
+        <div className="card card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+          <Skeleton w={170} h={14} />
+          {Array.from({ length: 4 }).map((_, i) =>
+            <div key={i} className="row" style={{ gap: 10, alignItems: 'center', padding: '6px 0' }}>
+              <Skeleton w={32} h={32} circle />
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 5 }}><Skeleton w="50%" h={12} /><Skeleton w="80%" h={10} /></div>
+              <Skeleton w={36} h={12} />
+            </div>)}
+        </div>
+      </div>
+    </Page>);
+}
+
 function AdminDashboard() {
   const { tweaks, setRoute } = useStore();
   const empty = tweaks.dataState === 'empty';
   const [period, setPeriod] = React.useState('hoje');
   const [tip, setTip] = React.useState(null); // { x, y, title, rows }
   const [donutHover, setDonutHover] = React.useState(-1);
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => { setLoading(false); }, []);
 
   const showTip = (e, title, rows) => setTip({ x: e.clientX, y: e.clientY, title, rows });
   const moveTip = (e) => setTip((t) => t ? { ...t, x: e.clientX, y: e.clientY } : t);
@@ -61,6 +116,9 @@ function AdminDashboard() {
     });
   }, [period, convos, cfg.bars, cfg.resolvedPct]);
   const maxRaw = Math.max(...series.map((s) => s.raw));
+
+  // Skeleton DEPOIS de todos os hooks (useMemo acima) p/ não violar a ordem dos hooks.
+  if (loading) return <AdminDashboardSkeleton />;
 
   // ---- Channel split ----
   const channels = [
@@ -283,19 +341,7 @@ function AdminAgentList() {
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))', gap: 'var(--pad-3)' }}>
           {/* Create new card — always first */}
-          <div
-          className="card card-new-agent"
-          onClick={() => setShowNew(true)}
-          onMouseMove={(e) => {
-            const r = e.currentTarget.getBoundingClientRect();
-            e.currentTarget.style.setProperty('--mx', `${e.clientX - r.left}px`);
-            e.currentTarget.style.setProperty('--my', `${e.clientY - r.top}px`);
-          }}>
-          
-            <div className="na-icon"><Ic name="plus" size={22} /></div>
-            <div className="na-title">Configurar novo agente</div>
-            <div className="na-desc muted">Comece do zero ou use um modelo pronto (vendas, suporte, agendamento).</div>
-          </div>
+          <AddCard title="Configurar novo agente" subtitle="Comece do zero ou use um modelo pronto (vendas, suporte, agendamento)." onClick={() => setShowNew(true)} />
           {agents.map((a) => {
           const st = statusMap[a.status];
           const initials = a.name.split(' ').map((p) => p[0]).slice(0, 2).join('').toUpperCase();
@@ -541,10 +587,11 @@ function AdminCatalog() {
   const handleSave = (item) => {
     setExtra((s) => [{ ...item, _new: true, stock: item.stock > 0 ? 'Disponível' : item.kind === 'servico' ? 'Disponível' : 'Indisponível' }, ...s]);
     setDrawer(null);
+    window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Item salvo', descricao: 'O item foi adicionado ao catálogo.' });
   };
   return (
     <Page title="Catálogo" subtitle="Base de conhecimento que o agente usa nas conversas" actions={
-    <button className="fin-new-btn" onClick={() => setDrawer({})} aria-label="Novo item"><span className="fin-new-label">{'Novo item\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>
+    <FabNovo size="sm" label="Novo item" onClick={() => setDrawer({})} />
     }>
       <div className="row" style={{ gap: 8 }}>
         <div style={{ position: 'relative', flex: 1, maxWidth: 340 }}>
@@ -553,8 +600,8 @@ function AdminCatalog() {
         </div>
         <select className="input" style={{ width: 160 }}><option>Todas categorias</option><option>Pacote</option><option>Procedimento</option></select>
         <div className="spacer" />
-        <button className="btn"><Ic name="file" size={14} /> Importar CSV</button>
-        <button className="btn"><Ic name="link" size={14} /> Sincronizar API</button>
+        <button className="btn" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'CSV importado', descricao: 'Os itens da planilha foram adicionados ao catálogo.' })}><Ic name="file" size={14} /> Importar CSV</button>
+        <button className="btn" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'API sincronizada', descricao: 'O catálogo foi atualizado com a fonte externa.' })}><Ic name="link" size={14} /> Sincronizar API</button>
       </div>
       <div className="card">
         <table className="table">
@@ -607,15 +654,15 @@ function CanalOAuthModal({ cfg, disponivel, current, onClose, onConnected }) {
     abrirLoginCanal(cfg.connectUrl(), (res) => {
       setBusy(false);
       if (!res) return; // popup fechado sem concluir
-      if (res.ok) onConnected && onConnected();
-      else setErro(res.mensagem || 'Não foi possível conectar.');
+      if (res.ok) { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Canal conectado', descricao: cfg.nome + ' está pronto para receber mensagens.' }); onConnected && onConnected(); }
+      else { setErro(res.mensagem || 'Não foi possível conectar.'); window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao conectar', descricao: res.mensagem || ('Não foi possível conectar o ' + cfg.nome + '.') }); }
     });
   };
   const desconectar = async () => {
     if (!window.confirm('Desconectar o ' + cfg.nome + '? As conversas já recebidas continuam salvas, mas novas mensagens deixarão de chegar.')) return;
     setBusy(true);
-    try { await cfg.disconnect(); onConnected && onConnected(); }
-    catch (e) { setErro(e.message || 'Erro ao desconectar.'); }
+    try { await cfg.disconnect(); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Canal desconectado', descricao: cfg.nome + ' não vai mais receber novas mensagens.' }); onConnected && onConnected(); }
+    catch (e) { setErro(e.message || 'Erro ao desconectar.'); window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao desconectar', descricao: e.message || ('Não foi possível desconectar o ' + cfg.nome + '.') }); }
     finally { setBusy(false); }
   };
 
@@ -707,17 +754,17 @@ function WhatsappConnectModal({ disponivel, current, onClose, onConnected }) {
 
   const conectar = async () => {
     setErro(null);
-    if (!phoneNumberId.trim() || !token.trim()) { setErro('Preencha o Phone Number ID e o token.'); return; }
+    if (!phoneNumberId.trim() || !token.trim()) { window.showToast && window.showToast({ tipo: 'aviso', titulo: 'Preencha Phone ID e token', descricao: 'Os dois campos são obrigatórios para conectar.' }); return; }
     setBusy(true);
-    try { await API.connectWhatsapp({ phoneNumberId: phoneNumberId.trim(), token: token.trim(), wabaId: wabaId.trim() }); onConnected && onConnected(); }
-    catch (e) { setErro(e.message || 'Não foi possível conectar.'); }
+    try { await API.connectWhatsapp({ phoneNumberId: phoneNumberId.trim(), token: token.trim(), wabaId: wabaId.trim() }); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'WhatsApp conectado', descricao: 'As mensagens já chegam na sua Caixa de entrada.' }); onConnected && onConnected(); }
+    catch (e) { setErro(e.message || 'Não foi possível conectar.'); window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao conectar', descricao: e.message || 'Não foi possível conectar o WhatsApp.' }); }
     finally { setBusy(false); }
   };
   const desconectar = async () => {
     if (!window.confirm('Desconectar o WhatsApp? As conversas já recebidas continuam salvas, mas novas mensagens deixarão de chegar.')) return;
     setBusy(true);
-    try { await API.disconnectWhatsapp(); onConnected && onConnected(); }
-    catch (e) { setErro(e.message || 'Erro ao desconectar.'); }
+    try { await API.disconnectWhatsapp(); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'WhatsApp desconectado', descricao: 'Novas mensagens deixarão de chegar.' }); onConnected && onConnected(); }
+    catch (e) { setErro(e.message || 'Erro ao desconectar.'); window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao desconectar', descricao: e.message || 'Não foi possível desconectar o WhatsApp.' }); }
     finally { setBusy(false); }
   };
 
@@ -1537,15 +1584,16 @@ function AdminFinance() {
 
 // Settings
 function AdminSettings() {
+  const { auth } = useStore();
   return (
     <Page title="Configurações da loja" subtitle="Dados cadastrais e preferências">
       <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 'var(--pad-3)' }}>
         <div className="card card-pad">
           <div className="h3">Identidade</div>
           <div style={{ marginTop: 14, display: 'grid', gridTemplateColumns: 'auto 1fr', gap: 14, alignItems: 'center' }}>
-            <div style={{ width: 80, height: 80, borderRadius: 16, background: 'linear-gradient(135deg, var(--accent), var(--ai))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 28 }}>I</div>
+            <div style={{ width: 80, height: 80, borderRadius: 16, background: 'linear-gradient(135deg, var(--accent), var(--ai))', display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', fontWeight: 700, fontSize: 28 }}>{(auth.empresaNome || 'L').charAt(0).toUpperCase()}</div>
             <div className="col" style={{ gap: 8 }}>
-              <div><label className="label">Nome</label><input className="input" defaultValue="Iguabela Beleza" /></div>
+              <div><label className="label">Nome</label><input key={auth.empresaNome || 'x'} className="input" defaultValue={auth.empresaNome || ''} /></div>
               <div><label className="label">Segmento</label><select className="input"><option>Beleza & Estética</option></select></div>
             </div>
           </div>

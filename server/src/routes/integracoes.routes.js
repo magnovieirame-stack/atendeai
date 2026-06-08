@@ -13,6 +13,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { config, instagramReady, facebookReady, whatsappReady, googleReady } from '../config.js';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermissao } from '../lib/autorizacao.js';
 import { validateBody } from '../middleware/validate.js';
 import { signState, verifyState, randomToken } from '../lib/crypto.js';
 import * as ig from '../lib/instagram.js';
@@ -52,7 +53,7 @@ function popupClose(res, ok, mensagem, canal = 'instagram') {
 }
 
 // ---- GET /api/integracoes ------------------------------------------------
-integracoesRouter.get('/', requireAuth, async (req, res, next) => {
+integracoesRouter.get('/', requireAuth, requirePermissao('config.gerenciar'), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
     const rows = empresaId ? await store.listIntegracoes(empresaId) : [];
@@ -71,7 +72,7 @@ integracoesRouter.get('/', requireAuth, async (req, res, next) => {
 // ---- GET /api/integracoes/instagram/connect ------------------------------
 // Inicia o OAuth: assina um "state" com a empresa, grava cookie anti-CSRF e
 // redireciona o popup para o login do Instagram.
-integracoesRouter.get('/instagram/connect', requireAuth, async (req, res, next) => {
+integracoesRouter.get('/instagram/connect', requireAuth, requirePermissao('config.gerenciar'), async (req, res, next) => {
   try {
     if (!instagramReady) {
       return popupClose(res, false, 'Integração ainda não configurada no servidor (.env do app da Meta).');
@@ -127,7 +128,7 @@ integracoesRouter.get('/instagram/callback', async (req, res, next) => {
 });
 
 // ---- DELETE /api/integracoes/instagram -----------------------------------
-integracoesRouter.delete('/instagram', requireAuth, async (req, res, next) => {
+integracoesRouter.delete('/instagram', requireAuth, requirePermissao('config.gerenciar'), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
     if (!empresaId) return res.status(403).json({ error: 'Empresa não encontrada.' });
@@ -139,7 +140,7 @@ integracoesRouter.delete('/instagram', requireAuth, async (req, res, next) => {
 // ===================== FACEBOOK MESSENGER (OAuth + Página) =====================
 
 // ---- GET /api/integracoes/facebook/connect ----
-integracoesRouter.get('/facebook/connect', requireAuth, async (req, res, next) => {
+integracoesRouter.get('/facebook/connect', requireAuth, requirePermissao('config.gerenciar'), async (req, res, next) => {
   try {
     if (!facebookReady) return popupClose(res, false, 'Integração ainda não configurada no servidor (.env do app da Meta).', 'facebook');
     const empresaId = await getEmpresaId(req);
@@ -232,7 +233,7 @@ function renderSeletorPaginas(res, pages, state) {
 }
 
 // ---- DELETE /api/integracoes/facebook ----
-integracoesRouter.delete('/facebook', requireAuth, async (req, res, next) => {
+integracoesRouter.delete('/facebook', requireAuth, requirePermissao('config.gerenciar'), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
     if (!empresaId) return res.status(403).json({ error: 'Empresa não encontrada.' });
@@ -250,7 +251,7 @@ const whatsappSchema = z.object({
 }).strip();
 
 // ---- POST /api/integracoes/whatsapp  { phoneNumberId, token, wabaId? } ----
-integracoesRouter.post('/whatsapp', requireAuth, validateBody(whatsappSchema), async (req, res, next) => {
+integracoesRouter.post('/whatsapp', requireAuth, requirePermissao('config.gerenciar'), validateBody(whatsappSchema), async (req, res, next) => {
   try {
     if (!whatsappReady) return res.status(503).json({ error: 'Servidor sem chave de criptografia (TOKEN_ENCRYPTION_KEY).' });
     const empresaId = await getEmpresaId(req);
@@ -270,7 +271,7 @@ integracoesRouter.post('/whatsapp', requireAuth, validateBody(whatsappSchema), a
 });
 
 // ---- DELETE /api/integracoes/whatsapp ----
-integracoesRouter.delete('/whatsapp', requireAuth, async (req, res, next) => {
+integracoesRouter.delete('/whatsapp', requireAuth, requirePermissao('config.gerenciar'), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
     if (!empresaId) return res.status(403).json({ error: 'Empresa não encontrada.' });
@@ -282,7 +283,7 @@ integracoesRouter.delete('/whatsapp', requireAuth, async (req, res, next) => {
 // ===================== GOOGLE CALENDAR (OAuth) =====================
 
 // ---- GET /api/integracoes/google/connect ----
-integracoesRouter.get('/google/connect', requireAuth, async (req, res, next) => {
+integracoesRouter.get('/google/connect', requireAuth, requirePermissao('config.gerenciar'), async (req, res, next) => {
   try {
     if (!googleReady) return popupClose(res, false, 'Integração ainda não configurada no servidor (.env do Google).', 'google');
     const empresaId = await getEmpresaId(req);
@@ -325,7 +326,7 @@ integracoesRouter.get('/google/callback', async (req, res) => {
 });
 
 // ---- DELETE /api/integracoes/google ----
-integracoesRouter.delete('/google', requireAuth, async (req, res, next) => {
+integracoesRouter.delete('/google', requireAuth, requirePermissao('config.gerenciar'), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
     if (!empresaId) return res.status(403).json({ error: 'Empresa não encontrada.' });

@@ -18,9 +18,12 @@ import { crmRouter } from './routes/crm.routes.js';
 import { financeiroRouter } from './routes/financeiro.routes.js';
 import { agendaRouter } from './routes/agenda.routes.js';
 import { leadsRouter } from './routes/leads.routes.js';
+import { catalogoRouter } from './routes/catalogo.routes.js';
+import { vendasRouter } from './routes/vendas.routes.js';
 import { notificacoesRouter } from './routes/notificacoes.routes.js';
 import { integracoesRouter } from './routes/integracoes.routes.js';
 import { webhooksRouter } from './routes/webhooks.routes.js';
+import { plataformaRouter } from './routes/plataforma.routes.js';
 
 const app = express();
 
@@ -49,8 +52,11 @@ api.use('/crm', crmRouter);
 api.use('/financeiro', financeiroRouter);
 api.use('/agenda', agendaRouter);
 api.use('/leads', leadsRouter);
+api.use('/catalogo', catalogoRouter);
+api.use('/vendas', vendasRouter);
 api.use('/notificacoes', notificacoesRouter);
 api.use('/integracoes', integracoesRouter);
+api.use('/plataforma', plataformaRouter); // super admin: clientes da plataforma
 // (próximos módulos entram aqui)
 app.use('/api', api);
 app.use('/api', apiNotFound); // 404 JSON p/ rotas de API inexistentes

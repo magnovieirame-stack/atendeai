@@ -123,7 +123,7 @@
         title={<span className="row" style={{ gap: 10 }}><span className="fin-drawer-ic" style={{ background: 'color-mix(in oklab, #8b5cf6 16%, white)', color: '#6d28d9' }}><Ic name="contracts" size={16} /></span><span>{isEdit ? 'Editar contrato' : 'Novo contrato'}</span></span>}
         onClose={onClose} width={780}
         rightHead={<div className="fin-drawer-code fin-drawer-code-head"><span style={{ fontWeight: 500 }}>NÚMERO</span><strong className="tnum fin-code-pill">{num}</strong></div>}
-        footer={(close) => (<><button className="btn fin-btn-back btn-fixed" onClick={() => close()}><Ic name="arrow-left" size={13} /> Voltar</button><div style={{ flex: 1 }} /><button className="btn btn-save btn-fixed" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close(handleSave)}><Ic name="check" size={13} /> Salvar</button></>)}>
+        footer={(close) => (<><ActionButton action="voltar" size="md" onClick={() => close()} /><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" disabled={!valid} onClick={() => close(handleSave)} /></>)}>
         <LegalFormStyles />
 
         {/* Bloco 1 — Cliente */}
@@ -237,10 +237,10 @@
         rightHead={<StatusChip status={c.status} solid />}
         footer={(close) => (
           <>
-            <button className="btn fin-btn-back btn-fixed" onClick={() => close()}><Ic name="arrow-left" size={13} /> Voltar</button>
+            <ActionButton action="voltar" size="md" onClick={() => close()} />
             <div style={{ flex: 1 }} />
-            {(c.status === 'rascunho' || c.status === 'negociacao' || c.status === 'enviado') && <button className="btn btn-edit"><Ic name="send" size={13} /> Enviar p/ assinatura</button>}
-            <button className="btn btn-save btn-fixed" onClick={() => close(() => onEdit(c))}><Ic name="edit" size={13} /> Editar</button>
+            {(c.status === 'rascunho' || c.status === 'negociacao' || c.status === 'enviado') && <ActionButton action="salvar" size="md" label="Enviar p/ assinatura" icon="send" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Enviado para assinatura', descricao: c.cliente + ' receberá o contrato.' })} />}
+            <ActionButton action="editar" size="md" onClick={() => close(() => onEdit(c))} />
           </>)}>
         <LegalFormStyles />
         <BoSectionTitle>Ciclo de vida</BoSectionTitle>
@@ -274,8 +274,31 @@
       </Drawer>);
   }
 
+  // ───────── Skeletons ─────────
+  function BoKpiSkeleton({ count = 6 }) {
+    return Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="bo-kpi" style={{ borderTopColor: 'var(--border-strong)' }}>
+        <div className="bo-kpi-head">
+          <span className="bo-kpi-icon" style={{ background: 'var(--surface-3)' }}><Skeleton w={17} h={17} r={4} /></span>
+          <span className="bo-kpi-label"><Skeleton w="70%" h={12} /></span>
+        </div>
+        <div className="bo-kpi-value"><Skeleton w="55%" h={24} /></div>
+        <div className="bo-kpi-foot"><Skeleton w="45%" h={11} /></div>
+      </div>));
+  }
+  function BoRowsSkeleton({ count = 3, cols, cells }) {
+    return Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="bo-row bo-row-body" style={{ gridTemplateColumns: cols, borderLeftColor: 'var(--border-strong)' }}>
+        {cells.map((c, k) => (
+          <div key={k} className="bo-cell">
+            {c[0] ? <Skeleton w={c[0]} h={c[1] || 14} /> : null}
+            {c[2] && <Skeleton w={c[2]} h={11} />}
+          </div>))}
+      </div>));
+  }
+
   // ───────── Aba: Contratos ─────────
-  function ContratosTab({ contratos, onOpen, onNew }) {
+  function ContratosTab({ contratos, onOpen, onNew, loading }) {
     const [query, setQuery] = React.useState('');
     const [stf, setStf] = React.useState('todos');
     const kpis = React.useMemo(() => {
@@ -302,12 +325,14 @@
     return (
       <>
         <div className="bo-kpi-grid">
+          {loading ? <BoKpiSkeleton count={6} /> : <>
           <BoKpi tone="green" icon="circle-check" label="Contratos ativos" value={kpis.ativos} foot={fmtBRLcompact(kpis.ativosVal) + ' em carteira'} />
           <BoKpi tone="amber" icon="clock" label="Vencendo" value={kpis.vencendo} foot="≤ 90 dias" />
           <BoKpi tone="orange" icon="edit" label="Assinaturas pendentes" value={kpis.assinaturas} foot="Aguardando" />
           <BoKpi tone="violet" icon="commercial" label="Em negociação" value={kpis.negociacao} foot="Pipeline" />
           <BoKpi tone="teal" icon="repeat" label="Renovações pendentes" value={kpis.renovacoes} foot="Auto-renov." />
           <BoKpi tone="slate" icon="file" label="Encerrados" value={kpis.encerrados} foot="Histórico" />
+          </>}
         </div>
         <div className="bo-toolbar">
           <div className="bo-toolbar-row">
@@ -324,7 +349,10 @@
             <div>Nº / Tipo</div><div>Cliente · Responsável</div><div>Vigência</div><div>Valor</div><div>Status</div><div></div>
           </div>
           <div className="bo-list-body">
-            {filtered.length === 0 ? (
+            {loading ? (
+              <BoRowsSkeleton count={skelCount('bo-contratos', 3)} cols={COLS}
+                cells={[['70%', 14, '50%'], ['80%', 14, '55%'], ['90%'], ['55%'], ['68px', 20], ['']]} />
+            ) : filtered.length === 0 ? (
               <div className="bo-empty">
                 <Ic name="contracts" size={36} style={{ opacity: .4 }} />
                 <div className="bo-empty-title">Nenhum contrato encontrado</div>
@@ -378,15 +406,15 @@
   function ModelosTab({ onUse }) {
     return (
       <div style={{ display: 'grid', gap: 12, gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))' }}>
+        <AddCard compact title="Novo modelo" subtitle="Crie um modelo de contrato reutilizável" />
         {data.modelosContrato.map((m) => (
           <div key={m.nome} className="bo-panel lg-model">
             <div className="row" style={{ gap: 10, alignItems: 'flex-start' }}>
               <span className="bo-panel-ic" style={{ background: 'color-mix(in oklab,#8b5cf6 13%,white)', color: '#6d28d9', width: 38, height: 38, borderRadius: 10 }}><Ic name="file-text" size={18} /></span>
               <div style={{ flex: 1, minWidth: 0 }}><div style={{ fontWeight: 600, letterSpacing: '-.01em' }}>{m.nome}</div><div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 3 }}>{m.desc}</div></div>
             </div>
-            <div className="row" style={{ marginTop: 14, gap: 8 }}><span className="chip"><Ic name="copy" size={12} /> {m.usos} usos</span><div style={{ flex: 1 }} /><button className="btn btn-sm">Duplicar</button><button className="btn btn-sm btn-edit" onClick={() => onUse(m)}><Ic name="plus" size={13} /> Usar</button></div>
+            <div className="row" style={{ marginTop: 14, gap: 8 }}><span className="chip"><Ic name="copy" size={12} /> {m.usos} usos</span><div style={{ flex: 1 }} /><button className="btn btn-sm" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Modelo duplicado', descricao: m.nome + '.' })}>Duplicar</button><button className="btn btn-sm btn-edit" onClick={() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Contrato criado a partir do modelo', descricao: m.nome + '.' }); onUse(m); }}><Ic name="plus" size={13} /> Usar</button></div>
           </div>))}
-        <div className="card-new-agent" style={{ minHeight: 0, padding: 18 }}><span className="na-icon" style={{ width: 38, height: 38 }}><Ic name="plus" size={18} /></span><div className="na-title" style={{ fontSize: 'var(--type-md)' }}>Novo modelo</div></div>
       </div>);
   }
 
@@ -451,23 +479,30 @@
     const [clientes, setClientes] = React.useState(() => data.clientes.slice());
     const [detail, setDetail] = React.useState(null);   // contrato em visualização
     const [form, setForm] = React.useState(null);        // { entry } cadastro/edição; entry=null => novo
+    const [loading, setLoading] = React.useState(true);  // skeleton no mount (scaffolding p/ API real)
+    React.useEffect(() => setLoading(false), []);
+    React.useEffect(() => { if (contratos.length) skelRemember('bo-contratos', contratos.length); }, [contratos]);
 
-    const addClient = (c) => setClientes((prev) => prev.some((x) => x.nome === c.nome) ? prev : [c, ...prev]);
+    const addClient = (c) => {
+      setClientes((prev) => prev.some((x) => x.nome === c.nome) ? prev : [c, ...prev]);
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Cliente cadastrado', descricao: c.nome + ' foi adicionado.' });
+    };
     const saveContract = (c, isEdit) => {
       setContratos((prev) => isEdit ? prev.map((x) => x.num === c.num ? { ...x, ...c } : x) : [c, ...prev]);
       setForm(null);
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Contrato salvo', descricao: c.num + ' · ' + c.cliente + '.' });
     };
 
     return (
       <Page title="Jurídico" subtitle="Gestão do ciclo de vida contratual"
-        actions={<BoNewBtn label="Novo contrato" onClick={() => setForm({ entry: null })} />}>
+        actions={<FabNovo size="sm" label="Novo contrato" onClick={() => setForm({ entry: null })} />}>
         <BoStyles />
         <div className="tabs" style={{ marginTop: -4 }}>
           {[['contratos', 'Central de Contratos'], ['renovacoes', 'Renovações'], ['modelos', 'Modelos']].map(([id, label]) => (
             <div key={id} className={'tab' + (tab === id ? ' active' : '')} onClick={() => setTab(id)}>{label}</div>))}
         </div>
 
-        {tab === 'contratos' && <ContratosTab contratos={contratos} onOpen={setDetail} onNew={() => setForm({ entry: null })} />}
+        {tab === 'contratos' && <ContratosTab contratos={contratos} onOpen={setDetail} onNew={() => setForm({ entry: null })} loading={loading} />}
         {tab === 'renovacoes' && <RenovacoesTab contratos={contratos} onOpen={setDetail} />}
         {tab === 'modelos' && <ModelosTab onUse={(m) => setForm({ entry: null, tipo: m.nome })} />}
 

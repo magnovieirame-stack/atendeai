@@ -203,6 +203,79 @@ function FilterPills({ filter, setFilter, counts }) {
 
 }
 
+// ── Skeletons (esqueleto de carregamento) — mesmas medidas/estrutura do conteúdo real ──
+// Linha de conversa (espelha ConvRow: avatar + nome + prévia + hora)
+function ConvRowSkeleton() {
+  return (
+    <div style={{ padding: '10px 12px 10px 9px', borderLeft: '3px solid transparent', borderBottom: '1px solid var(--border)', display: 'flex', gap: 10 }}>
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
+        <Skeleton circle w={40} h={40} />
+      </div>
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="row" style={{ gap: 6 }}>
+          <Skeleton w="55%" h={13} style={{ flex: 1 }} />
+          <Skeleton w={28} h={11} />
+        </div>
+        <div className="row" style={{ gap: 4, marginTop: 6 }}>
+          <Skeleton w="80%" h={11} style={{ flex: 1 }} />
+        </div>
+        <div className="row" style={{ marginTop: 8, gap: 4 }}>
+          <Skeleton w={48} h={14} r={999} /><Skeleton w={40} h={14} r={999} />
+        </div>
+      </div>
+    </div>);
+}
+function ConvListSkeleton({ count }) {
+  return <>{Array.from({ length: count }).map((_, i) => <ConvRowSkeleton key={i} />)}</>;
+}
+// Linha de contato (espelha ContactRow: avatar + nome + telefone)
+function ContactRowSkeleton() {
+  return (
+    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 12, alignItems: 'center' }}>
+      <Skeleton circle w={40} h={40} />
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <Skeleton w="50%" h={13} />
+        <Skeleton w="35%" h={11} style={{ marginTop: 5 }} />
+      </div>
+      <Skeleton circle w={32} h={32} />
+    </div>);
+}
+function ContactListSkeleton({ count }) {
+  return <>{Array.from({ length: count }).map((_, i) => <ContactRowSkeleton key={i} />)}</>;
+}
+// Balões de chat (espelha o container das mensagens: alterna lado, larguras variadas)
+function ChatSkeleton({ count = 6 }) {
+  const rows = [['client', '52%'], ['agent', '38%'], ['client', '64%'], ['agent', '70%'], ['client', '44%'], ['agent', '56%'], ['client', '60%'], ['agent', '48%']];
+  return (<>
+    {rows.slice(0, count).map(([side, w], i) => {
+      const isClient = side === 'client';
+      return (
+        <div key={i} style={{ display: 'flex', flexDirection: isClient ? 'row' : 'row-reverse', gap: 8, alignItems: 'flex-end' }}>
+          <Skeleton circle w={28} h={28} />
+          <div style={{ maxWidth: '70%' }}>
+            <Skeleton w={w} h={38} r={14} style={{ minWidth: 90 }} />
+            <Skeleton w={40} h={9} style={{ marginTop: 4, marginLeft: isClient ? 0 : 'auto' }} />
+          </div>
+        </div>);
+    })}
+  </>);
+}
+// Ficha do cliente (espelha TabFicha: título + linhas label/valor)
+function FichaSkeleton() {
+  return (
+    <div style={{ padding: '14px 16px' }}>
+      <div className="row"><Skeleton w={110} h={12} /></div>
+      <div style={{ marginTop: 8 }}>
+        {Array.from({ length: 7 }).map((_, i) => (
+          <div key={i} style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 8, padding: '8px 0', borderBottom: '1px solid var(--border)', alignItems: 'center' }}>
+            <Skeleton w={60} h={10} />
+            <Skeleton w={`${50 + (i * 7) % 40}%`} h={13} />
+          </div>
+        ))}
+      </div>
+    </div>);
+}
+
 function ContactsPanel({ open, onClose, onStartConv }) {
   const [q, setQ] = React.useState('');
   const [showNew, setShowNew] = React.useState(false);
@@ -213,7 +286,7 @@ function ContactsPanel({ open, onClose, onStartConv }) {
     setLoading(true);
     const t = setTimeout(() => {
       API.getClientes(q)
-        .then((r) => setList((r.clientes || []).map((c) => ({ id: c.id, name: c.nome, phone: c.telefone, foto: c.foto }))))
+        .then((r) => { const l = (r.clientes || []).map((c) => ({ id: c.id, name: c.nome, phone: c.telefone, foto: c.foto })); setList(l); if (l.length) skelRemember('inbox-contatos', l.length); })
         .catch(() => setList([]))
         .finally(() => setLoading(false));
     }, 220); // debounce
@@ -251,17 +324,12 @@ function ContactsPanel({ open, onClose, onStartConv }) {
           
           {q && <button onClick={() => setQ('')} className="btn btn-ghost btn-icon" style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', width: 28, height: 28 }}><Ic name="x" size={14} /></button>}
         </div>
-        <button
-          onClick={() => setShowNew(true)}
-          title="Iniciar nova conversa"
-          className="btn btn-icon"
-          style={{ width: 38, height: 38, borderRadius: '50%', background: 'var(--accent-soft)', borderColor: 'var(--accent-soft)', color: 'var(--accent-700)' }}>
-          <Ic name="chat-plus" size={17} /></button>
+        <FabNovo size="mini" label="Nova conversa" onClick={() => setShowNew(true)} title="Iniciar nova conversa" />
       </div>
       {/* List */}
       <div className="scroll" style={{ flex: 1, overflow: 'auto' }}>
         {loading && list.length === 0 ?
-        <div className="muted" style={{ padding: '40px 20px', textAlign: 'center', fontSize: 13 }}>Carregando clientes…</div> :
+        <ContactListSkeleton count={skelCount('inbox-contatos', 6)} /> :
         list.length === 0 ?
         <div style={{ padding: '40px 20px', textAlign: 'center' }}>
             <div className="muted" style={{ fontSize: 13 }}>{q ? `Nenhum cliente encontrado para "${q}"` : 'Nenhum cliente cadastrado.'}</div>
@@ -384,23 +452,33 @@ function Inbox() {
       .catch((e) => { setDbConvs((p) => p || []); setConvError(e.message || 'Erro ao carregar conversas'); });
   }, []);
   React.useEffect(() => { refetchContatos(); }, [refetchContatos]);
+  // lembra a qtd de conversas pra o skeleton mostrar o nº real
+  React.useEffect(() => { if (Array.isArray(dbConvs) && dbConvs.length) skelRemember('inbox-convs', dbConvs.length); }, [dbConvs]);
   // Ações do menu de cada conversa (atualiza local na hora + persiste no back).
   const fixarConv = (id, fixar) => {
     setDbConvs((cs) => (cs || []).map((x) => x.id === id ? { ...x, fixado: fixar } : x));
-    API.fixarContato(id, fixar).catch(() => {});
+    API.fixarContato(id, fixar)
+      .then(() => window.showToast({ tipo: 'sucesso', titulo: fixar ? 'Conversa fixada' : 'Conversa desafixada' }))
+      .catch(() => window.showToast({ tipo: 'erro', titulo: 'Erro ao atualizar', descricao: 'Não foi possível fixar a conversa.' }));
   };
   const bloquearConv = (id, bloquear) => {
     setDbConvs((cs) => (cs || []).map((x) => x.id === id ? { ...x, blocked: bloquear } : x));
-    API.bloquearContato(id, bloquear).catch(() => {});
+    API.bloquearContato(id, bloquear)
+      .then(() => window.showToast({ tipo: 'sucesso', titulo: bloquear ? 'Conversa bloqueada' : 'Conversa desbloqueada' }))
+      .catch(() => window.showToast({ tipo: 'erro', titulo: 'Erro ao atualizar', descricao: 'Não foi possível bloquear a conversa.' }));
   };
   const limparConv = (id) => {
     setDbConvs((cs) => (cs || []).map((x) => x.id === id ? { ...x, preview: '', midiaTipo: null, sentByMe: false, messages: null } : x));
-    API.limparContato(id).catch(() => {});
+    API.limparContato(id)
+      .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Conversa limpa' }))
+      .catch(() => window.showToast({ tipo: 'erro', titulo: 'Erro ao limpar', descricao: 'Não foi possível limpar a conversa.' }));
   };
   const apagarConv = (id) => {
     setDbConvs((cs) => (cs || []).filter((x) => x.id !== id));
     setSelectedId((sid) => sid === id ? null : sid);
-    API.apagarContato(id).catch(() => {});
+    API.apagarContato(id)
+      .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Conversa apagada' }))
+      .catch(() => window.showToast({ tipo: 'erro', titulo: 'Erro ao apagar', descricao: 'Não foi possível apagar a conversa.' }));
   };
   // Ao enviar qualquer mensagem: atualiza hora e joga a conversa pro topo na hora
   // (a ordenação fixados-primeiro mantém as fixadas acima). Depois sincroniza com o back.
@@ -434,8 +512,8 @@ function Inbox() {
         // nova conversa -> cria cliente + contato
         contato = (await API.createClienteContato(payload.name, payload.phone || '', payload.channel || 'whatsapp')).contato;
       }
-      if (contato) { await refetchContatos(); setSelectedId(contato.id); }
-    } catch (e) { /* silencioso */ }
+      if (contato) { await refetchContatos(); setSelectedId(contato.id); window.showToast({ tipo: 'sucesso', titulo: 'Conversa iniciada' }); }
+    } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao iniciar conversa', descricao: e.message || 'Não foi possível iniciar a conversa.' }); }
   }, [refetchContatos]);
 
   // If routed in with a lead/contact payload, open that chat directly
@@ -499,7 +577,7 @@ function Inbox() {
             available={available}
             away={away}
             onSetAway={() => setShowAwayModal(true)}
-            onResume={() => {setAvailable(true);setAway(null);}}
+            onResume={() => {setAvailable(true);setAway(null);window.showToast({ tipo: 'sucesso', titulo: 'Você está disponível' });}}
             filter={filter}
             tags={allTags}
             phases={allPhases}
@@ -509,7 +587,7 @@ function Inbox() {
             onTogglePhase={(p) => setSelectedPhases((s) => s.includes(p) ? s.filter((x) => x !== p) : [...s, p])}
             onClear={() => {setSelectedTags([]);setSelectedPhases([]);}} />
           
-          {!available && away && <AwayBadge away={away} onResume={() => {setAvailable(true);setAway(null);}} />}
+          {!available && away && <AwayBadge away={away} onResume={() => {setAvailable(true);setAway(null);window.showToast({ tipo: 'sucesso', titulo: 'Você está disponível' });}} />}
           <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)' }}><Ic name="search" size={14} /></span>
@@ -518,7 +596,7 @@ function Inbox() {
             <FilterPills filter={filter} setFilter={setFilter} counts={counts} />
           </div>
           <div className="scroll" style={{ flex: 1, overflow: 'auto' }}>
-            {dbConvs === null ? <div className="muted" style={{ padding: 20, textAlign: 'center' }}>Carregando conversas…</div> :
+            {dbConvs === null ? <ConvListSkeleton count={skelCount('inbox-convs', 6)} /> :
              convError ? <EmptyState icon="inbox" title="Erro ao carregar" desc={convError} /> :
              list.length === 0 ? <EmptyState icon="inbox" title="Sem conversas" desc="Conecte um canal para começar." /> : list.map((c) =>
             <ConvRow key={c.id} c={c} active={c.id === selectedId} onClick={() => { setSelectedId(c.id); refetchContatos(); if (singlePane) setMobilePane('thread'); }}
@@ -564,7 +642,7 @@ function Inbox() {
         {/* RIGHT: AI panel or context (desktop: showAI; mobile: mobilePane==='ai') */}
         {conv && ((!singlePane && showAI && !isNarrow) || (singlePane && mobilePane === 'ai')) && <AIPanel conv={conv} setComposing={setComposing} inline={true} onDataChanged={refetchContatos} onBack={singlePane ? () => setMobilePane('thread') : null} />}
       </div>
-      {showAwayModal && <AwayModal onClose={() => setShowAwayModal(false)} onConfirm={(a) => {setAway(a);setAvailable(false);setShowAwayModal(false);}} />}
+      {showAwayModal && <AwayModal onClose={() => setShowAwayModal(false)} onConfirm={(a) => {setAway(a);setAvailable(false);setShowAwayModal(false);window.showToast({ tipo: 'info', titulo: 'Você está ausente' });}} />}
     </div>);
 
 }
@@ -1143,7 +1221,7 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
         setMessages((prev) => [...prev, dbMsgToUi(r.mensagem)]);
         if (onSent) onSent(conv.id); // joga a conversa pro topo + atualiza a hora
       } catch (e) {
-        setToast({ kind: 'error', text: e.message || 'Falha ao enviar' });
+        window.showToast({ tipo: 'erro', titulo: 'Falha ao enviar', descricao: e.message || 'Não foi possível enviar a mensagem.' });
       }
     } else {
       addAgentMessage({ kind: 'text', text: t });
@@ -1174,7 +1252,8 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       setToast(null);
       if (onSent) onSent(conv.id); // joga a conversa pro topo + atualiza a hora
     } catch (e) {
-      setToast({ kind: 'error', text: e.message || 'Falha no upload' });
+      setToast(null);
+      window.showToast({ tipo: 'erro', titulo: 'Falha no upload', descricao: e.message || 'Não foi possível enviar a mídia.' });
     }
   };
   const onPickAttach = (o) => {
@@ -1191,7 +1270,8 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
   // grava o status no banco (ativo/finalizado) e atualiza a lista de conversas
   const mudarStatus = async (dbStatus) => {
     if (!conv._db) return;
-    try { await API.setContatoStatus(conv.id, dbStatus); if (onConvChanged) onConvChanged(); } catch (e) {}
+    try { await API.setContatoStatus(conv.id, dbStatus); if (onConvChanged) onConvChanged(); }
+    catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao alterar status', descricao: e.message || 'Não foi possível atualizar o status.' }); }
   };
 
   return (
@@ -1210,7 +1290,7 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
         <button className="btn btn-ghost btn-icon" onClick={(e) => e.stopPropagation()} style={{ width: "30px", height: "30px" }}><Ic name="user" size={15} /></button>
       </div>
       <div ref={scrollRef} className="scroll" style={{ flex: 1, overflow: 'auto', padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
-        {loadingMsgs ? <div className="muted" style={{ margin: 'auto' }}>Carregando mensagens…</div> :
+        {loadingMsgs ? <ChatSkeleton /> :
          messages.length === 0 ? <div className="muted" style={{ margin: 'auto' }}>Nenhuma mensagem ainda.</div> :
          messages.map((m, i) => <Bubble key={m._id || i} m={m} client={conv.client} clientPhoto={conv.photo} />)}
       </div>
@@ -1219,13 +1299,13 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
         <div className="row" style={{ gap: 10, padding: 14, border: '1px dashed color-mix(in oklab, var(--hue-amber) 50%, var(--border))', borderRadius: 10, background: 'color-mix(in oklab, var(--hue-amber) 6%, var(--surface))' }}>
             <Ic name="clock" size={18} style={{ color: 'var(--hue-amber)' }} />
             <div style={{ flex: 1 }}><div style={{ fontWeight: 600 }}>Conversa pendente</div><div className="muted" style={{ fontSize: 'var(--type-sm)' }}>A IA transferiu para humano. Inicie o atendimento para continuar.</div></div>
-            <button className="btn btn-primary" onClick={() => {setLocalStatus('em-andamento');setLocalHandler('human');mudarStatus('ativo');setToast({ kind: 'success', text: 'Atendimento iniciado' });}}><Ic name="user" size={14} /> Atender</button>
+            <button className="btn btn-primary" onClick={() => {setLocalStatus('em-andamento');setLocalHandler('human');mudarStatus('ativo');window.showToast({ tipo: 'sucesso', titulo: 'Atendimento iniciado' });}}><Ic name="user" size={14} /> Atender</button>
           </div> :
         localStatus === 'encerrada' ?
         <div className="row" style={{ gap: 10, padding: 14, border: '1px dashed var(--border-strong)', borderRadius: 10, background: 'var(--surface-2)' }}>
             <Ic name="check-double" size={18} style={{ color: 'var(--text-faint)' }} />
             <div style={{ flex: 1 }}><div style={{ fontWeight: 600 }}>Conversa encerrada</div><div className="muted" style={{ fontSize: 'var(--type-sm)' }}>Você pode retomar o atendimento se o cliente voltar a interagir.</div></div>
-            <button className="btn btn-primary" onClick={() => {setLocalStatus('em-andamento');setLocalHandler('human');mudarStatus('ativo');setToast({ kind: 'success', text: 'Atendimento retomado' });}}><Ic name="repeat" size={14} /> Retomar</button>
+            <button className="btn btn-primary" onClick={() => {setLocalStatus('em-andamento');setLocalHandler('human');mudarStatus('ativo');window.showToast({ tipo: 'sucesso', titulo: 'Atendimento retomado' });}}><Ic name="repeat" size={14} /> Retomar</button>
           </div> :
         <>
             <div className="row" style={{ gap: 6, marginBottom: 8 }}>
@@ -1255,7 +1335,7 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
               </div>
               <button className="btn btn-ghost btn-icon" onClick={() => {setMenu(null);setRecording(true);}} title="Gravar áudio" style={{ background: recording ? 'color-mix(in oklab, #ef4444 14%, transparent)' : 'transparent', color: recording ? '#dc2626' : undefined, width: "30px", height: "30px" }}><Ic name="mic" size={17} /></button>
               {recording ?
-            <VoiceRecorder onCancel={() => setRecording(false)} onSend={(blob) => {setRecording(false); if (blob && blob.size) { const ext = ((blob.type.split('/')[1] || 'webm').split(';')[0]).replace('mpeg', 'mp3'); enviarArquivo(new File([blob], 'audio.' + ext, { type: blob.type || 'audio/webm' })); } else { setToast({ kind: 'error', text: 'Não foi possível gravar o áudio (microfone?)' }); }}} /> :
+            <VoiceRecorder onCancel={() => setRecording(false)} onSend={(blob) => {setRecording(false); if (blob && blob.size) { const ext = ((blob.type.split('/')[1] || 'webm').split(';')[0]).replace('mpeg', 'mp3'); enviarArquivo(new File([blob], 'audio.' + ext, { type: blob.type || 'audio/webm' })); } else { window.showToast({ tipo: 'erro', titulo: 'Falha na gravação', descricao: 'Não foi possível gravar o áudio (microfone?).' }); }}} /> :
 
             <>
                   <input ref={inputRef} className="input" placeholder="Digite sua mensagem · digite o atalho da resposta rápida · Enter envia" value={composing} onChange={(e) => onComposeChange(e.target.value)} onKeyDown={onKeyDown} />
@@ -1267,10 +1347,10 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
         }
       </div>
 
-      {modal === 'devolver' && <DevolverIAModal conv={conv} onClose={() => setModal(null)} onConfirm={({ reason }) => {setModal(null);setLocalHandler('agent');setLocalStatus('ativa');addAgentMessage({ kind: 'text', text: reason ? `Conversa devolvida à IA · motivo: ${reason}` : 'Conversa devolvida à IA', system: true });setToast({ kind: 'ai', text: 'Conversa devolvida para a IA' });}} />}
-      {modal === 'transferir' && <TransferirModal conv={conv} onClose={() => setModal(null)} onConfirm={({ kind, target, note }) => {setModal(null);setLocalStatus('pendente');setLocalHandler('queue');setToast({ kind: 'success', text: kind === 'agent' ? `Transferida para ${target.name}` : `Transferida para ${target.name}` });}} />}
-      {modal === 'encerrar' && <EncerrarModal conv={conv} onClose={() => setModal(null)} onConfirm={({ label }) => {setModal(null);setLocalStatus('encerrada');mudarStatus('finalizado');setToast({ kind: 'success', text: `Conversa encerrada · ${label}` });}} />}
-      {showContactPicker && <ContactPickerModal onClose={() => setShowContactPicker(false)} onPick={(c) => { setShowContactPicker(false); addAgentMessage({ kind: 'contact', contactName: c.name, contactPhone: c.phone, contactTag: c.tag, contactChannel: c.channel }); setToast({ kind: 'success', text: `Contato ${c.name} enviado` }); }} /> }
+      {modal === 'devolver' && <DevolverIAModal conv={conv} onClose={() => setModal(null)} onConfirm={({ reason }) => {setModal(null);setLocalHandler('agent');setLocalStatus('ativa');addAgentMessage({ kind: 'text', text: reason ? `Conversa devolvida à IA · motivo: ${reason}` : 'Conversa devolvida à IA', system: true });window.showToast({ tipo: 'info', titulo: 'Devolvida à IA', descricao: 'A IA voltou a responder esta conversa.' });}} />}
+      {modal === 'transferir' && <TransferirModal conv={conv} onClose={() => setModal(null)} onConfirm={({ kind, target, note }) => {setModal(null);setLocalStatus('pendente');setLocalHandler('queue');window.showToast({ tipo: 'sucesso', titulo: 'Conversa transferida', descricao: `Transferida para ${target.name}` });}} />}
+      {modal === 'encerrar' && <EncerrarModal conv={conv} onClose={() => setModal(null)} onConfirm={({ label }) => {setModal(null);setLocalStatus('encerrada');mudarStatus('finalizado');window.showToast({ tipo: 'sucesso', titulo: 'Conversa encerrada', descricao: label });}} />}
+      {showContactPicker && <ContactPickerModal onClose={() => setShowContactPicker(false)} onPick={(c) => { setShowContactPicker(false); addAgentMessage({ kind: 'contact', contactName: c.name, contactPhone: c.phone, contactTag: c.tag, contactChannel: c.channel }); }} /> }
 
       <input ref={fileRef} type="file" accept={pendingAccept} style={{ display: 'none' }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; enviarArquivo(f); }} />
 
@@ -1485,7 +1565,9 @@ function AvatarHero({ conv, onUpload, onAddCard }) {
 
 function ActionButtons({ conv, currentUser, inline, onAppointmentRequest }) {
   const [showNewAppt, setShowNewAppt] = React.useState(false);
+  const [showPDV, setShowPDV] = React.useState(false);
   const NewAppointment = window.NewAppointment;
+  const PDVDrawer = window.PDVDrawer;
   const handleAppt = () => {
     // Se o pai delega (ex.: fila usa formulário próprio), encaminha; senão abre aqui (inbox).
     if (onAppointmentRequest) onAppointmentRequest();
@@ -1493,14 +1575,20 @@ function ActionButtons({ conv, currentUser, inline, onAppointmentRequest }) {
   };
   return (
     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '14px 16px', borderBottom: '1px solid var(--border)', gap: 0 }}>
-      <button className="btn-action"><Ic name="cart" size={15} /> PDV de Venda</button>
+      <button className="btn-action" onClick={() => setShowPDV(true)}><Ic name="cart" size={15} /> PDV de Venda</button>
       <span style={{ width: 1, height: 18, background: 'var(--border-strong)', margin: '0 14px' }} />
       <button className="btn-action" onClick={handleAppt}><Ic name="agenda" size={15} /> Agendamento</button>
+      {showPDV && PDVDrawer &&
+        <PDVDrawer
+          cliente={{ name: conv?.client || '', clienteId: conv?.clienteId || null, phone: conv?.phone || '' }}
+          onClose={() => setShowPDV(false)} />}
       {showNewAppt && NewAppointment &&
         <NewAppointment
           onClose={() => setShowNewAppt(false)}
           defaultParticipante={{ name: conv?.client || '', clienteId: conv?.clienteId || null, phone: conv?.phone || '' }}
-          onSave={(dto) => { API.createAppt(dto).catch(() => {}); setShowNewAppt(false); }}
+          onSave={(dto) => { API.createAppt(dto)
+            .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Agendamento criado' }))
+            .catch((e) => window.showToast({ tipo: 'erro', titulo: 'Erro ao agendar', descricao: e.message || 'Não foi possível criar o agendamento.' })); setShowNewAppt(false); }}
           defaultResponsible={currentUser || ''} />}
     </div>);
 
@@ -1607,7 +1695,7 @@ function TabFicha({ conv }) {
     setSaving(false);
   };
 
-  if (loading) return <div className="muted" style={{ padding: 16 }}>Carregando ficha…</div>;
+  if (loading) return <FichaSkeleton />;
   if (!cliente) return <div className="muted" style={{ padding: 16 }}>Sem cliente vinculado a este contato.</div>;
 
   return (
@@ -1765,23 +1853,27 @@ function TabTags({ conv, onManage, inline, onDataChanged }) {
     if (clientTags.includes(name)) return;
     const tagId = idOf(name); if (!tagId) return;
     setClientTags(t => [...t, name]);
-    try { await API.assignTag(conv.id, { tagId }); notify(); } catch (e) {}
+    try { await API.assignTag(conv.id, { tagId }); notify(); window.showToast({ tipo: 'sucesso', titulo: 'Tag adicionada', descricao: name }); }
+    catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao adicionar tag', descricao: e.message || 'Tente novamente.' }); }
   };
   const removeFromClient = async (name) => {
     const tagId = idOf(name);
     setClientTags(t => t.filter(x => x !== name));
-    try { if (tagId) await API.removeTag(conv.id, tagId); notify(); } catch (e) {}
+    try { if (tagId) await API.removeTag(conv.id, tagId); notify(); window.showToast({ tipo: 'sucesso', titulo: 'Tag removida', descricao: name }); }
+    catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao remover tag', descricao: e.message || 'Tente novamente.' }); }
   };
   // cria uma tag NOVA no catálogo (só na lista; não vincula ao contato automaticamente)
   const createTag = async () => {
     const nome = draftName.trim(); if (!nome) return;
-    try { await API.createTag(nome, draftColor); await loadTags(); } catch (e) {}
+    try { await API.createTag(nome, draftColor); await loadTags(); window.showToast({ tipo: 'sucesso', titulo: 'Tag criada', descricao: nome }); }
+    catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao criar tag', descricao: e.message || 'Tente novamente.' }); }
     setDraftName(''); setDraftColor('#3b82f6');
   };
   // apaga a tag do catálogo (e remove do contato, se estiver)
   const deleteTag = async (name) => {
     const tagId = idOf(name); if (!tagId) return;
-    try { await API.deleteTag(tagId); await loadTags(); setClientTags(t => t.filter(x => x !== name)); notify(); } catch (e) {}
+    try { await API.deleteTag(tagId); await loadTags(); setClientTags(t => t.filter(x => x !== name)); notify(); window.showToast({ tipo: 'sucesso', titulo: 'Tag excluída', descricao: name }); }
+    catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir tag', descricao: e.message || 'Tente novamente.' }); }
   };
   // chip estilo CRM: fundo claro + fonte na cor, sem borda
   const chip = (color) => ({ padding: '4px 10px', borderRadius: 999, fontSize: 'var(--type-xs)', fontWeight: 700, background: `${color}1A`, color, display: 'inline-flex', alignItems: 'center', gap: 6, lineHeight: 1.4 });

@@ -169,6 +169,8 @@
     const [filterSeller, setFilterSeller] = React.useState(new Set());
     const [filterStore, setFilterStore] = React.useState(new Set());
     const [sales, setSales] = React.useState(() => seedSales());
+    const [loading, setLoading] = React.useState(true);
+    React.useEffect(() => { setLoading(false); }, []);
     const [selected, setSelected] = React.useState(new Set());
     const [viewOf, setViewOf] = React.useState(null);
     const [editOf, setEditOf] = React.useState(null);
@@ -191,6 +193,8 @@
       });
     }, [sales, query, filterStatus, filterMethod, filterSeller, filterStore]);
 
+    React.useEffect(() => { if (!loading) skelRemember('sales', filtered.length); }, [loading, filtered.length]);
+
     const kpis = React.useMemo(() => {
       const active = sales.filter((s) => s.status !== 'cancelada');
       const total = active.reduce((a, s) => a + s.value, 0);
@@ -206,8 +210,17 @@
     const activeFilters = filterMethod.size + filterSeller.size + filterStore.size + (filterStatus !== 'all' ? 1 : 0);
     const clearFilters = () => {setFilterMethod(new Set());setFilterSeller(new Set());setFilterStore(new Set());setFilterStatus('all');};
 
-    const cancelSale = (id, reason) => setSales((p) => p.map((s) => s.id === id ? { ...s, status: 'cancelada', cancelReason: reason } : s));
-    const deleteSale = (id) => {setSales((p) => p.filter((s) => s.id !== id));setConfirmDel(null);};
+    const cancelSale = (id, reason) => {
+      const v = sales.find((s) => s.id === id);
+      setSales((p) => p.map((s) => s.id === id ? { ...s, status: 'cancelada', cancelReason: reason } : s));
+      window.showToast({ tipo: 'sucesso', titulo: 'Venda cancelada', descricao: v ? 'Nº ' + v.code : '' });
+    };
+    const deleteSale = (id) => {
+      const v = sales.find((s) => s.id === id);
+      setSales((p) => p.filter((s) => s.id !== id));
+      setConfirmDel(null);
+      window.showToast({ tipo: 'sucesso', titulo: 'Venda excluída', descricao: v ? 'Nº ' + v.code : '' });
+    };
 
     const toggleAll = () => selected.size === filtered.length ? setSelected(new Set()) : setSelected(new Set(filtered.map((s) => s.id)));
     const toggleOne = (id) => {const s = new Set(selected);if (s.has(id)) s.delete(id);else s.add(id);setSelected(s);};
@@ -215,21 +228,30 @@
     return (
       <Page title="Vendas" subtitle="Histórico de vendas · faturamento, pagamento e desempenho da equipe"
       actions={
-      <button className="fin-new-btn" aria-label="Nova venda">
-            <span className="fin-new-label">{'Nova venda\u00A0'}</span>
-            <span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span>
-          </button>
+      <FabNovo size="sm" label="Nova venda" />
       }>
 
         <SalesStyles />
 
         {/* 5 indicadores */}
         <div className="sales-kpis">
-          <SaleKpi icon="coins" label="Total Bruto" value={fmtBRL(kpis.total)} sub={`${kpis.count} concluídas`} tone="#047857" bg="#ecfdf5" />
-          <SaleKpi icon="dollar" label="Ticket Médio" value={fmtBRL(kpis.ticket)} sub="por venda" tone="#1d4ed8" bg="#eff6ff" />
-          <SaleKpi icon="cart" label="Nº de Vendas" value={fmtInt(kpis.count)} sub={`${sales.length} no total`} tone="#a21caf" bg="#fdf4ff" />
-          <SaleKpi icon="agenda" label="Média Diária" value={fmtBRL(kpis.daily)} sub="últimos 30 dias" tone="#b45309" bg="#fef3c7" />
-          <SaleKpi icon="x" label="Canceladas" value={fmtInt(kpis.canc)} sub={`${sales.length ? (kpis.canc / sales.length * 100).toFixed(1).replace('.', ',') : 0}% do total`} tone="#b91c1c" bg="#fef2f2" />
+          {loading ? (
+            [
+              { icon: 'coins',  label: 'Total Bruto',   tone: '#047857', bg: '#ecfdf5' },
+              { icon: 'dollar', label: 'Ticket Médio',  tone: '#1d4ed8', bg: '#eff6ff' },
+              { icon: 'cart',   label: 'Nº de Vendas',  tone: '#a21caf', bg: '#fdf4ff' },
+              { icon: 'agenda', label: 'Média Diária',  tone: '#b45309', bg: '#fef3c7' },
+              { icon: 'x',      label: 'Canceladas',    tone: '#b91c1c', bg: '#fef2f2' }
+            ].map((k) => <SaleKpiSkeleton key={k.label} icon={k.icon} label={k.label} tone={k.tone} bg={k.bg} />)
+          ) : (
+            <>
+              <SaleKpi icon="coins" label="Total Bruto" value={fmtBRL(kpis.total)} sub={`${kpis.count} concluídas`} tone="#047857" bg="#ecfdf5" />
+              <SaleKpi icon="dollar" label="Ticket Médio" value={fmtBRL(kpis.ticket)} sub="por venda" tone="#1d4ed8" bg="#eff6ff" />
+              <SaleKpi icon="cart" label="Nº de Vendas" value={fmtInt(kpis.count)} sub={`${sales.length} no total`} tone="#a21caf" bg="#fdf4ff" />
+              <SaleKpi icon="agenda" label="Média Diária" value={fmtBRL(kpis.daily)} sub="últimos 30 dias" tone="#b45309" bg="#fef3c7" />
+              <SaleKpi icon="x" label="Canceladas" value={fmtInt(kpis.canc)} sub={`${sales.length ? (kpis.canc / sales.length * 100).toFixed(1).replace('.', ',') : 0}% do total`} tone="#b91c1c" bg="#fef2f2" />
+            </>
+          )}
         </div>
 
         {/* Toolbar */}
@@ -312,7 +334,9 @@
           </div>
 
           <div className="sale-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0', background: 'var(--surface-2)' }}>
-            {filtered.length === 0 ?
+            {loading ?
+            Array.from({ length: skelCount('sales', 3) }).map((_, i) => <SaleRowSkeleton key={'skel-' + i} />) :
+            filtered.length === 0 ?
             <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)', background: 'var(--surface)' }}>
                 <Ic name="cart" size={36} style={{ opacity: .4 }} />
                 <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Nenhuma venda encontrada</div>
@@ -377,7 +401,7 @@
         </div>
 
         {viewOf && <SaleViewDrawer sale={viewOf} onClose={() => setViewOf(null)} onEdit={() => {setViewOf(null);setEditOf(viewOf);}} onPrint={() => {setViewOf(null);setPrintOf(viewOf);}} />}
-        {editOf && <SaleEditDrawer sale={editOf} onClose={() => setEditOf(null)} onSave={(upd) => {setSales((p) => p.map((s) => s.id === editOf.id ? { ...s, ...upd } : s));setEditOf(null);}} />}
+        {editOf && <SaleEditDrawer sale={editOf} onClose={() => setEditOf(null)} onSave={(upd) => {setSales((p) => p.map((s) => s.id === editOf.id ? { ...s, ...upd } : s));window.showToast({ tipo: 'sucesso', titulo: 'Venda atualizada', descricao: 'Nº ' + editOf.code });setEditOf(null);}} />}
         {printOf && <SalePrintDrawer sale={printOf} onClose={() => setPrintOf(null)} />}
         {cancelOf && <SaleCancelModal sale={cancelOf} onClose={() => setCancelOf(null)} onConfirm={(reason) => {cancelSale(cancelOf.id, reason);setCancelOf(null);}} />}
         {confirmDel &&
@@ -403,6 +427,58 @@
           <div className="sales-kpi-l">{label}</div>
           <div className="sales-kpi-v">{value}</div>
           <div className="sales-kpi-s">{sub}</div>
+        </div>
+      </div>);
+  }
+
+  // Skeleton do KPI — mesma estrutura/medidas do SaleKpi real (valor/sub viram blocos).
+  function SaleKpiSkeleton({ icon, label, tone, bg }) {
+    return (
+      <div className="sales-kpi">
+        <div className="sales-kpi-ic" style={{ background: bg, color: tone }}><Ic name={icon} size={16} /></div>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div className="sales-kpi-l">{label}</div>
+          <div className="sales-kpi-v" style={{ display: 'flex', alignItems: 'center' }}><Skeleton w={84} h={19} r={6} /></div>
+          <div className="sales-kpi-s" style={{ display: 'flex', alignItems: 'center', marginTop: 3 }}><Skeleton w={64} h={11} /></div>
+        </div>
+      </div>);
+  }
+
+  // Skeleton da linha — reusa o mesmo grid (.sale-row) e suas colunas/células.
+  function SaleRowSkeleton() {
+    return (
+      <div className="sale-row sale-body" style={{ borderLeft: '2px solid var(--border)' }}>
+        <div className="sale-cell sale-cell-check"><Skeleton w={16} h={16} r={4} /></div>
+        <div className="sale-cell sale-cell-code">
+          <span className="sale-code-l" style={{ color: 'rgb(86, 86, 86)' }}>Código</span>
+          <Skeleton w={62} h={22} r={6} style={{ alignSelf: 'center' }} />
+        </div>
+        <div className="sale-cell sale-cell-client">
+          <Skeleton circle w={36} h={36} />
+          <div style={{ minWidth: 0, flex: 1 }}>
+            <Skeleton w={'80%'} h={13} />
+            <Skeleton w={'55%'} h={11} style={{ marginTop: 4 }} />
+          </div>
+        </div>
+        <div className="sale-cell sale-cell-spacer" aria-hidden="true"></div>
+        <div className="sale-cell sale-cell-date">
+          <Skeleton w={70} h={10} />
+          <Skeleton w={110} h={12} style={{ marginTop: 4 }} />
+        </div>
+        <div className="sale-cell sale-cell-seller">
+          <Skeleton w={64} h={10} />
+          <Skeleton w={90} h={12} style={{ marginTop: 4 }} />
+        </div>
+        <div className="sale-cell sale-cell-pay">
+          <Skeleton w={108} h={20} r={999} />
+        </div>
+        <div className="sale-cell sale-cell-value">
+          <Skeleton w={50} h={10} />
+          <Skeleton w={84} h={15} style={{ marginTop: 4 }} />
+        </div>
+        <div className="sale-cell sale-cell-spacer" aria-hidden="true"></div>
+        <div className="sale-cell sale-cell-actions">
+          <Skeleton w={30} h={30} r={8} />
         </div>
       </div>);
   }
@@ -442,8 +518,8 @@
     return (
       <Drawer title={`Venda Nº ${sale.code}`} subtitle={`${sale.dateStr} · ${sale.loja}`} onClose={onClose} width={560}
       footer={<><div style={{ flex: 1 }} />
-          <button className="btn" onClick={onPrint}><Ic name="file-text" size={13} /> Imprimir</button>
-          <button className="btn btn-primary" onClick={onEdit} disabled={sale.status === 'cancelada'} style={sale.status === 'cancelada' ? { opacity: .5 } : null}><Ic name="edit" size={13} /> Editar venda</button>
+          <ActionButton action="salvar" size="md" label="Imprimir" icon="file-text" onClick={onPrint} />
+          <ActionButton action="editar" size="md" label="Editar venda" onClick={onEdit} disabled={sale.status === 'cancelada'} />
         </>}>
         <div className="col" style={{ gap: 14 }}>
           {/* Client header */}
@@ -535,8 +611,8 @@
     const addItem = () => setItems((p) => [...p, { name: 'Novo item', qty: 1, price: 0 }]);
     return (
       <Drawer title={`Editar venda Nº ${sale.code}`} subtitle={`${sale.dateStr} · cliente ${sale.client}`} onClose={onClose} width={580}
-      footer={(close) => <><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
-          <button className="btn btn-save" onClick={() => close(() => onSave({ client, seller, loja, method, discount: Number(discount) || 0, notes, items, subtotal, value }))}><Ic name="check" size={13} /> Salvar alterações</button>
+      footer={(close) => <><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={() => close()} />
+          <ActionButton action="salvar" size="md" label="Salvar alterações" onClick={() => close(() => onSave({ client, seller, loja, method, discount: Number(discount) || 0, notes, items, subtotal, value }))} />
         </>}>
         <div className="col" style={{ gap: 12 }}>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
@@ -580,8 +656,8 @@
     const handlePrint = () => {window.print && window.print();};
     return (
       <Drawer title={`Impressão · Nº ${sale.code}`} subtitle="Pré-visualização do comprovante" onClose={onClose} width={480}
-      footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onClose}>Fechar</button>
-          <button className="btn btn-primary" onClick={handlePrint}><Ic name="file-text" size={13} /> Imprimir</button></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} />
+          <ActionButton action="salvar" size="md" label="Imprimir" icon="file-text" onClick={handlePrint} /></>}>
         <div className="sale-print-paper">
           <div className="sale-print-hd">
             <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: '.06em' }}>ATENDE.IA</div>

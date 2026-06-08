@@ -42,7 +42,7 @@ function UserProfile() {
         </div>
         <div className="up-head-r">
           <button className="btn"><Ic name="logout" size={13} /> Sair</button>
-          <button className="btn btn-primary"><Ic name="check" size={13} /> Salvar alterações</button>
+          <button className="btn btn-primary" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Configurações salvas', descricao: 'Suas alterações foram aplicadas.' })}><Ic name="check" size={13} /> Salvar alterações</button>
         </div>
       </div>
 

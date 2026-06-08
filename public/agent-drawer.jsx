@@ -513,14 +513,14 @@ function NewAgentDrawer({ onClose }) {
             <Ic name="sparkles" size={12} /> Você pode salvar como rascunho a qualquer momento.
           </div>
           <div className="spacer" />
-          <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
-          <button className="btn" disabled={step === 0} onClick={() => setStep(s => Math.max(0, s - 1))}><Ic name="arrow-left" size={13} /> Anterior</button>
+          <ActionButton action="voltar" size="md" onClick={onClose} />
+          <ActionButton action="anterior" size="md" disabled={step === 0} onClick={() => setStep(s => Math.max(0, s - 1))} />
           {step < steps.length - 1 ? (
-            <button className="btn btn-primary" onClick={() => setStep(s => Math.min(steps.length - 1, s + 1))}>Próximo <Ic name="arrow-right" size={13} /></button>
+            <ActionButton action="proximo" size="md" onClick={() => setStep(s => Math.min(steps.length - 1, s + 1))} />
           ) : (
             <>
-              <button className="btn">Salvar como rascunho</button>
-              <button className="btn btn-primary"><Ic name="check" size={13} /> Criar e publicar</button>
+              <ActionButton action="salvar" size="md" label="Salvar como rascunho" onClick={() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Rascunho salvo', descricao: 'Você pode terminar de configurar o agente depois.' }); onClose && onClose(); }} />
+              <ActionButton action="salvar" size="md" label="Criar e publicar" onClick={() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Agente publicado', descricao: 'O agente já está ativo e atendendo.' }); onClose && onClose(); }} />
             </>
           )}
         </>

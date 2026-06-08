@@ -422,8 +422,99 @@
   //  MarketingCampaigns — campaigns + templates + flows
   // ─────────────────────────────────────────────────────────────────────
 
+  // ── Skeletons (scaffolding p/ API real) ──
+  function CampaignsTableSkeleton({ rows }) {
+    return (
+      <div className="card" style={{ overflow: 'visible' }}>
+        <div style={{ padding: '14px 16px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' }}>
+          <Skeleton w={280} h={34} r={8} style={{ flex: '1 1 280px', maxWidth: 380 }} />
+          <Skeleton w={92} h={34} r={8} />
+          <Skeleton w={84} h={34} r={8} />
+          <Skeleton w={104} h={34} r={8} />
+          <div className="spacer" />
+          <Skeleton w={70} h={14} />
+        </div>
+        <div style={{ overflowX: 'auto' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
+            <thead>
+              <tr style={{ background: 'var(--surface-2)' }}>
+                {['Campanha', 'Canal', 'Segmentação', 'Status', 'Enviados', 'Abertura', 'Clique', 'Conversão', 'Disparo', ''].map((h, i) =>
+                  <th key={i} style={{ textAlign: i === 0 || i === 1 || i === 2 || i === 3 ? 'left' : 'right', padding: '10px 14px', fontWeight: 600, color: 'var(--text-muted)', fontSize: 11.5, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap' }}>{h}</th>)}
+              </tr>
+            </thead>
+            <tbody>
+              {Array.from({ length: rows }).map((_, i) =>
+                <tr key={i} style={{ borderTop: '1px solid var(--border)' }}>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w="70%" h={13} /></td>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w={78} h={20} r={999} /></td>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w="80%" h={12} /></td>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w={64} h={20} r={999} /></td>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w={40} h={12} style={{ marginLeft: 'auto' }} /></td>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w={36} h={12} style={{ marginLeft: 'auto' }} /></td>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w={36} h={12} style={{ marginLeft: 'auto' }} /></td>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w={36} h={12} style={{ marginLeft: 'auto' }} /></td>
+                  <td style={{ padding: '12px 14px' }}><Skeleton w={70} h={12} style={{ marginLeft: 'auto' }} /></td>
+                  <td style={{ padding: '12px 8px' }}><Skeleton w={28} h={28} r={8} style={{ marginLeft: 'auto' }} /></td>
+                </tr>)}
+            </tbody>
+          </table>
+        </div>
+      </div>);
+  }
+
+  function TemplatesGridSkeleton({ count }) {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 12 }}>
+        {Array.from({ length: count }).map((_, i) =>
+          <div key={i} className="card" style={{ padding: 14, display: 'flex', flexDirection: 'column', gap: 10 }}>
+            <div className="row" style={{ alignItems: 'center', gap: 8 }}>
+              <Skeleton w={78} h={20} r={999} />
+              <div className="spacer" />
+              <Skeleton w={44} h={11} />
+            </div>
+            <Skeleton w="65%" h={14} />
+            <div style={{ background: 'var(--surface-2)', borderRadius: 8, padding: '10px 12px', borderLeft: '3px solid color-mix(in oklab, var(--accent) 40%, var(--border))', minHeight: 70, display: 'flex', flexDirection: 'column', gap: 7 }}>
+              <Skeleton w="95%" h={10} /><Skeleton w="88%" h={10} /><Skeleton w="60%" h={10} />
+            </div>
+            <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+              <Skeleton w={120} h={11} />
+              <div className="spacer" />
+              <Skeleton w={28} h={28} r={8} />
+              <Skeleton w={28} h={28} r={8} />
+              <Skeleton w={62} h={28} r={8} />
+            </div>
+          </div>)}
+      </div>);
+  }
+
+  function FlowsListSkeleton({ count }) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {Array.from({ length: count }).map((_, i) =>
+          <div key={i} className="card" style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <div className="row" style={{ alignItems: 'center', gap: 10 }}>
+              <Skeleton w={32} h={32} r={9} />
+              <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Skeleton w="40%" h={14} />
+                <Skeleton w="28%" h={12} />
+              </div>
+              <Skeleton w={64} h={20} r={999} />
+              <Skeleton w={28} h={28} r={8} />
+              <Skeleton w={28} h={28} r={8} />
+            </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap' }}>
+              <Skeleton w={120} h={30} r={999} />
+              <Skeleton w={140} h={30} r={999} />
+              <Skeleton w={110} h={30} r={999} />
+            </div>
+          </div>)}
+      </div>);
+  }
+
   function MarketingCampaigns() {
     const [tab, setTab] = React.useState('campaigns');
+    const [loading, setLoading] = React.useState(true);
+    React.useEffect(() => { setLoading(false); }, []);
     const [showNew, setShowNew] = React.useState(false);
     const [campaignInitial, setCampaignInitial] = React.useState(null);
     const [viewing, setViewing] = React.useState(null);
@@ -431,6 +522,10 @@
     const [templates, setTemplates] = React.useState(TEMPLATES);
     const [flows, setFlows] = React.useState(FLOWS);
     const [editingTemplate, setEditingTemplate] = React.useState(null); // {} for new, template obj for edit, null = closed
+
+    React.useEffect(() => { if (campaigns.length) skelRemember('mkt-campanhas', campaigns.length); }, [campaigns]);
+    React.useEffect(() => { if (templates.length) skelRemember('mkt-templates', templates.length); }, [templates]);
+    React.useEffect(() => { if (flows.length) skelRemember('mkt-fluxos', flows.length); }, [flows]);
 
     const duplicateCampaign = (c) => {
       const copy = {
@@ -503,7 +598,7 @@
         actions={
           <div className="row" style={{ gap: 8 }}>
             <button className="btn btn-sm"><Ic name="reports" size={14} /> Exportar</button>
-            <button className="fin-new-btn" onClick={() => openNewCampaign()} aria-label="Nova campanha"><span className="fin-new-label">{'Nova campanha\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>
+            <FabNovo size="sm" label="Nova campanha" onClick={() => openNewCampaign()} />
           </div>
         }>
         {/* KPIs */}
@@ -533,9 +628,15 @@
             </div>)}
         </div>
 
-        {tab === 'campaigns' && <CampaignsTable rows={campaigns} onNew={() => openNewCampaign()} onOpen={(c) => setViewing(c)} />}
-        {tab === 'templates' && <TemplatesGrid items={templates} onEdit={editTemplate} onUse={useTemplate} onDuplicate={duplicateTemplate} onNew={newTemplate} />}
-        {tab === 'flows'     && <FlowsList items={flows} onToggle={toggleFlow} />}
+        {tab === 'campaigns' && (loading
+          ? <CampaignsTableSkeleton rows={skelCount('mkt-campanhas', 3)} />
+          : <CampaignsTable rows={campaigns} onNew={() => openNewCampaign()} onOpen={(c) => setViewing(c)} />)}
+        {tab === 'templates' && (loading
+          ? <TemplatesGridSkeleton count={skelCount('mkt-templates', 3)} />
+          : <TemplatesGrid items={templates} onEdit={editTemplate} onUse={useTemplate} onDuplicate={duplicateTemplate} onNew={newTemplate} />)}
+        {tab === 'flows'     && (loading
+          ? <FlowsListSkeleton count={skelCount('mkt-fluxos', 3)} />
+          : <FlowsList items={flows} onToggle={toggleFlow} />)}
 
         {showNew && window.NewCampaignDrawer && <window.NewCampaignDrawer initial={campaignInitial} onClose={() => { setShowNew(false); setCampaignInitial(null); }} />}
         {editingTemplate !== null && window.TemplateEditorDrawer &&

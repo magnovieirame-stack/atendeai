@@ -242,12 +242,20 @@
     const [openFlow, setOpenFlow] = React.useState(null);
     const [builderFor, setBuilderFor] = React.useState(null); // null | 'new' | flowId
     const [flows, setFlows] = React.useState(FLOWS);
+    const [loading, setLoading] = React.useState(true);
+    React.useEffect(() => { setLoading(false); }, []);
+    React.useEffect(() => { if (flows.length) skelRemember('flows', flows.length); }, [flows]);
 
     const toggleFlow = (id) => {
-      setFlows((prev) => prev.map((f) => f.id === id ? {
-        ...f,
-        status: f.status === 'paused' ? 'running' : f.status === 'running' ? 'paused' : f.status === 'active' ? 'paused' : f.status
-      } : f));
+      setFlows((prev) => prev.map((f) => {
+        if (f.id !== id) return f;
+        const status = f.status === 'paused' ? 'running' : f.status === 'running' ? 'paused' : f.status === 'active' ? 'paused' : f.status;
+        if (status !== f.status && window.showToast) {
+          if (status === 'paused') window.showToast({ tipo: 'sucesso', titulo: 'Fluxo pausado', descricao: `"${f.name}" não vai mais executar até ser retomado.` });
+          else window.showToast({ tipo: 'sucesso', titulo: 'Fluxo retomado', descricao: `"${f.name}" voltou a executar.` });
+        }
+        return { ...f, status };
+      }));
     };
 
     // Aggregate KPIs across all flows
@@ -266,10 +274,7 @@
         actions={
           <div className="row" style={{ gap: 8 }}>
             <button className="btn btn-sm" title="Ver memória aprendida"><Ic name="sparkles" size={13} /> Memória da IA</button>
-            <button className="fin-new-btn" onClick={() => setBuilderFor('new')} aria-label="Novo fluxo">
-              <span className="fin-new-label">{'Novo fluxo\u00A0'}</span>
-              <span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span>
-            </button>
+            <FabNovo size="sm" label="Novo fluxo" onClick={() => setBuilderFor('new')} />
           </div>
         }>
 
@@ -308,9 +313,9 @@
             </div>)}
         </div>
 
-        {tab === 'flows'  && <FlowsList flows={flows} onOpen={(f) => setOpenFlow(f)} onToggle={toggleFlow} onEdit={(id) => setBuilderFor(id)} />}
-        {tab === 'agents' && <AgentsGrid agents={AGENTS} flows={flows} onEdit={() => setBuilderFor('new')} />}
-        {tab === 'logs'   && <LogsTimeline logs={LOGS} flows={flows} />}
+        {tab === 'flows'  && (loading ? <FlowsListSkeleton count={skelCount('flows', 3)} /> : <FlowsList flows={flows} onOpen={(f) => setOpenFlow(f)} onToggle={toggleFlow} onEdit={(id) => setBuilderFor(id)} />)}
+        {tab === 'agents' && (loading ? <AgentsGridSkeleton count={skelCount('flow-agentes', AGENTS.length)} onEdit={() => setBuilderFor('new')} /> : <AgentsGrid agents={AGENTS} flows={flows} onEdit={() => setBuilderFor('new')} />)}
+        {tab === 'logs'   && (loading ? <LogsTimelineSkeleton count={skelCount('flow-logs', 3)} /> : <LogsTimeline logs={LOGS} flows={flows} />)}
         {tab === 'perf'   && <PerformanceView flows={flows} />}
 
         {openFlow && <FlowDetailDrawer flow={openFlow} onClose={() => setOpenFlow(null)} onEdit={() => { setBuilderFor(openFlow.id); setOpenFlow(null); }} />}
@@ -337,6 +342,107 @@
   // ─────────────────────────────────────────────────────────────────────
   //  FlowsList — vertical list of flow cards
   // ─────────────────────────────────────────────────────────────────────
+
+  // ── Skeletons (scaffolding p/ API real) ──
+  function FlowsListSkeleton({ count }) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+        {/* Filter row (mesma estrutura da real) */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+          <Skeleton w={280} h={34} r={8} style={{ flex: '1 1 280px', maxWidth: 360 }} />
+          <Skeleton w={300} h={34} r={9} />
+          <div className="spacer" />
+          <Skeleton w={84} h={34} r={8} />
+          <Skeleton w={90} h={34} r={8} />
+        </div>
+        {Array.from({ length: count }).map((_, k) =>
+          <div key={k} className="card fai-card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div style={{ padding: '16px 20px', display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 360px', gap: 24, alignItems: 'center' }}>
+              {/* Left */}
+              <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 12 }}>
+                <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+                  <Skeleton w={200} h={15} /><Skeleton w={88} h={20} r={999} />
+                </div>
+                <Skeleton w="80%" h={13} />
+                <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+                  <Skeleton w={150} h={24} r={999} /><Skeleton w={120} h={24} r={999} /><Skeleton w={180} h={24} r={999} />
+                </div>
+                <div className="row" style={{ gap: 14, alignItems: 'center', paddingTop: 4, borderTop: '1px dashed var(--border)' }}>
+                  <Skeleton w={28} h={28} r={8} /><Skeleton w={110} h={12} />
+                  <div style={{ width: 1, height: 22, background: 'var(--border)' }} />
+                  <Skeleton w="40%" h={11} />
+                </div>
+              </div>
+              {/* Right */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 12, minWidth: 0 }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr auto', gap: 12, alignItems: 'center' }}>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><Skeleton w={52} h={9} /><Skeleton w={48} h={17} /></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><Skeleton w={56} h={9} /><Skeleton w={44} h={17} /></div>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}><Skeleton w={48} h={9} /><Skeleton w={60} h={17} /></div>
+                  <Skeleton w={42} h={42} circle />
+                </div>
+                <Skeleton w="100%" h={48} r={10} />
+                <div className="row" style={{ gap: 4, justifyContent: 'flex-end' }}>
+                  <Skeleton w={104} h={30} r={8} /><Skeleton w={28} h={28} r={8} /><Skeleton w={28} h={28} r={8} /><Skeleton w={28} h={28} r={8} />
+                </div>
+              </div>
+            </div>
+          </div>)}
+      </div>);
+  }
+
+  function AgentsGridSkeleton({ count, onEdit }) {
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+        <AddCard title="Criar novo agente" subtitle="Defina personalidade, objetivo e estratégia. A IA aprende com cada interação." onClick={onEdit} style={{ minHeight: 320 }} />
+        {Array.from({ length: count }).map((_, i) =>
+          <div key={i} className="card fai-card" style={{ padding: 0, overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+            <div style={{ padding: '18px 18px 14px', background: 'var(--surface-2)' }}>
+              <div style={{ display: 'flex', alignItems: 'flex-start', gap: 12 }}>
+                <Skeleton w={54} h={54} r={16} />
+                <div style={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <Skeleton w="50%" h={18} /><Skeleton w="40%" h={11} />
+                </div>
+                <Skeleton w={52} h={18} r={999} />
+              </div>
+            </div>
+            <div style={{ padding: 16, display: 'flex', flexDirection: 'column', gap: 10, flex: 1 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}><Skeleton w={60} h={9} /><Skeleton w="90%" h={12} /><Skeleton w="70%" h={12} /></div>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}><Skeleton w={56} h={9} /><Skeleton w="80%" h={12} /></div>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}><Skeleton w={48} h={9} /><Skeleton w="80%" h={12} /></div>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 5 }}><Skeleton w={70} h={9} /><Skeleton w="92%" h={11} /><Skeleton w="65%" h={11} /></div>
+              <div className="spacer" />
+              <div className="row" style={{ gap: 6, paddingTop: 10, borderTop: '1px solid var(--border)' }}>
+                <Skeleton h={30} r={8} style={{ flex: 1 }} /><Skeleton h={30} r={8} style={{ flex: 1 }} />
+              </div>
+            </div>
+          </div>)}
+      </div>);
+  }
+
+  function LogsTimelineSkeleton({ count }) {
+    return (
+      <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+        <div style={{ padding: '14px 18px', borderBottom: '1px solid var(--border)', display: 'flex', alignItems: 'center', gap: 10 }}>
+          <Skeleton w={14} h={14} r={4} /><Skeleton w={240} h={14} /><Skeleton w={64} h={20} r={999} />
+          <div className="spacer" />
+          <Skeleton w={76} h={30} r={8} /><Skeleton w={110} h={30} r={8} />
+        </div>
+        <div style={{ padding: '4px 0' }}>
+          {Array.from({ length: count }).map((_, i) =>
+            <div key={i} style={{ display: 'grid', gridTemplateColumns: '64px 32px minmax(0, 1fr) auto', gap: 12, padding: '12px 18px', borderTop: i === 0 ? 'none' : '1px solid var(--border)', alignItems: 'center' }}>
+              <Skeleton w={40} h={12} />
+              <Skeleton w={28} h={28} r={9} />
+              <div style={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <Skeleton w="75%" h={13} /><Skeleton w="40%" h={11} />
+              </div>
+              <Skeleton w={56} h={20} r={999} />
+            </div>)}
+        </div>
+      </div>);
+  }
 
   function FlowsList({ flows, onOpen, onToggle, onEdit }) {
     const [q, setQ] = React.useState('');
@@ -517,6 +623,7 @@
   function AgentsGrid({ agents, flows, onEdit }) {
     return (
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 14 }}>
+        <AddCard title="Criar novo agente" subtitle="Defina personalidade, objetivo e estratégia. A IA aprende com cada interação." onClick={onEdit} style={{ minHeight: 320 }} />
         {agents.map((a) => {
           const inFlows = flows.filter((f) => f.agent === a.id);
           const grad = `linear-gradient(135deg, oklch(0.72 .15 ${a.hue}) 0%, oklch(0.55 .18 ${(a.hue + 35) % 360}) 100%)`;
@@ -565,13 +672,6 @@
               </div>
             </div>);
         })}
-
-        {/* New agent card */}
-        <div className="card-new-agent" onClick={onEdit} style={{ minHeight: 320 }}>
-          <div className="na-icon"><Ic name="plus" size={22} /></div>
-          <div className="na-title">Criar novo agente</div>
-          <div className="na-desc">Defina personalidade, objetivo e estratégia. A IA aprende com cada interação.</div>
-        </div>
       </div>);
   }
 
@@ -608,7 +708,7 @@
           </span>
           <div className="spacer" />
           <button className="btn btn-sm"><Ic name="filter" size={12} /> Filtrar</button>
-          <button className="btn btn-sm"><Ic name="download" size={12} /> Exportar logs</button>
+          <button className="btn btn-sm" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Logs exportados', descricao: 'O histórico de execução foi baixado.' })}><Ic name="download" size={12} /> Exportar logs</button>
         </div>
         <div style={{ padding: '4px 0' }}>
           {logs.map((l, i) => {

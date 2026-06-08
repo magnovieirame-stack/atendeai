@@ -1,13 +1,15 @@
 // catalog.jsx — Catálogo de produtos/serviços (lista no estilo de Leads/Clientes)
 
 (function () {
-  // Parse "R$ 3.890,00" → 3890
-  const parseBRL = (s) => {
-    if (typeof s === 'number') return s;
-    return Number(String(s || '').replace(/[^\d,]/g, '').replace(',', '.')) || 0;
-  };
   const fmtBRL = (v) => 'R$ ' + Number(v || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const fmtInt = (v) => Number(v || 0).toLocaleString('pt-BR');
+  const fmtDataHora = (iso) => {
+    if (!iso) return '';
+    const d = new Date(iso);
+    if (isNaN(d)) return '';
+    const p = (n) => String(n).padStart(2, '0');
+    return `${p(d.getDate())}/${p(d.getMonth() + 1)}/${d.getFullYear()} · ${p(d.getHours())}:${p(d.getMinutes())}`;
+  };
 
   const CAT_COLORS = {
     'Pacote':       { color: '#a855f7', icon: 'cube' },
@@ -16,76 +18,36 @@
     'Serviço':      { color: '#f59e0b', icon: 'star' }
   };
 
-  // Seed catalog with extra fields (active, stockQty, sales, image color, created date)
-  // Extra mock catalog (in addition to window.CATALOG) — generates plenty of rows so the list scrolls
-  const EXTRA_CATALOG = [
-    { name: 'Hidratação Facial Premium',         cat: 'Procedimento', price: 'R$ 280,00',   desc: 'Sessão de 45 min com ácido hialurônico.' },
-    { name: 'Peeling de Diamante',               cat: 'Procedimento', price: 'R$ 420,00',   desc: 'Esfoliação profunda · 1 sessão.' },
-    { name: 'Pacote Detox Corporal',             cat: 'Pacote',       price: 'R$ 1.890,00', desc: '8 sessões de drenagem + esfoliação.' },
-    { name: 'Botox Facial',                       cat: 'Procedimento', price: 'R$ 1.200,00', desc: 'Aplicação 3 áreas · resultado 4-6 meses.' },
-    { name: 'Pacote Bronze de Verão',             cat: 'Pacote',       price: 'R$ 980,00',   desc: '5 sessões de bronze artificial.' },
-    { name: 'Massagem Relaxante 90min',           cat: 'Procedimento', price: 'R$ 220,00',   desc: 'Sessão estendida com aromaterapia.' },
-    { name: 'Pacote Fit Corporal',                cat: 'Pacote',       price: 'R$ 2.100,00', desc: '12 sessões · drenagem + radiofrequência.' },
-    { name: 'Sobrancelha Designer',               cat: 'Procedimento', price: 'R$  90,00',   desc: 'Modelagem + henna.' },
-    { name: 'Manicure & Pedicure VIP',            cat: 'Procedimento', price: 'R$ 120,00',   desc: 'Atendimento completo · spa nos pés.' },
-    { name: 'Pacote Anti-idade',                  cat: 'Pacote',       price: 'R$ 3.450,00', desc: '6 sessões · combo facial.' },
-    { name: 'Laser Co2 Fracionado',               cat: 'Procedimento', price: 'R$ 1.890,00', desc: 'Tratamento de cicatrizes · 1 sessão.' },
-    { name: 'Preenchimento Labial',               cat: 'Procedimento', price: 'R$ 1.450,00', desc: 'Ácido hialurônico · resultado 9-12 meses.' },
-    { name: 'Pacote Pré-Casamento',               cat: 'Pacote',       price: 'R$ 4.200,00', desc: '15 sessões · 60 dias antes do evento.' },
-    { name: 'Drenagem Pós-cirúrgica',             cat: 'Procedimento', price: 'R$ 180,00',   desc: 'Sessão de 50 min · recuperação.' },
-    { name: 'Pacote Mãe Solteira',                cat: 'Pacote',       price: 'R$ 1.450,00', desc: '8 sessões com horário noturno.' },
-    { name: 'Microagulhamento Premium',           cat: 'Procedimento', price: 'R$ 680,00',   desc: '1 sessão · com sérum vitaminado.' },
-    { name: 'Bichectomia',                         cat: 'Procedimento', price: 'R$ 4.500,00', desc: 'Procedimento estético · 1 sessão.' },
-    { name: 'Limpeza de Pele Express',            cat: 'Procedimento', price: 'R$ 140,00',   desc: 'Sessão rápida de 30 min.' },
-    { name: 'Pacote Combo Spa Casal',             cat: 'Pacote',       price: 'R$ 1.890,00', desc: 'Dia spa para 2 pessoas.' },
-    { name: 'Lash Lifting',                        cat: 'Procedimento', price: 'R$ 180,00',   desc: 'Curvatura natural dos cílios.' },
-    { name: 'Extensão de Cílios Fio a Fio',       cat: 'Procedimento', price: 'R$ 220,00',   desc: 'Aplicação completa.' },
-    { name: 'Pacote Verão',                       cat: 'Pacote',       price: 'R$ 2.280,00', desc: '10 sessões diversas · 3 meses.' },
-    { name: 'Toxina Botulínica Axilar',           cat: 'Procedimento', price: 'R$ 2.450,00', desc: 'Controle de hiperidrose · 1 sessão.' },
-    { name: 'Pacote Pós-parto',                   cat: 'Pacote',       price: 'R$ 1.690,00', desc: '8 sessões de drenagem + tônus.' },
-    { name: 'Day Use Relax',                      cat: 'Pacote',       price: 'R$ 590,00',   desc: 'Meio dia · 3 procedimentos à escolha.' }
-  ];
-
-  function seedCatalog() {
-    const base = window.CATALOG || [];
-    const all = [...base, ...EXTRA_CATALOG];
-    const seedRows = [
-      { active: true,  stockQty: 24,  sales: 184, since: '12/03/2024' },
-      { active: true,  stockQty: 92,  sales: 312, since: '04/06/2024' },
-      { active: true,  stockQty: 58,  sales: 142, since: '18/08/2024' },
-      { active: true,  stockQty: 12,  sales:  74, since: '22/01/2025' },
-      { active: false, stockQty:  0,  sales:  32, since: '11/11/2024' },
-      { active: false, stockQty:  0,  sales:  18, since: '02/02/2025' },
-      { active: true,  stockQty: 18,  sales:  98, since: '07/09/2024' },
-      { active: true,  stockQty: 36,  sales:  62, since: '15/02/2025' },
-      { active: true,  stockQty:  8,  sales: 224, since: '03/01/2024' },
-      { active: true,  stockQty: 46,  sales: 158, since: '19/07/2024' },
-      { active: true,  stockQty:  4,  sales:  44, since: '02/10/2024' },
-      { active: false, stockQty:  0,  sales:  12, since: '14/03/2025' },
-      { active: true,  stockQty: 82,  sales: 412, since: '08/02/2024' },
-      { active: true,  stockQty: 26,  sales:  92, since: '21/05/2024' }
-    ];
-    const palette = ['#fde68a', '#fbcfe8', '#bfdbfe', '#bbf7d0', '#e9d5ff', '#fed7aa', '#fecaca', '#a7f3d0', '#fef3c7', '#dbeafe', '#f5d0fe', '#fef9c3'];
-    return all.map((c, i) => ({
-      id: 'prod-' + i,
-      ...c,
-      ...seedRows[i % seedRows.length],
-      img: palette[i % palette.length],
-      priceN: parseBRL(c.price)
-    }));
-  }
-
   function CatalogPage() {
+    const { can } = useStore();
     const [query, setQuery] = React.useState('');
     const [showFilters, setShowFilters] = React.useState(false);
     const [filterCat, setFilterCat] = React.useState('all');
     const [filterStatus, setFilterStatus] = React.useState('all');
-    const [items, setItems] = React.useState(() => seedCatalog());
+    const [items, setItems] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+    const [error, setError] = React.useState('');
     const [selected, setSelected] = React.useState(new Set());
     const [historyOf, setHistoryOf] = React.useState(null);
     const [editOf, setEditOf] = React.useState(null);
     const [cartOf, setCartOf] = React.useState(null);
     const [confirmDel, setConfirmDel] = React.useState(null);
+
+    // Carrega o catálogo do backend (tabela catalogo-produtos, por empresa).
+    const reload = React.useCallback(async () => {
+      setLoading(true); setError('');
+      try {
+        const r = await window.API.getProdutos();
+        const rows = (r.produtos || []).map((p, i) => window.produtoDtoToRow(p, i));
+        setItems(rows);
+        if (rows.length) skelRemember('catalogo', rows.length);
+      } catch (e) {
+        setError((e && e.message) || 'Falha ao carregar o catálogo.');
+      } finally {
+        setLoading(false);
+      }
+    }, []);
+    React.useEffect(() => { reload(); }, [reload]);
 
     const cats = React.useMemo(() => Array.from(new Set(items.map((i) => i.cat))).sort(), [items]);
 
@@ -102,9 +64,53 @@
       });
     }, [items, query, filterCat, filterStatus]);
 
-    const toggleActive = (id) => setItems((p) => p.map((it) => it.id === id ? { ...it, active: !it.active } : it));
-    const deleteItem = (id) => { setItems((p) => p.filter((it) => it.id !== id)); setConfirmDel(null); };
-    const updateItem = (item) => { setItems((p) => p.map((it) => it.id === item.id ? { ...it, ...item } : it)); setEditOf(null); };
+    const toggleActive = async (id) => {
+      const it = items.find((x) => x.id === id);
+      if (!it) return;
+      const next = !it.active;
+      setItems((p) => p.map((x) => x.id === id ? { ...x, active: next } : x)); // otimista
+      try {
+        await window.API.updateProduto(id, { ativo: next });
+        window.showToast && window.showToast({ tipo: 'sucesso', titulo: next ? 'Item ativado' : 'Item desativado', descricao: next ? 'O item voltou a aparecer no catálogo.' : 'O item foi ocultado do catálogo.' });
+      } catch (e) {
+        setItems((p) => p.map((x) => x.id === id ? { ...x, active: !next } : x)); // reverte
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao alterar status', descricao: (e && e.message) || 'Não foi possível alterar o status.' });
+      }
+    };
+
+    const deleteItem = async (id) => {
+      const prev = items;
+      setItems((p) => p.filter((it) => it.id !== id)); // otimista
+      setConfirmDel(null);
+      try {
+        await window.API.deleteProduto(id);
+        window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Item excluído', descricao: 'O item foi removido do catálogo.' });
+      } catch (e) {
+        setItems(prev); // reverte
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir', descricao: (e && e.message) || 'Não foi possível excluir o item.' });
+      }
+    };
+
+    // Salvar (criar ou editar) — chamado pelo drawer com o objeto do formulário.
+    const saveItem = async (form) => {
+      const dto = window.produtoFormToDto(form);
+      if (!dto.nome) { setEditOf(null); return; }
+      const target = editOf; // capturado por closure (o drawer já vai fechar)
+      try {
+        if (target && target.id) {
+          const r = await window.API.updateProduto(target.id, dto);
+          const row = window.produtoDtoToRow(r.produto, 0);
+          setItems((p) => p.map((x) => x.id === target.id ? { ...row, img: x.img } : x));
+          window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Item salvo', descricao: 'As alterações foram aplicadas.' });
+        } else {
+          const r = await window.API.createProduto(dto);
+          setItems((p) => [window.produtoDtoToRow(r.produto, 0), ...p]); // entra no topo
+          window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Item criado', descricao: 'O novo item já está no catálogo.' });
+        }
+      } catch (e) {
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao salvar', descricao: (e && e.message) || 'Não foi possível salvar o item.' });
+      }
+    };
 
     const kpis = React.useMemo(() => {
       const total = items.length;
@@ -128,11 +134,8 @@
       <Page
         title="Catálogo"
         subtitle="Produtos e serviços · base usada pelo agente e pelo PDV"
-        actions={
-          <button className="fin-new-btn" onClick={() => setEditOf({})} aria-label="Novo item">
-            <span className="fin-new-label">{'Novo item\u00A0'}</span>
-            <span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span>
-          </button>
+        actions={can('catalogo.criar') &&
+          <FabNovo size="sm" label={'Servi\u00E7o/Produto'} onClick={() => setEditOf({})} />
         }>
 
         <CatalogStyles />
@@ -176,8 +179,8 @@
             <CatStatusPills value={filterStatus} onChange={setFilterStatus} />
 
             <div style={{ flex: 1 }} />
-            <button className="btn"><Ic name="upload" size={13} /> Importar CSV</button>
-            <button className="btn"><Ic name="link" size={13} /> Sincronizar API</button>
+            <button className="btn" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'CSV importado', descricao: 'Os itens da planilha foram adicionados ao catálogo.' })}><Ic name="upload" size={13} /> Importar CSV</button>
+            <button className="btn" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'API sincronizada', descricao: 'O catálogo foi atualizado com a fonte externa.' })}><Ic name="link" size={13} /> Sincronizar API</button>
             <button className="btn">
               <Ic name="download" size={13} /> Exportar
             </button>
@@ -231,11 +234,33 @@
           </div>
 
           <div className="prod-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0', background: 'var(--surface-2)' }}>
-            {filtered.length === 0 ?
+            {loading ?
+              Array.from({ length: skelCount('catalogo', 3) }).map((_, i) =>
+                <div key={'sk' + i} className="prod-row prod-body" style={{ borderLeft: '2px solid var(--border)', pointerEvents: 'none' }}>
+                  <div className="prod-cell prod-cell-check"><Skeleton w={14} h={14} r={4} /></div>
+                  <div className="prod-cell prod-cell-name">
+                    <Skeleton w={44} h={44} r={10} />
+                    <div style={{ minWidth: 0, flex: 1 }}><Skeleton w="65%" h={13} /><Skeleton w="85%" h={10} style={{ marginTop: 5 }} /></div>
+                  </div>
+                  <div className="prod-cell prod-cell-cat"><Skeleton w={80} h={20} r={999} /></div>
+                  <div className="prod-cell prod-cell-price"><Skeleton w="60%" h={13} /></div>
+                  <div className="prod-cell prod-cell-stock"><Skeleton w="55%" h={12} /><Skeleton w="70%" h={9} style={{ marginTop: 5 }} /></div>
+                  <div className="prod-cell prod-cell-sales"><Skeleton w={48} h={20} r={999} /></div>
+                  <div className="prod-cell prod-cell-toggle"><Skeleton w={40} h={22} r={999} /></div>
+                  <div className="prod-cell prod-cell-actions"><div className="row" style={{ gap: 6 }}><Skeleton w={28} h={28} r={8} /><Skeleton w={28} h={28} r={8} /><Skeleton w={28} h={28} r={8} /></div></div>
+                </div>) :
+            error ?
+              <div style={{ padding: 60, textAlign: 'center', background: 'var(--surface)' }}>
+                <Ic name="package" size={36} style={{ opacity: .4, color: '#ef4444' }} />
+                <div style={{ marginTop: 12, fontWeight: 700, color: '#b91c1c' }}>{error}</div>
+                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>Verifique a conexão e tente novamente.</div>
+                <button className="btn" style={{ marginTop: 12 }} onClick={reload}><Ic name="history" size={13} /> Tentar de novo</button>
+              </div> :
+            filtered.length === 0 ?
               <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)', background: 'var(--surface)' }}>
                 <Ic name="package" size={36} style={{ opacity: .4 }} />
-                <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Nenhum item encontrado</div>
-                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>Ajuste os filtros ou cadastre um novo produto/serviço.</div>
+                <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>{items.length === 0 ? 'Catálogo vazio' : 'Nenhum item encontrado'}</div>
+                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>{items.length === 0 ? 'Cadastre o primeiro produto ou serviço no botão "Novo item".' : 'Ajuste os filtros ou cadastre um novo produto/serviço.'}</div>
               </div> :
 
               filtered.map((it) => {
@@ -271,7 +296,9 @@
                     </div>
 
                     <div className="prod-cell prod-cell-stock">
-                      {it.stockQty > 0 ?
+                      {it.controla === false ?
+                        <span className="prod-stock-livre"><Ic name="check" size={11} /> Livre</span> :
+                      it.stockQty > 0 ?
                         <>
                           <span className="prod-stock-n" style={{ color: isLow ? '#b45309' : 'var(--text)' }}>{fmtInt(it.stockQty)}</span>
                           <span className="prod-stock-l" style={{ color: isLow ? '#b45309' : 'var(--text-faint)' }}>{isLow ? 'estoque baixo' : 'em estoque'}</span>
@@ -287,28 +314,32 @@
                     </div>
 
                     <div className="prod-cell prod-cell-toggle">
+                      {can('catalogo.editar') ?
                       <button
                         className={`cat-toggle ${it.active ? 'on' : 'off'}`}
                         onClick={() => toggleActive(it.id)}
                         title={it.active ? 'Desativar item' : 'Reativar item'}
                         aria-pressed={it.active}>
                         <span className="cat-toggle-knob" />
-                      </button>
+                      </button> :
+                      <span style={{ fontSize: 11, fontWeight: 700, color: it.active ? '#047857' : '#b91c1c' }}>{it.active ? 'Ativo' : 'Inativo'}</span>}
                     </div>
 
                     <div className="prod-cell prod-cell-actions">
                       <button className="prod-iconbtn" title="Histórico" onClick={() => setHistoryOf(it)}>
                         <Ic name="history" size={15} />
                       </button>
+                      {can('catalogo.editar') &&
                       <button className="prod-iconbtn" title="Editar" onClick={() => setEditOf(it)}>
                         <Ic name="edit" size={15} />
-                      </button>
+                      </button>}
                       <button className="prod-iconbtn" title="Vender (PDV)" onClick={() => setCartOf(it)}>
                         <Ic name="cart" size={15} />
                       </button>
+                      {can('catalogo.excluir') &&
                       <button className="prod-iconbtn prod-iconbtn-danger" title="Excluir" onClick={() => setConfirmDel(it)}>
                         <Ic name="trash" size={15} />
-                      </button>
+                      </button>}
                     </div>
                   </div>);
               })}
@@ -319,9 +350,9 @@
         {historyOf && <ProductHistoryDrawer item={historyOf} onClose={() => setHistoryOf(null)} />}
         {editOf && window.CatalogItemDrawer &&
           <window.CatalogItemDrawer
-            initial={editOf.name ? editOf : null}
+            initial={editOf.id ? window.produtoDtoToForm(editOf._dto) : null}
             onClose={() => setEditOf(null)}
-            onSave={(saved) => updateItem({ ...editOf, ...saved })} />}
+            onSave={saveItem} />}
         {cartOf && <PdvComingSoonDrawer item={cartOf} onClose={() => setCartOf(null)} />}
         {confirmDel &&
           <Modal title="Excluir item" onClose={() => setConfirmDel(null)} size="sm"
@@ -381,18 +412,32 @@
   // ─── History side drawer ────────────────────────────────────────────────
   function ProductHistoryDrawer({ item, onClose }) {
     const [histDate, setHistDate] = React.useState('');
-    // Mock history events
-    const events = [
-      { kind: 'sale',   when: '15/05/2026 · 14:42', who: 'Karla Zambelly',  qty: 2, value: item.priceN * 2, note: 'Cliente Bruno Aragão' },
-      { kind: 'sale',   when: '14/05/2026 · 11:08', who: 'Magno Vieira',    qty: 1, value: item.priceN,     note: 'Cliente Pedro Mafra' },
-      { kind: 'stock',  when: '12/05/2026 · 09:30', who: 'Sistema',         qty: 30,                            note: 'Reposição de estoque (NF 0014)' },
-      { kind: 'edit',   when: '08/05/2026 · 18:11', who: 'Paulo Henrique',                                       note: 'Preço alterado de R$ 3.690,00 para ' + fmtBRL(item.priceN) },
-      { kind: 'sale',   when: '06/05/2026 · 16:24', who: 'Agente IA',       qty: 1, value: item.priceN,     note: 'Cliente Júlia Mendes · automatizada' },
-      { kind: 'sale',   when: '05/05/2026 · 10:02', who: 'Larissa Souza',   qty: 3, value: item.priceN * 3, note: 'Cliente Cesar Veículos' },
-      { kind: 'out',    when: '02/05/2026 · 08:50', who: 'Sistema',         qty: -2,                            note: 'Baixa por avaria' },
-      { kind: 'edit',   when: '24/04/2026 · 15:00', who: 'Paulo Henrique',                                       note: 'Descrição atualizada' },
-      { kind: 'created',when: item.since + ' · 09:00', who: 'Paulo Henrique',                                    note: 'Item cadastrado no catálogo' }
-    ];
+    const [events, setEvents] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+
+    // Carrega a timeline real do backend (cadastro, edições e — futuramente — vendas).
+    React.useEffect(() => {
+      let alive = true;
+      const TIPO_UI = { cadastro: 'created', edicao: 'edit', entrada: 'stock', saida: 'out', venda: 'sale' };
+      setLoading(true);
+      window.API.getMovimentacoes(item.id)
+        .then((r) => {
+          if (!alive) return;
+          setEvents((r.movimentacoes || []).map((m) => ({
+            kind: TIPO_UI[m.tipo] || 'edit',
+            when: fmtDataHora(m.criadoEm),
+            who: m.autor || 'Sistema',
+            qty: m.quantidade,
+            value: m.valor,
+            note: m.descricao || '',
+          })));
+          if (Array.isArray(r.movimentacoes) && r.movimentacoes.length) skelRemember('prod-hist', r.movimentacoes.length);
+        })
+        .catch(() => { if (alive) setEvents([]); })
+        .finally(() => { if (alive) setLoading(false); });
+      return () => { alive = false; };
+    }, [item.id]);
+
     const KIND = {
       sale:    { ic: 'cart',   color: '#10b981', label: 'Venda' },
       stock:   { ic: 'plus',   color: '#0ea5e9', label: 'Entrada de estoque' },
@@ -409,7 +454,7 @@
         subtitle={`Movimentações e vendas · cadastrado em ${item.since}`}
         onClose={onClose}
         width={560}
-        footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onClose}>Fechar</button><button className="btn btn-primary"><Ic name="download" size={13} /> Exportar histórico</button></>}>
+        footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} /><ActionButton action="salvar" size="md" label="Exportar histórico" icon="download" /></>}>
         <div className="col" style={{ gap: 12 }}>
           {/* Product summary */}
           <div style={{ display: 'flex', gap: 12, padding: 12, background: 'var(--surface-2)', borderRadius: 12, alignItems: 'center' }}>
@@ -439,7 +484,29 @@
 
           {/* Timeline */}
           <div className="prod-hist-list">
-            {events.map((e, i) => {
+            {loading ?
+              Array.from({ length: skelCount('prod-hist', 3) }).map((_, i, arr) =>
+                <div key={'sk' + i} className="prod-hist-row">
+                  <div className="prod-hist-rail">
+                    <Skeleton circle w={22} h={22} />
+                    {i < arr.length - 1 && <div className="prod-hist-line" />}
+                  </div>
+                  <div className="prod-hist-card">
+                    <div className="row" style={{ gap: 8 }}>
+                      <Skeleton w={90} h={11} />
+                      <div className="spacer" />
+                      <Skeleton w={56} h={13} />
+                    </div>
+                    <Skeleton w="80%" h={12} style={{ marginTop: 6 }} />
+                    <Skeleton w="45%" h={10} style={{ marginTop: 6 }} />
+                  </div>
+                </div>) :
+            events.length === 0 ?
+              <div style={{ padding: 28, textAlign: 'center' }}>
+                <Ic name="history" size={28} style={{ opacity: .4 }} />
+                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 8 }}>Nenhuma movimentação ainda.<br />Cadastro, edições e (em breve) vendas aparecem aqui.</div>
+              </div> :
+            events.map((e, i) => {
               const k = KIND[e.kind] || KIND.edit;
               return (
                 <div key={i} className="prod-hist-row">
@@ -478,7 +545,7 @@
         subtitle={`Iniciar venda de "${item.name}"`}
         onClose={onClose}
         width={420}
-        footer={<><div style={{ flex: 1 }} /><button className="btn" onClick={onClose}>Fechar</button><button className="btn btn-primary" disabled style={{ opacity: .5 }}><Ic name="cart" size={13} /> Em breve</button></>}>
+        footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} /><ActionButton action="salvar" size="md" label="Em breve" icon="cart" disabled /></>}>
         <div className="col" style={{ gap: 14, alignItems: 'center', padding: '14px 8px', textAlign: 'center' }}>
           <div className="prod-thumb" style={{ background: item.img, width: 72, height: 72 }}>
             <Ic name={cfg.icon} size={30} style={{ color: cfg.color }} />
@@ -536,6 +603,7 @@
         .prod-stock-n { font-size: 14px; font-weight: 700; font-variant-numeric: tabular-nums; line-height: 1; }
         .prod-stock-l { font-size: 10.5px; font-weight: 500; }
         .prod-stock-out { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: #fef2f2; color: #b91c1c; font-size: 10.5px; font-weight: 700; align-self: flex-start; }
+        .prod-stock-livre { display: inline-flex; align-items: center; gap: 4px; padding: 3px 8px; border-radius: 999px; background: #eef2ff; color: #4338ca; font-size: 10.5px; font-weight: 700; align-self: flex-start; }
         .prod-sales-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 999px; background: #f0fdf4; color: #047857; border: 1px solid color-mix(in oklab, #10b981 26%, transparent); font-size: 11px; font-variant-numeric: tabular-nums; align-self: flex-start; }
 
         .cat-toggle { width: 40px; height: 22px; border-radius: 999px; border: none; padding: 2px; cursor: pointer; display: inline-flex; align-items: center; transition: background .15s; flex-shrink: 0; }

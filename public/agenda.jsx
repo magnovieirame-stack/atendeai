@@ -181,31 +181,37 @@ function Agenda() {
   const [appts, setAppts] = React.useState([]);
   const [tasks, setTasks] = React.useState([]);
   const [me, setMe] = React.useState(null);
+  const [loaded, setLoaded] = React.useState(false); // dados iniciais (agenda+tarefas+categorias) carregados
   const cfg = useAgendaConfig();
   const [catFilter, setCatFilter] = React.useState(() => new Set()); // labels marcadas; vazio = mostra todos
   const toggleCat = (label) => setCatFilter((s) => { const n = new Set(s); n.has(label) ? n.delete(label) : n.add(label); return n; });
   const filteredAppts = catFilter.size ? appts.filter((a) => catFilter.has(a.type)) : appts;
   React.useEffect(() => {
-    API.getAgenda().then((r) => setAppts(r.agenda || [])).catch(() => setAppts([]));
-    API.getTarefas().then((r) => setTasks(r.tarefas || [])).catch(() => setTasks([]));
+    Promise.all([
+      API.getAgenda().then((r) => setAppts(r.agenda || [])).catch(() => setAppts([])),
+      API.getTarefas().then((r) => setTasks(r.tarefas || [])).catch(() => setTasks([])),
+      API.getCategorias().then((r) => setCustomCategories((r.categorias || []).map((c) => ({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || null })))).catch(() => {})
+    ]).finally(() => setLoaded(true));
     API.me().then((r) => setMe(r.user)).catch(() => {});
-    API.getCategorias().then((r) => setCustomCategories((r.categorias || []).map((c) => ({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || null })))).catch(() => {});
     API.getAgendaConfig().then((r) => { setAgendaConfig(r.config); const v = r.config && r.config.visaoInicial; if (v === 'week' || v === 'day' || v === 'month') setView(v); }).catch(() => {});
   }, []);
+  // lembra a qtd de agendamentos/tarefas pro skeleton mostrar nº real
+  React.useEffect(() => { if (loaded) skelRemember('agenda', Math.max(appts.length, tasks.length)); }, [loaded, appts.length, tasks.length]);
   const openView = (appt) => setActive({ appt, mode: 'view' });
   const openEdit = (appt) => setActive({ appt, mode: 'edit' });
-  const removeAppt = async (appt) => { try { await API.deleteApptApi(appt.id); } catch (e) {} setAppts((list) => list.filter((x) => x.id !== appt.id)); setActive(null); };
-  const addAppt = async (dto) => { try { const r = await API.createAppt(dto); setAppts((list) => [...list, r.appt]); } catch (e) {} };
+  const removeAppt = async (appt) => { try { await API.deleteApptApi(appt.id); window.showToast({ tipo: 'sucesso', titulo: 'Agendamento cancelado' }); } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao cancelar', descricao: e.message || 'Tente novamente.' }); } setAppts((list) => list.filter((x) => x.id !== appt.id)); setActive(null); };
+  const addAppt = async (dto) => { try { const r = await API.createAppt(dto); setAppts((list) => [...list, r.appt]); window.showToast({ tipo: 'sucesso', titulo: 'Agendamento criado' }); } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao criar agendamento', descricao: e.message || 'Tente novamente.' }); } };
   const updateAppt = async (updated) => {
     try {
       const r = await API.updateApptApi(updated.id, { participante: updated.client, participanteTipo: updated.participanteTipo, clienteId: updated.clienteId || null, service: updated.service, data: updated.data, start: updated.start, dur: updated.dur, resp: updated.resp, type: updated.type, status: updated.status, local: updated.local, phone: updated.phone, obs: updated.obs });
       setAppts((list) => list.map((x) => x.id === r.appt.id ? r.appt : x));
       setActive({ appt: r.appt, mode: 'view' });
-    } catch (e) {}
+      window.showToast({ tipo: 'sucesso', titulo: 'Agendamento atualizado' });
+    } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao atualizar', descricao: e.message || 'Tente novamente.' }); }
   };
-  const addTask = async (dto) => { try { const r = await API.createTarefa(dto); setTasks((tt) => [...tt, r.tarefa]); } catch (e) {} };
-  const toggleTask = async (t) => { const done = !t.done; setTasks((tt) => tt.map((x) => x.id === t.id ? { ...x, done } : x)); try { await API.updateTarefa(t.id, { done }); } catch (e) {} };
-  const deleteTask = async (id) => { setTasks((tt) => tt.filter((x) => x.id !== id)); try { await API.deleteTarefa(id); } catch (e) {} };
+  const addTask = async (dto) => { try { const r = await API.createTarefa(dto); setTasks((tt) => [...tt, r.tarefa]); window.showToast({ tipo: 'sucesso', titulo: 'Tarefa criada' }); } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao criar tarefa', descricao: e.message || 'Tente novamente.' }); } };
+  const toggleTask = async (t) => { const done = !t.done; setTasks((tt) => tt.map((x) => x.id === t.id ? { ...x, done } : x)); try { await API.updateTarefa(t.id, { done }); if (done) window.showToast({ tipo: 'sucesso', titulo: 'Tarefa concluída' }); } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao atualizar tarefa', descricao: e.message || 'Tente novamente.' }); } };
+  const deleteTask = async (id) => { setTasks((tt) => tt.filter((x) => x.id !== id)); try { await API.deleteTarefa(id); window.showToast({ tipo: 'sucesso', titulo: 'Tarefa excluída' }); } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir tarefa', descricao: e.message || 'Tente novamente.' }); } };
 
   const animate = (dir = 'right') => {
     setAnimDir(dir);
@@ -302,10 +308,12 @@ function Agenda() {
           </div>
           <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
             <div key={animKey} className={`view-anim view-anim-${animDir}`} style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
+              {!loaded ? (view === 'tasks' ? <TasksSkeleton /> : <MonthSkeleton cursor={cursor} />) : <>
               {view === 'month' && <MonthView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} onOpenDay={openDay} />}
               {view === 'week' && <WeekView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} />}
               {view === 'day' && <DayView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} />}
               {view === 'tasks' && <TasksView cursor={cursor} setCursor={updateCursor} tasks={tasks} onToggle={toggleTask} onDelete={deleteTask} />}
+              </>}
             </div>
           </div>
         </div>
@@ -348,9 +356,7 @@ function AgendaSidebar({ view, changeView, cursor, setCursor, onNew, onSettings,
         <span style={{ flex: 1, fontSize: "16px" }}>MINHA AGENDA</span>
         <button className="agenda-cog" onClick={onSettings} title="Configurações"><Ic name="settings" size={15} /></button>
       </div>
-      <button className="btn-novo" onClick={onNew} style={{ background: "linear-gradient(120deg, #4dfc83 0%, #fff943 100%)", color: "#111813" }}>
-        {view === 'tasks' ? 'NOVA TAREFA' : 'NOVO AGENDAMENTO'}
-      </button>
+      <FabNovo size="sm" label={view === 'tasks' ? 'Nova tarefa' : 'Novo agendamento'} onClick={onNew} />
       <div className="view-tab-group">
         <div className="view-tab-ind" style={{ '--idx': Math.max(0, tabs.findIndex((t) => t.id === view)) }} />
         {tabs.map((t) =>
@@ -474,6 +480,69 @@ function useEvPopover({ onView, onEdit, onDelete }) {
 
 
   return { evProps, layer };
+}
+
+// ── Skeletons (esqueleto de carregamento) — mesma estrutura/grid do conteúdo real ──
+// Grade do mês: reusa .month-view/.month-grid/.month-cell, células com 1-2 barrinhas
+function MonthSkeleton({ cursor = new Date() }) {
+  const year = cursor.getFullYear(), month = cursor.getMonth();
+  const startWd = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  return (
+    <div className="month-view scroll">
+      <div className="month-wd-row">
+        {WD_FULL_PT.map((w) => <div key={w} className="month-wd">{w.toUpperCase()}</div>)}
+      </div>
+      <div className="month-grid">
+        {Array.from({ length: 42 }).map((_, i) => {
+          const cur = i >= startWd && i < startWd + daysInMonth;
+          const nEv = cur ? [0, 1, 2, 0, 1, 0, 2][i % 7] : 0; // 0-2 barrinhas variadas
+          return (
+            <div key={i} className="month-cell" data-current={cur}>
+              <div className="month-cell-day" style={{ height: '14px' }}><Skeleton w={16} h={11} /></div>
+              <div className="month-cell-evs">
+                {Array.from({ length: nEv }).map((_, j) => <Skeleton key={j} h={16} r={4} style={{ width: `${70 + (j * 13) % 25}%`, marginTop: 2 }} />)}
+              </div>
+            </div>);
+        })}
+      </div>
+    </div>);
+}
+// Lista de tarefas: reusa .eis-wrap/.eis-grid/.eis-quad com cards skeleton
+function TasksSkeleton() {
+  const order = ['fazer', 'agendar', 'delegar', 'eliminar'];
+  return (
+    <div className="eis-wrap scroll">
+      <div className="eis-grid">
+        {order.map((qid) => {
+          const q = EISENHOWER[qid];
+          return (
+            <div key={qid} className="eis-quad" style={{ '--qc': q.color }}>
+              <div className="eis-quad-head">
+                <span className="eis-quad-ic"><Ic name={q.icon} size={16} /></span>
+                <div className="eis-quad-titles">
+                  <div className="eis-quad-name">{q.label}</div>
+                  <div className="eis-quad-axis">{q.axis}</div>
+                </div>
+                <span className="eis-quad-count"><Skeleton w={14} h={14} r={4} /></span>
+              </div>
+              <div className="eis-quad-tip">{q.tip}</div>
+              <div className="eis-quad-list">
+                {Array.from({ length: 3 }).map((_, i) => (
+                  <div key={i} className="eis-card">
+                    <Skeleton w={18} h={18} r={5} />
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <Skeleton w={`${55 + (i * 11) % 35}%`} h={13} />
+                      <Skeleton w="40%" h={10} style={{ marginTop: 6 }} />
+                    </div>
+                    <Skeleton circle w={24} h={24} />
+                  </div>
+                ))}
+              </div>
+            </div>);
+        })}
+      </div>
+    </div>);
 }
 
 function MonthView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt, onOpenDay }) {
@@ -1254,7 +1323,7 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
 
   return (
     <Drawer title="Novo agendamento" subtitle="Cadastre um compromisso" onClose={onClose} width={DRAWER_W}
-    footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><button className="btn btn-primary" disabled={!valid} onClick={submit}><Ic name="check" size={14} /> Criar</button></>}>
+    footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" label="Criar" disabled={!valid} onClick={submit} /></>}>
       <div className="col" style={{ gap: 14 }}>
         <div><label className="label">Participante</label><ParticipantPicker defaultValue={defaultParticipante} onChange={(p) => { setClient(p.name); setParticipanteTipo(p.tipo); setClienteId(p.clienteId); setParticipanteId(p.participanteId); if (p.phone && !phone) setPhone(p.phone); }} /></div>
         <div><label className="label">Serviço</label><input className="input" value={service} onChange={(e) => setService(e.target.value)} placeholder="Ex.: Limpeza de pele" /></div>
@@ -1308,7 +1377,7 @@ function NewTask({ onClose, onCreate }) {
     </div>;
 
   return (
-    <Drawer title="Nova tarefa" subtitle="Criar tarefa na agenda" onClose={onClose} width={DRAWER_W} footer={<><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><div style={{ flex: 1 }} /><button className="btn btn-primary" disabled={!valid} onClick={submit}>Criar</button></>}>
+    <Drawer title="Nova tarefa" subtitle="Criar tarefa na agenda" onClose={onClose} width={DRAWER_W} footer={<><ActionButton action="voltar" size="md" onClick={onClose} /><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Criar" disabled={!valid} onClick={submit} /></>}>
       <div className="col" style={{ gap: 14 }}>
         <div><label className="label">Título</label><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: Ligar para Sara" /></div>
         <div><label className="label">Categoria</label><TypeSelect value={cat} onChange={setCat} /></div>
@@ -1382,9 +1451,9 @@ function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
       leftHead={<Avatar name={appt.client} />}
       footer={
       <>
-          <button className="btn btn-ghost btn-icon" title="Cancelar agendamento" onClick={() => setConfirmDel(true)}><Ic name="trash" size={16} /></button>
+          <ActionButton action="excluir" size="md" label="Cancelar agendamento" onClick={() => setConfirmDel(true)} />
           <div style={{ flex: 1 }} />
-          <button className="btn btn-primary" onClick={onEdit}><Ic name="edit" size={14} /> Editar</button>
+          <ActionButton action="editar" size="md" onClick={onEdit} />
         </>
       }>
       
@@ -1476,7 +1545,7 @@ function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
       onClose={onClose}
       width={DRAWER_W}
       leftHead={<button className="btn btn-ghost btn-icon" title="Voltar aos detalhes" onClick={onBack}><Ic name="arrow-left" size={16} /></button>}
-      footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onBack}>Voltar</button><button className="btn btn-save" onClick={save}><Ic name="check" size={14} /> Salvar</button></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onBack} /><ActionButton action="salvar" size="md" onClick={save} /></>}>
       
       <div className="col" style={{ gap: 14 }}>
         <div>
@@ -1532,8 +1601,12 @@ function AgendaSettingsDrawer({ onClose }) {
   const [cfg, setCfg] = React.useState(() => ({ ...AGENDA_CONFIG }));
   const setC = (k, v) => setCfg((p) => ({ ...p, [k]: v }));
   React.useEffect(() => { API.getAgendaConfig().then((r) => { if (r && r.config && Object.keys(r.config).length) setCfg((p) => ({ ...p, ...r.config })); }).catch(() => {}); }, []);
-  const save = () => { setAgendaConfig(cfg); API.saveAgendaConfig({ config: cfg }).catch(() => {}); };
-  const delCat = (id) => { removeCustomCategory(id); API.deleteCategoria(id).catch(() => {}); };
+  const save = () => { setAgendaConfig(cfg); API.saveAgendaConfig({ config: cfg })
+    .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Configurações salvas' }))
+    .catch(() => window.showToast({ tipo: 'erro', titulo: 'Erro ao salvar', descricao: 'Não foi possível salvar as configurações.' })); };
+  const delCat = (id) => { removeCustomCategory(id); API.deleteCategoria(id)
+    .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Categoria excluída' }))
+    .catch(() => window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir categoria', descricao: 'Tente novamente.' })); };
   const tabs = [
   { id: 'geral', label: 'Geral', icon: 'settings' },
   { id: 'horario', label: 'Horário', icon: 'clock' },
@@ -1543,7 +1616,7 @@ function AgendaSettingsDrawer({ onClose }) {
 
   return (
     <Drawer title="Configurações da agenda" subtitle="Personalize sua agenda" onClose={onClose} width={620}
-    footer={(close) => <><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={() => close()}>Voltar</button><button className="btn btn-save" onClick={() => close(save)}>Salvar alterações</button></>}>
+    footer={(close) => <><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={() => close()} /><ActionButton action="salvar" size="md" label="Salvar alterações" onClick={() => close(save)} /></>}>
       <div style={{ display: 'grid', gridTemplateColumns: '160px 1fr', gap: 18, height: '100%' }}>
         <div className="col" style={{ gap: 2 }}>
           {tabs.map((t) =>
@@ -1713,12 +1786,14 @@ function NewCategoryModal({ onClose, categoria }) {
         const r = await API.updateCategoria(categoria.id, { nome: nome.trim(), icone, cor });
         const c = r.categoria;
         upsertCustomCategory({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || cor });
+        window.showToast({ tipo: 'sucesso', titulo: 'Categoria atualizada', descricao: c.nome });
       } else {
         const r = await API.createCategoria({ nome: nome.trim(), icone, cor });
         const c = r.categoria;
         addCustomCategory({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || cor });
+        window.showToast({ tipo: 'sucesso', titulo: 'Categoria criada', descricao: c.nome });
       }
-    } catch (e) {}
+    } catch (e) { window.showToast({ tipo: 'erro', titulo: editing ? 'Erro ao atualizar categoria' : 'Erro ao criar categoria', descricao: e.message || 'Tente novamente.' }); }
     onClose();
   };
   return (

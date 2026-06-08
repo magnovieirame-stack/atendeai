@@ -85,6 +85,11 @@ function Queue() {
   const [viewMode, setViewMode] = React.useState('list');
   const [tick, setTick] = React.useState(0);
 
+  // ----- skeleton de carregamento (scaffolding pronto pra API real) -----
+  const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => { setLoading(false); }, []);
+  React.useEffect(() => { if (sorted.length) skelRemember('fila', sorted.length); }, [loading]);
+
   // live tick (cosmetic — re-render every 30s; doesn't actually increment wait)
   React.useEffect(() => {
     const id = setInterval(() => setTick((t) => t + 1), 30000);
@@ -96,12 +101,6 @@ function Queue() {
   const [returnModal, setReturnModal] = React.useState(null); // conv | { bulk: true }
   const [closeModal, setCloseModal] = React.useState(null);
   const [previewConv, setPreviewConv] = React.useState(null);
-  const [toast, setToast] = React.useState(null);
-
-  const flashToast = (kind, text) => {
-    setToast({ kind, text });
-    setTimeout(() => setToast((t) => t && t.text === text ? null : t), 2800);
-  };
 
   // ----- filtering / sorting -----
   const filtered = items.
@@ -142,37 +141,37 @@ function Queue() {
 
   const handleAssume = (conv) => {
     removeIds([conv.id]);
-    flashToast('success', `Você assumiu a conversa com ${conv.client}`);
+    window.showToast({ tipo: 'sucesso', titulo: 'Conversa assumida', descricao: `Você assumiu a conversa com ${conv.client}` });
   };
 
   const handleBulkAssume = () => {
     const n = selectedIds.length;
     if (!n) return;
     removeIds(selectedIds);
-    flashToast('success', `${n} conversa${n > 1 ? 's' : ''} assumida${n > 1 ? 's' : ''}`);
+    window.showToast({ tipo: 'sucesso', titulo: 'Conversas assumidas', descricao: `${n} conversa${n > 1 ? 's' : ''} assumida${n > 1 ? 's' : ''}` });
   };
 
   const handleAssign = ({ memberId, memberName, conv, bulk, note }) => {
     const ids = bulk ? selectedIds : [conv.id];
     removeIds(ids);
-    flashToast('success', ids.length > 1 ?
+    window.showToast({ tipo: 'sucesso', titulo: 'Conversa atribuída', descricao: ids.length > 1 ?
     `${ids.length} conversas atribuídas a ${memberName}` :
-    `Conversa atribuída a ${memberName}`);
+    `Conversa atribuída a ${memberName}` });
     setAssignModal(null);
   };
 
   const handleReturn = ({ reason, conv, bulk }) => {
     const ids = bulk ? selectedIds : [conv.id];
     removeIds(ids);
-    flashToast('ai', ids.length > 1 ?
+    window.showToast({ tipo: 'info', titulo: 'Devolvida à IA', descricao: ids.length > 1 ?
     `${ids.length} conversas devolvidas à IA` :
-    `Conversa devolvida à IA`);
+    `Conversa devolvida à IA` });
     setReturnModal(null);
   };
 
   const handleClose = ({ label, conv }) => {
     removeIds([conv.id]);
-    flashToast('success', `Conversa encerrada · ${label}`);
+    window.showToast({ tipo: 'sucesso', titulo: 'Conversa encerrada', descricao: label });
     setCloseModal(null);
   };
 
@@ -195,34 +194,35 @@ function Queue() {
       
       {/* ============ KPI row ============ */}
       <div className="stat-grid">
+        {loading ? Array.from({ length: 4 }).map((_, i) => <QKpiSkeleton key={i} />) : <>
         <QKpi
           icon="clock"
           label="Aguardando agora"
           value={items.length}
           accent="default"
           foot={`${highPrio} em alta prioridade`} />
-        
+
         <QKpi
           icon="clock"
           label="Tempo médio de espera"
           value={`${avgWait} min`}
           accent={avgWait > 15 ? 'warn' : 'ok'}
           foot="meta < 10 min" />
-        
+
         <QKpi
           icon="flag"
           label="Maior espera"
           value={`${longest} min`}
           accent={longest > 25 ? 'danger' : longest > 10 ? 'warn' : 'ok'}
           foot={longestC ? longestC.client : '—'} />
-        
+
         <QKpi
           icon="check"
           label="Atendidas hoje (saídas da fila)"
           value={resolvedToday}
           accent="ai"
           foot={`${Math.round(resolvedToday / (resolvedToday + items.length) * 100)}% taxa de resolução`} />
-        
+        </>}
       </div>
 
       {/* ============ Filter bar ============ */}
@@ -363,7 +363,21 @@ function Queue() {
       }
 
       {/* ============ Queue list ============ */}
-      {sorted.length === 0 ?
+      {loading ?
+      <div
+        className="queue-scroll"
+        style={{
+          display: 'flex', flexDirection: 'column', gap: 4,
+          overflowY: 'auto',
+          maxHeight: 'calc(100vh - 360px)',
+          padding: 4,
+          background: 'var(--surface-2)',
+          border: '1px solid var(--border)',
+          borderRadius: 10
+        }}>
+        {Array.from({ length: skelCount('fila') }).map((_, i) => <QueueRowSkeleton key={i} />)}
+      </div> :
+      sorted.length === 0 ?
       <EmptyState
         icon="clock"
         title={items.length === 0 ? 'Fila vazia 🎉' : 'Nenhuma conversa nos filtros atuais'}
@@ -489,21 +503,6 @@ function Queue() {
         />
       )}
 
-      {/* ============ Toast ============ */}
-      {toast &&
-      <div style={{
-        position: 'fixed', bottom: 28, left: '50%', transform: 'translateX(-50%)',
-        padding: '10px 16px', borderRadius: 10,
-        background: toast.kind === 'ai' ? 'var(--ai)' : '#16a34a',
-        color: 'white', fontSize: 'var(--type-sm)', fontWeight: 600,
-        display: 'flex', alignItems: 'center', gap: 8,
-        boxShadow: '0 8px 24px rgba(0,0,0,.2)',
-        animation: 'pop .22s ease', zIndex: 200
-      }}>
-          <Ic name={toast.kind === 'ai' ? 'sparkles' : 'check'} size={14} />
-          {toast.text}
-        </div>
-      }
     </Page>);
 
 }
@@ -613,6 +612,20 @@ function QKpi({ icon, label, value, accent = 'default', foot }) {
       </div>
       <div className="stat-value tnum" style={{ color: m.fg }}>{value}</div>
       {foot && <div className="stat-foot">{foot}</div>}
+    </div>);
+
+}
+
+// Skeleton do KPI — mesma estrutura/classes do QKpi (dentro do mesmo .stat-grid)
+function QKpiSkeleton() {
+  return (
+    <div className="stat">
+      <div className="stat-label">
+        <Skeleton w="55%" h={12} />
+        <span className="stat-icon" style={{ background: 'var(--surface-3)' }}><Skeleton w={15} h={15} r={4} /></span>
+      </div>
+      <div className="stat-value"><Skeleton w={80} h={28} /></div>
+      <div className="stat-foot"><Skeleton w="70%" h={10} /></div>
     </div>);
 
 }
@@ -799,6 +812,63 @@ function QueueRow({ conv, selected, onToggleSelect, onAssume, onAssign, onReturn
           { icon: 'history', label: 'Ver histórico', onClick: onPreview },
           { icon: 'x', label: 'Encerrar conversa', onClick: onClose, danger: true }]
           } />
+        </div>
+      </div>
+    </div>);
+
+}
+
+// Skeleton de linha — replica a estrutura/medidas do QueueRow (mesmo container/gap da lista)
+function QueueRowSkeleton() {
+  return (
+    <div
+      className="row"
+      style={{
+        padding: '14px 16px', gap: 14,
+        border: '1px solid var(--border)',
+        borderRadius: 10,
+        background: 'var(--surface)',
+        alignItems: 'flex-start',
+        flexShrink: 0
+      }}>
+
+      <Skeleton w={18} h={18} r={5} />
+
+      <Skeleton circle w={44} h={44} />
+
+      <div style={{ flex: 1, minWidth: 0 }}>
+        <div className="row" style={{ gap: 8, marginBottom: 4 }}>
+          <Skeleton w={140} h={14} />
+          <Skeleton w={52} h={16} r={4} />
+          <div className="spacer" />
+          <Skeleton w={70} h={20} r={999} />
+        </div>
+
+        <div style={{ marginBottom: 8 }}>
+          <Skeleton w="80%" h={10} />
+        </div>
+
+        <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+          <Skeleton w={120} h={20} r={999} />
+          <Skeleton w={100} h={20} r={999} />
+          <Skeleton w={64} h={20} r={999} />
+        </div>
+
+        <div className="row" style={{ gap: 8, padding: '8px 10px', background: 'var(--surface-2)', border: '1px solid var(--border)', borderRadius: 8 }}>
+          <Skeleton w={14} h={14} r={4} style={{ marginTop: 2 }} />
+          <div style={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 5 }}>
+            <Skeleton w="92%" h={9} />
+            <Skeleton w="60%" h={9} />
+          </div>
+        </div>
+      </div>
+
+      <div className="col" style={{ gap: 6, flexShrink: 0, minWidth: 130 }}>
+        <Skeleton w="100%" h={30} r={8} />
+        <div className="row" style={{ gap: 4 }}>
+          <Skeleton w={40} h={30} r={8} style={{ flex: 1 }} />
+          <Skeleton w={40} h={30} r={8} style={{ flex: 1 }} />
+          <Skeleton w={40} h={30} r={8} style={{ flex: 1 }} />
         </div>
       </div>
     </div>);
@@ -1273,9 +1343,7 @@ function QueuePreviewDrawer({ conv, reasonColor, onClose, onAssume, onReturnConf
                   <Ic name="team" size={13} /> Atribuir
                 </button>
                 <div className="spacer" />
-                <button className="btn btn-primary" onClick={handleAssumeClick}>
-                  <Ic name="arrow-right" size={13} /> Assumir conversa
-                </button>
+                <ActionButton action="proximo" size="md" label="Assumir conversa" onClick={handleAssumeClick} />
               </div>
             )}
           </div>

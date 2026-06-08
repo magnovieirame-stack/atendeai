@@ -15,7 +15,7 @@ export const helmetMiddleware = helmet({
       fontSrc: ["'self'", 'https://fonts.gstatic.com'],
       imgSrc: ["'self'", 'data:', 'https:', 'blob:'],
       mediaSrc: ["'self'", 'https:', 'blob:', 'data:'], // áudio/vídeo (Storage do Supabase)
-      connectSrc: ["'self'", 'https://unpkg.com'], // backend + sourcemaps do Babel
+      connectSrc: ["'self'", 'https://unpkg.com', 'https://viacep.com.br'], // backend + sourcemaps do Babel + busca de CEP (ViaCEP)
       objectSrc: ["'none'"],
       frameAncestors: ["'self'"],
     },

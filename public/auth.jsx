@@ -6,16 +6,15 @@ function AuthShell({ children }) {
       <div style={{flex:1, display:'flex', alignItems:'center', justifyContent:'center', padding:40}}>
         <div style={{width:'100%', maxWidth:380}}>{children}</div>
       </div>
-      <div style={{flex:1, background:'linear-gradient(135deg, var(--accent), var(--ai))', display:'flex', alignItems:'center', justifyContent:'center', padding:40, color:'white', position:'relative', overflow:'hidden'}}>
-        <div style={{position:'absolute', inset:0, background:'radial-gradient(circle at 20% 80%, rgba(255,255,255,.18), transparent 50%), radial-gradient(circle at 80% 20%, rgba(255,255,255,.12), transparent 50%)'}}/>
+      <div style={{flex:1, background:'#0a0e0a', display:'flex', alignItems:'center', justifyContent:'center', padding:40, color:'#e9f2d2', position:'relative', overflow:'hidden'}}>
+        <div style={{position:'absolute', inset:0, background:'radial-gradient(circle at 20% 80%, rgba(120,230,90,.16), transparent 55%), radial-gradient(circle at 80% 20%, rgba(233,242,58,.12), transparent 55%)'}}/>
         <div style={{maxWidth:440, position:'relative', zIndex:1}}>
-          <div style={{width:48, height:48, borderRadius:12, background:'rgba(255,255,255,.18)', backdropFilter:'blur(20px)', display:'flex', alignItems:'center', justifyContent:'center', fontWeight:700, fontSize:20, marginBottom:24}}>A.</div>
-          <div style={{fontSize:42, fontWeight:600, letterSpacing:'-.025em', lineHeight:1.05}}>O atendimento que nunca dorme.</div>
-          <div style={{marginTop:16, fontSize:16, opacity:.85, lineHeight:1.5}}>WhatsApp, Instagram e Facebook unificados, com agente Claude que entende texto, áudio e imagem. CRM, Agenda e relatórios — tudo num só lugar.</div>
+          <div style={{fontSize:42, fontWeight:700, letterSpacing:'-.025em', lineHeight:1.05, background:'linear-gradient(135deg, #57cf6e 0%, #a7e84f 55%, #e9f23a 100%)', WebkitBackgroundClip:'text', backgroundClip:'text', WebkitTextFillColor:'transparent', color:'transparent'}}>O atendimento que nunca dorme.</div>
+          <div style={{marginTop:16, fontSize:16, opacity:.72, lineHeight:1.5, color:'#dbe8c8'}}>WhatsApp, Instagram e Facebook unificados, com agente Claude que entende texto, áudio e imagem. CRM, Agenda e relatórios — tudo num só lugar.</div>
           <div className="row" style={{gap:8, marginTop:32}}>
-            <span className="badge" style={{background:'rgba(255,255,255,.18)', color:'white'}}><Ic name="sparkles" size={11}/> Powered by Claude</span>
-            <span className="badge" style={{background:'rgba(255,255,255,.18)', color:'white'}}>Multi-tenant</span>
-            <span className="badge" style={{background:'rgba(255,255,255,.18)', color:'white'}}>RBAC</span>
+            <span className="badge" style={{background:'rgba(255,255,255,.08)', color:'#bfe88f'}}><Ic name="sparkles" size={11}/> Powered by Claude</span>
+            <span className="badge" style={{background:'rgba(255,255,255,.08)', color:'#bfe88f'}}>Multi-tenant</span>
+            <span className="badge" style={{background:'rgba(255,255,255,.08)', color:'#bfe88f'}}>RBAC</span>
           </div>
         </div>
       </div>
@@ -24,7 +23,7 @@ function AuthShell({ children }) {
 }
 
 function Login() {
-  const { setRoute, setTweak, tweaks } = useStore();
+  const { setRoute, setTweak, tweaks, reloadAuth } = useStore();
   const [showPw, setShowPw] = React.useState(false);
   const [email, setEmail] = React.useState('teste@minhaempresa.com');
   const [senha, setSenha] = React.useState('Teste@Atende2026');
@@ -34,18 +33,21 @@ function Login() {
     setErro(''); setCarregando(true);
     try {
       await API.login(email, senha);
-      if (tweaks.profile === 'super') setRoute('super-dashboard');
-      else if (tweaks.profile === 'atendente') setRoute('inbox');
+      const papel = await reloadAuth(); // papel REAL de quem entrou (do /auth/me)
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Bem-vindo!', descricao: 'Login realizado com sucesso.' });
+      if (papel === 'super_admin') setRoute('super-dashboard');
+      else if (papel === 'atendente') setRoute('inbox');
       else setRoute('dashboard');
     } catch (e) {
       setErro(e.message || 'Não foi possível entrar.');
+      window.showToast && window.showToast({ tipo: 'erro', titulo: 'Não foi possível entrar', descricao: e.message || 'Verifique seu e-mail e senha.' });
     } finally {
       setCarregando(false);
     }
   };
   return (
     <AuthShell>
-      <div style={{width:48, height:48, borderRadius:12, background:'linear-gradient(135deg, var(--accent), var(--ai))', display:'flex', alignItems:'center', justifyContent:'center', color:'white', fontWeight:700, fontSize:18, marginBottom:24}}>A.</div>
+      <img src="assets/simbolo.png" alt="Pk360" style={{width:48, height:48, objectFit:'contain', marginBottom:24}}/>
       <div className="h1">Entrar</div>
       <div className="muted" style={{marginTop:6}}>Use seu e-mail corporativo. O tenant é detectado automaticamente.</div>
       <div className="col" style={{gap:14, marginTop:28}}>
@@ -83,7 +85,7 @@ function Forgot() {
       <div className="muted" style={{marginTop:6}}>Te enviamos um link de redefinição válido por 30 minutos.</div>
       <div className="col" style={{gap:14, marginTop:28}}>
         <div><label className="label">E-mail cadastrado</label><EmailInput placeholder="seu@email.com"/></div>
-        <button className="btn btn-primary" style={{height:42}}>Enviar link de recuperação</button>
+        <button className="btn btn-primary" style={{height:42}} onClick={()=>window.showToast && window.showToast({ tipo: 'info', titulo: 'Link enviado', descricao: 'Verifique seu e-mail para redefinir a senha.' })}>Enviar link de recuperação</button>
       </div>
     </AuthShell>
   );
@@ -150,7 +152,7 @@ function Onboarding() {
               {step>1 && <button className="btn fin-btn-back" onClick={()=>setStep(step-1)}><Ic name="chevron-left" size={14}/> Voltar</button>}
               <span className="btn btn-ghost btn-sm" style={{cursor:'default'}} onClick={()=>step===4?setRoute('dashboard'):setStep(step+1)}>Pular esta etapa</span>
               <div className="spacer"/>
-              <button className="btn btn-primary" onClick={()=>step===4?setRoute('dashboard'):setStep(step+1)}>{step===4?'Concluir':'Próximo'} {step<4 && <Ic name="chevron-right" size={14}/>}</button>
+              <button className="btn btn-primary" onClick={()=>{ if(step===4){ window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Configuração concluída', descricao: 'Sua loja está pronta para começar.' }); setRoute('dashboard'); } else setStep(step+1); }}>{step===4?'Concluir':'Próximo'} {step<4 && <Ic name="chevron-right" size={14}/>}</button>
             </div>
           </div>
         </div>

@@ -26,8 +26,21 @@
     return d != null && d < 0 ? 'atraso' : 'aberto';
   }
 
+  // ───────── Skeletons ─────────
+  function BoKpiSkeleton({ count = 5 }) {
+    return Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="bo-kpi" style={{ borderTopColor: 'var(--border-strong)' }}>
+        <div className="bo-kpi-head">
+          <span className="bo-kpi-icon" style={{ background: 'var(--surface-3)' }}><Skeleton w={17} h={17} r={4} /></span>
+          <span className="bo-kpi-label"><Skeleton w="70%" h={12} /></span>
+        </div>
+        <div className="bo-kpi-value"><Skeleton w="55%" h={24} /></div>
+        <div className="bo-kpi-foot"><Skeleton w="45%" h={11} /></div>
+      </div>));
+  }
+
   // ───────── Aba: Guias & Impostos ─────────
-  function ImpostosTab() {
+  function ImpostosTab({ loading }) {
     const [query, setQuery] = React.useState('');
     const [stf, setStf] = React.useState('todos');
     const filtered = React.useMemo(() => {
@@ -58,7 +71,16 @@
             <div>Guia / Imposto</div><div>Competência</div><div>Vencimento</div><div>Valor</div><div>Status</div><div></div>
           </div>
           <div className="bo-list-body">
-            {filtered.map((i, idx) => {
+            {loading ? Array.from({ length: skelCount('bo-impostos', 3) }).map((_, i) => (
+              <div key={i} className="bo-row" style={{ gridTemplateColumns: COLS, borderLeftColor: 'var(--border-strong)' }}>
+                <div className="bo-cell"><Skeleton w="75%" h={14} /></div>
+                <div className="bo-cell"><Skeleton w="70%" h={13} /></div>
+                <div className="bo-cell"><Skeleton w="65%" h={13} /><Skeleton w="40%" h={11} /></div>
+                <div className="bo-cell"><Skeleton w="60%" h={14} /></div>
+                <div className="bo-cell"><Skeleton w={70} h={20} /></div>
+                <div className="bo-cell bo-cell-act"><Skeleton w={28} h={28} r={6} /></div>
+              </div>
+            )) : filtered.map((i, idx) => {
               const st = effImposto(i);
               const meta = IST[st];
               const d = daysUntil(i.venc);
@@ -157,6 +179,9 @@
 
   function BackofficeFiscal() {
     const [tab, setTab] = React.useState('impostos');
+    const [loading, setLoading] = React.useState(true);  // skeleton no mount (scaffolding p/ API real)
+    React.useEffect(() => setLoading(false), []);
+    React.useEffect(() => { if (data.impostos.length) skelRemember('bo-impostos', data.impostos.length); }, []);
     const kpis = React.useMemo(() => {
       const im = data.impostos;
       const aVencer = im.filter((i) => effImposto(i) === 'aberto');
@@ -175,17 +200,19 @@
         actions={<button className="btn"><Ic name="download" size={14} /> Relatório fiscal</button>}>
         <BoStyles />
         <div className="bo-kpi-grid">
+          {loading ? <BoKpiSkeleton count={5} /> : <>
           <BoKpi tone="orange" icon="dollar" label="Impostos a vencer" value={kpis.aVencer} foot={fmtBRLcompact(kpis.aVencerVal)} />
           <BoKpi tone="green" icon="check-circle" label="Impostos pagos" value={fmtBRLcompact(kpis.pagoVal)} foot="No período" />
           <BoKpi tone="red" icon="alert" label="Em atraso" value={kpis.atraso} foot={fmtBRLcompact(kpis.atrasoVal)} />
           <BoKpi tone="blue" icon="list" label="Obrigações pendentes" value={kpis.obrig} foot="Acessórias" />
           <BoKpi tone="amber" icon="shield" label="Documentos vencendo" value={kpis.docs} foot="Certidões/licenças" />
+          </>}
         </div>
         <div className="tabs">
           {[['impostos', 'Guias & Impostos'], ['obrig', 'Obrigações Acessórias'], ['cal', 'Calendário & Documentos']].map(([id, label]) => (
             <div key={id} className={'tab' + (tab === id ? ' active' : '')} onClick={() => setTab(id)}>{label}</div>))}
         </div>
-        {tab === 'impostos' && <ImpostosTab />}
+        {tab === 'impostos' && <ImpostosTab loading={loading} />}
         {tab === 'obrig' && <ObrigacoesTab />}
         {tab === 'cal' && <CalendarioTab />}
       </Page>);

@@ -427,11 +427,6 @@
 
   function CampaignDetailDrawer({ campaign, onClose, onDuplicate, onToggleStatus }) {
     const [tab, setTab] = React.useState('overview');
-    const [toast, setToast] = React.useState(null);
-    const showToast = (msg, kind = 'success') => {
-      setToast({ msg, kind });
-      setTimeout(() => setToast(null), 2600);
-    };
     const series = React.useMemo(() => buildSeries(campaign), [campaign]);
 
     const sent = campaign.sent;
@@ -447,7 +442,7 @@
 
     const handleDuplicate = () => {
       if (onDuplicate) onDuplicate(campaign);
-      showToast(`Campanha "${campaign.name}" duplicada como rascunho.`);
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Campanha duplicada', descricao: `"${campaign.name}" foi copiada como rascunho.` });
     };
 
     const handleExport = () => {
@@ -462,20 +457,20 @@
       a.href = url; a.download = `campanha-${safeName}-${campaign.id}.csv`;
       document.body.appendChild(a); a.click(); a.remove();
       setTimeout(() => URL.revokeObjectURL(url), 1000);
-      showToast(`Relatório exportado · ${recipients.length} destinatários.`);
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Relatório exportado', descricao: `${recipients.length} destinatários no arquivo CSV.` });
     };
 
     const handlePause = () => {
       if (onToggleStatus) onToggleStatus(campaign, 'paused');
-      showToast(`Campanha pausada. Os disparos pendentes foram suspensos.`, 'warning');
+      window.showToast && window.showToast({ tipo: 'aviso', titulo: 'Campanha pausada', descricao: 'Os disparos pendentes foram suspensos.' });
     };
     const handleResume = () => {
       if (onToggleStatus) onToggleStatus(campaign, 'active');
-      showToast(`Campanha retomada. Os disparos voltarão a ser enviados.`);
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Campanha retomada', descricao: 'Os disparos voltarão a ser enviados.' });
     };
     const handlePublish = () => {
       if (onToggleStatus) onToggleStatus(campaign, 'active');
-      showToast(`Campanha publicada e disparos iniciados.`);
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Campanha publicada', descricao: 'Os disparos foram iniciados.' });
     };
 
     return (
@@ -496,16 +491,16 @@
               {isLive ? 'Acompanhe os resultados em tempo real.' : 'Histórico finalizado.'}
             </div>
             <div className="spacer" />
-            <button className="btn" onClick={handleDuplicate}><Ic name="file" size={13} /> Duplicar</button>
-            <button className="btn" onClick={handleExport}><Ic name="download" size={13} /> Exportar</button>
+            <ActionButton action="salvar" size="md" label="Duplicar" icon="file" onClick={handleDuplicate} />
+            <ActionButton action="salvar" size="md" label="Exportar" icon="download" onClick={handleExport} />
             {campaign.status === 'active' &&
-              <button className="btn btn-danger" onClick={handlePause}><Ic name="pause" size={13} /> Pausar</button>}
+              <ActionButton action="atencao" size="md" label="Pausar" icon="pause" onClick={handlePause} />}
             {campaign.status === 'paused' &&
-              <button className="btn btn-primary" onClick={handleResume}><Ic name="play" size={13} /> Retomar</button>}
+              <ActionButton action="salvar" size="md" label="Retomar" icon="play" onClick={handleResume} />}
             {campaign.status === 'draft' &&
-              <button className="btn btn-primary" onClick={handlePublish}><Ic name="send" size={13} /> Publicar</button>}
+              <ActionButton action="salvar" size="md" label="Publicar" icon="send" onClick={handlePublish} />}
             {campaign.status === 'scheduled' &&
-              <button className="btn"><Ic name="settings" size={13} /> Editar</button>}
+              <ActionButton action="editar" size="md" />}
           </>
         }>
 
@@ -640,23 +635,7 @@
           @media (max-width: 900px) {
             .mkt-detail-row { grid-template-columns: 1fr !important; }
           }
-          @keyframes mktToastIn { from { transform: translate(-50%, 12px); opacity: 0; } to { transform: translate(-50%, 0); opacity: 1; } }
         `}</style>
-
-        {toast &&
-          <div style={{
-            position: 'fixed', bottom: 88, left: '50%', transform: 'translateX(-50%)',
-            background: toast.kind === 'warning' ? '#fef3c7' : toast.kind === 'error' ? '#fee2e2' : 'var(--text)',
-            color: toast.kind === 'warning' ? '#92400e' : toast.kind === 'error' ? '#991b1b' : 'white',
-            padding: '10px 16px', borderRadius: 10,
-            boxShadow: '0 12px 30px -10px rgba(15,23,42,.35)',
-            fontSize: 13, fontWeight: 600, zIndex: 200,
-            display: 'flex', alignItems: 'center', gap: 8,
-            animation: 'mktToastIn .25s ease both'
-          }}>
-            <Ic name={toast.kind === 'warning' ? 'pause' : toast.kind === 'error' ? 'x' : 'check'} size={13} />
-            {toast.msg}
-          </div>}
       </Drawer>);
   }
 

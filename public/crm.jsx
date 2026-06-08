@@ -162,6 +162,69 @@ function BoardFormModal({ mode, initial, onClose, onSave }) {
 
 }
 
+// ── Skeletons (esqueleto de carregamento) ──
+function SkelCard() {
+  return (
+    <div style={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 8, padding: 10, display: 'flex', flexDirection: 'column', gap: 8, flexShrink: 0 }}>
+      <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+        <Skeleton circle w={28} h={28} />
+        <Skeleton w="60%" h={11} />
+      </div>
+      <Skeleton w="85%" h={9} />
+      <Skeleton w="45%" h={9} />
+    </div>);
+}
+function BoardSkeleton({ cols = 4 }) {
+  return (
+    <div className="scroll" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '12px 16px', background: '#F1F4F8' }}>
+      <div style={{ display: 'flex', gap: 10, height: '100%' }}>
+        {Array.from({ length: cols }).map((_, i) => (
+          <div key={i} style={{ width: 325, minWidth: 278, flexShrink: 0, display: 'flex', flexDirection: 'column', padding: 8, borderRadius: 12, background: '#E6EBF1', height: '100%' }}>
+            <Skeleton h={34} r={8} style={{ width: '100%' }} />
+            <Skeleton w={90} h={14} style={{ margin: '8px auto 4px' }} />
+            <Skeleton w={28} h={28} r={100} style={{ alignSelf: 'flex-end', marginBottom: 6 }} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, overflow: 'hidden' }}>
+              {Array.from({ length: 3 + (i % 3) }).map((_, k) => <SkelCard key={k} />)}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>);
+}
+function FunisSkeleton({ count = 3 }) {
+  // Replica a estrutura exata do BoardCard (só os cards — vão DENTRO do grid real, herdando a responsividade)
+  return (<>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="card" style={{ overflow: 'hidden', display: 'flex', flexDirection: 'column' }}>
+          <Skeleton h={6} r={0} style={{ width: '100%' }} />
+          <div className="card-pad" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0, padding: 16 }}>
+            <div className="row" style={{ alignItems: 'center' }}>
+              <Skeleton w="55%" h={18} /><div style={{ flex: 1 }} /><Skeleton w={54} h={20} r={6} />
+            </div>
+            <div style={{ height: 34, marginTop: 4, display: 'flex', flexDirection: 'column', gap: 6 }}>
+              <Skeleton w="95%" h={9} /><Skeleton w="78%" h={9} />
+            </div>
+            <div style={{ boxSizing: 'border-box', height: 106, marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'flex-end', height: 44 }}>
+                {[20, 36, 16, 30, 24].map((bh, k) => (
+                  <div key={k} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 4 }}>
+                    <Skeleton w={3} h={bh} r={2} /><Skeleton w={16} h={9} />
+                  </div>
+                ))}
+              </div>
+              <div style={{ display: 'flex', alignItems: 'center', marginTop: 8 }}>
+                <Skeleton w={56} h={9} /><div style={{ flex: 1 }} /><Skeleton w={46} h={11} />
+              </div>
+            </div>
+            <div className="row" style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
+              <Skeleton w="45%" h={10} />
+            </div>
+          </div>
+        </div>
+      ))}
+    </>);
+}
+
 function CRMList() {
   const { setRoute } = useStore();
   const [boards, setBoards] = React.useState(null); // null = carregando
@@ -169,29 +232,30 @@ function CRMList() {
   const [editing, setEditing] = React.useState(null);
   const [deleting, setDeleting] = React.useState(null);
   React.useEffect(() => { API.getFunis().then((r) => setBoards(r.funis || [])).catch(() => setBoards([])); }, []);
+  React.useEffect(() => { if (Array.isArray(boards) && boards.length) skelRemember('funis', boards.length); }, [boards]);
 
   const handleCreate = async (data) => {
     setShowNew(false);
-    try { const r = await API.createFunil(data.name, data.desc, data.color); setBoards((bs) => [...(bs || []), r.funil]); } catch (e) {}
+    try { const r = await API.createFunil(data.name, data.desc, data.color); setBoards((bs) => [...(bs || []), r.funil]); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Funil criado', descricao: data.name }); } catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao criar funil', descricao: (e && e.message) || 'Tente novamente.' }); }
   };
   const handleSaveEdit = async (data) => {
     const id = editing.id; setEditing(null);
-    try { await API.updateFunil(id, data.name, data.desc, data.color); setBoards((bs) => (bs || []).map((b) => b.id === id ? { ...b, name: data.name, desc: data.desc, color: data.color } : b)); } catch (e) {}
+    try { await API.updateFunil(id, data.name, data.desc, data.color); setBoards((bs) => (bs || []).map((b) => b.id === id ? { ...b, name: data.name, desc: data.desc, color: data.color } : b)); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Funil atualizado', descricao: data.name }); } catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao salvar funil', descricao: (e && e.message) || 'Tente novamente.' }); }
   };
   const handleDelete = async (board) => {
     setDeleting(null);
-    try { await API.deleteFunil(board.id); setBoards((bs) => (bs || []).filter((b) => b.id !== board.id)); } catch (e) {}
+    try { await API.deleteFunil(board.id); setBoards((bs) => (bs || []).filter((b) => b.id !== board.id)); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Funil excluído', descricao: board.name }); } catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir funil', descricao: (e && e.message) || 'Tente novamente.' }); }
   };
 
   return (
-    <Page title="CRM Kanban" subtitle="Boards independentes para diferentes funis" actions={<button className="fin-new-btn" onClick={() => setShowNew(true)} aria-label="Novo CRM"><span className="fin-new-label">{'Novo CRM\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>}>
+    <Page title="CRM Kanban" subtitle="Boards independentes para diferentes funis" actions={<FabNovo size="sm" label="Novo CRM" onClick={() => setShowNew(true)} />}>
       <style>{`.crm-del-btn:hover { color: #dc2626 !important; background: #fef2f2 !important; }`}</style>
-      {boards === null ?
-      <div className="muted" style={{ padding: 30 }}>Carregando funis…</div> :
-      boards.length === 0 ?
+      {(boards !== null && boards.length === 0) ?
       <EmptyState icon="reports" title="Nenhum funil ainda" desc="Crie seu primeiro CRM no botão acima." /> :
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 'var(--pad-3)' }}>
-        {boards.map((b) =>
+        {boards === null
+        ? <FunisSkeleton count={skelCount('funis', 3)} />
+        : boards.map((b) =>
         <BoardCard
           key={b.id}
           board={b}
@@ -226,6 +290,7 @@ function CRMBoard() {
   const [phases, setPhases] = React.useState([]);
   const [funil, setFunil] = React.useState(null);
   const [loading, setLoading] = React.useState(true);
+  React.useEffect(() => { if (phases.length) skelRemember('crm-phases', phases.length); }, [phases]);
 
   const cardFromApi = (c) => ({ _id: 'c' + c.id, _cardId: c.id, clienteId: c.clienteId, phase: c.faseId, name: c.name, company: c.company, phone: c.phone, email: c.email, value: c.value, foto: c.foto, date: fmtCardDate(c.criadoEm), tags: c.tags || [], tipo: c.tipo || 'cliente', pinned: c.fixado === true, pinnedAt: c.fixado === true ? 1 : null });
 
@@ -294,17 +359,17 @@ function CRMBoard() {
   const togglePin = (id) => setCards((cs) => cs.map((c) => {
     if (c._id !== id) return c;
     const nv = !c.pinned;
-    if (c._cardId) API.toggleCardFixar(c._cardId, nv).catch(() => {}); // persiste no banco (best-effort)
+    if (c._cardId) API.toggleCardFixar(c._cardId, nv).catch(() => { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao fixar card' }); }); // persiste no banco (best-effort)
     return { ...c, pinned: nv, pinnedAt: nv ? Date.now() : null };
   }));
-  const removeCard = (id) => setCards((cs) => { const card = cs.find((c) => c._id === id); if (card && card._cardId) API.deleteCard(card._cardId).catch(() => {}); return cs.filter((c) => c._id !== id); });
+  const removeCard = (id) => setCards((cs) => { const card = cs.find((c) => c._id === id); if (card && card._cardId) API.deleteCard(card._cardId).then(() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Card excluído', descricao: card.name }); }).catch((e) => { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir card', descricao: (e && e.message) || 'Tente novamente.' }); }); return cs.filter((c) => c._id !== id); });
   const moveCardToPhase = (cardId, phaseId) => {
     // o phaseId do arrasto pode vir como string; normaliza p/ o id real da fase (número)
     const ph = phases.find((p) => String(p.id) === String(phaseId));
     const target = ph ? ph.id : phaseId;
     setCards((cs) => cs.map((c) => {
       if (c._id !== cardId) return c;
-      if (c._cardId && c.phase !== target) API.moveCard(c._cardId, target).catch(() => {});
+      if (c._cardId && c.phase !== target) API.moveCard(c._cardId, target).catch(() => { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao mover card' }); });
       return { ...c, phase: target };
     }));
   };
@@ -321,14 +386,15 @@ function CRMBoard() {
     try {
       const r = await API.addCardCliente(phaseId, { nome: data.name, empresa: data.company, telefone: data.phone, email: data.email, valor: data.value, tags: data.tags || [], tipo: data.tipo || 'cliente' });
       setCards((cs) => [...cs, cardFromApi(r.card)]);
-    } catch (e) {}
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Card criado', descricao: data.name || 'Novo card' });
+    } catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao criar card', descricao: (e && e.message) || 'Tente novamente.' }); }
   };
 
   return (
     <div className="screen">
       <Topbar title={funil ? funil.name : (loading ? 'Carregando…' : 'Funil')} subtitle={funil ? (funil.desc || 'Funil de vendas') : ''} left={<button className="btn btn-ghost btn-icon" onClick={back}><Ic name="chevron-left" size={16} /></button>} right={
       <div className="row" style={{ gap: 6 }}>
-          <button className="fin-new-btn" onClick={() => setAddingPhase(true)} aria-label="Nova coluna"><span className="fin-new-label">{'Nova coluna\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>
+          <FabNovo size="mini" label="Nova coluna" onClick={() => setAddingPhase(true)} />
           <div style={{ position: 'relative', display: 'flex', gap: 0, background: 'var(--surface-2)', borderRadius: 10, padding: 4, height: 38, backgroundColor: "rgb(244, 244, 244)" }}>
             <div style={{ position: 'absolute', top: 4, left: 4 + ['funnel', 'list', 'chart'].indexOf(view) * 32, width: 32, height: 30, background: '#BFE6CE', borderRadius: 6, transition: 'left .22s cubic-bezier(.4,.0,.2,1)', pointerEvents: 'none' }} />
             {[
@@ -342,7 +408,8 @@ function CRMBoard() {
         </div>
       } />
       <div key={view} className="page-enter" style={{ flex: 1, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
-      {view === 'funnel' &&
+      {view === 'funnel' && loading && <BoardSkeleton cols={skelCount('crm-phases', 4)} />}
+      {view === 'funnel' && !loading &&
         <div
           className="scroll" style={{ flex: 1, overflowX: 'auto', overflowY: 'hidden', padding: '12px 16px', background: '#F1F4F8', scrollBehavior: 'smooth' }}
           onWheel={(e) => {
@@ -405,20 +472,12 @@ function CRMBoard() {
                 {/* Total value */}
                 <div style={{ textAlign: 'center', fontSize: 15, fontWeight: 700, color: 'var(--text)', padding: '6px 0 4px', flexShrink: 0 }}>{formatBRL(total)}</div>
 
-                {/* Add card button */}
-                <button
-                    onClick={() => setAddingTo(ph)}
-                    style={{
-                      background: '#fff', border: '1px solid var(--border-strong)', borderRadius: 8,
-                      padding: '6px 0', display: 'flex', alignItems: 'center', justifyContent: 'center',
-                      cursor: 'default', color: 'var(--text-muted)', transition: 'background .12s ease, border-color .12s ease, color .12s ease',
-                      flexShrink: 0, marginBottom: 6
-                    }}
-                    onMouseEnter={(e) => {e.currentTarget.style.borderColor = ph.color;e.currentTarget.style.color = ph.color;}}
-                    onMouseLeave={(e) => {e.currentTarget.style.borderColor = 'var(--border-strong)';e.currentTarget.style.color = 'var(--text-muted)';}}>
-                  
-                  <Ic name="plus" size={16} />
-                </button>
+                {/* Add card button — retangular (36px, largura do cartão); no hover o contorno + (+) ficam na cor da coluna e o (+) gira 180° */}
+                <div style={{ flexShrink: 0, marginBottom: 6 }}>
+                  <button className="crm-addcard" style={{ '--col': ph.color }} onClick={() => setAddingTo(ph)} title="Adicionar card" aria-label="Adicionar card">
+                    <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5.5v13M5.5 12h13" /></svg>
+                  </button>
+                </div>
 
                 {/* Cards (scrollable area) */}
                 <div className="col phase-cards" style={{ gap: 8, overflowY: 'auto', overflowX: 'hidden', flex: 1, minHeight: 0, paddingRight: 2, paddingTop: 12, scrollBehavior: 'smooth' }}>
@@ -540,8 +599,8 @@ function CRMBoard() {
           <div style={{ fontSize: 'var(--type-sm)' }}>Tem certeza que deseja excluir o card de <strong>{confirmDel.name}</strong>? Esta ação não pode ser desfeita.</div>
         </Modal>
       }
-      {editPhase && <EditPhaseModal phase={editPhase} phases={phases} onSave={(label, idx, color) => {API.updateFase(editPhase.id, { nome: label, cor_funil: color }).catch(() => {});setPhases((ps) => ps.map((p) => p.id === editPhase.id ? { ...p, label, color } : p));reorderPhase(editPhase.id, idx);setEditPhase(null);}} onDelete={() => {API.deleteFase(editPhase.id).catch(() => {});setPhases((ps) => ps.filter((p) => p.id !== editPhase.id));setCards((cs) => cs.filter((c) => c.phase !== editPhase.id));setEditPhase(null);}} onClose={() => setEditPhase(null)} />}
-      {addingPhase && <NewPhaseModal phases={phases} onSave={async (p, idx) => {setAddingPhase(false);try {const r = await API.addFase(funilId, p.label, p.color);setPhases((ps) => {const arr = [...ps];arr.splice(idx, 0, { id: r.fase.id, label: r.fase.label, color: r.fase.color, pos: r.fase.pos });return arr;});} catch (e) {}}} onClose={() => setAddingPhase(false)} />}
+      {editPhase && <EditPhaseModal phase={editPhase} phases={phases} onSave={(label, idx, color) => {API.updateFase(editPhase.id, { nome: label, cor_funil: color }).then(() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Fase atualizada', descricao: label }); }).catch((e) => { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao salvar fase', descricao: (e && e.message) || 'Tente novamente.' }); });setPhases((ps) => ps.map((p) => p.id === editPhase.id ? { ...p, label, color } : p));reorderPhase(editPhase.id, idx);setEditPhase(null);}} onDelete={() => {API.deleteFase(editPhase.id).then(() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Fase excluída', descricao: editPhase.label }); }).catch((e) => { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir fase', descricao: (e && e.message) || 'Tente novamente.' }); });setPhases((ps) => ps.filter((p) => p.id !== editPhase.id));setCards((cs) => cs.filter((c) => c.phase !== editPhase.id));setEditPhase(null);}} onClose={() => setEditPhase(null)} />}
+      {addingPhase && <NewPhaseModal phases={phases} onSave={async (p, idx) => {setAddingPhase(false);try {const r = await API.addFase(funilId, p.label, p.color);setPhases((ps) => {const arr = [...ps];arr.splice(idx, 0, { id: r.fase.id, label: r.fase.label, color: r.fase.color, pos: r.fase.pos });return arr;});window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Coluna criada', descricao: p.label });} catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao criar coluna', descricao: (e && e.message) || 'Tente novamente.' }); }}} onClose={() => setAddingPhase(false)} />}
       {addingTo && <AddCardModal phase={addingTo} onSave={(d) => {addCard(addingTo.id, d);setAddingTo(null);}} onClose={() => setAddingTo(null)} />}
       {contractCard && <NewContractDrawer card={contractCard} onClose={() => setContractCard(null)} />}
     </div>);
@@ -995,117 +1054,136 @@ function CRMCard({ card, phaseColor, isDragging, floating, floatingX, floatingY,
 
 }
 
-function LeadProfileLeft({ card, subtab, setSubtab }) {
-  const tags = card.tags || [];
+function LeadProfileLeft({ data, tags = [], editing, setField, canEdit, saving, onEdit, onCancel, onSave, subtab, setSubtab }) {
+  const SEG_OPTS = [
+    { value: 'bronze', label: 'Bronze' }, { value: 'prata', label: 'Prata' },
+    { value: 'ouro', label: 'Ouro' }, { value: 'platina', label: 'Platina' }, { value: 'diamante', label: 'Diamante' },
+  ];
+  const estagio = data.estagio === 'cliente' ? 'cliente' : 'lead';
+  const fmtMoney = (v) => (v != null && v !== '') ? 'R$ ' + Number(v).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '—';
+
+  // Renderiza um campo: texto (leitura) ou input/select/textarea (edição).
+  const fieldRow = (label, k, opts = {}) => {
+    const val = data[k];
+    let control;
+    if (editing) {
+      if (opts.options) {
+        control = (
+          <select className="input" style={{ height: 32, fontSize: 12 }} value={val || ''} onChange={(e) => setField(k, e.target.value)}>
+            {opts.placeholder && <option value="">{opts.placeholder}</option>}
+            {opts.options.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>);
+      } else if (opts.textarea) {
+        control = <textarea className="input" rows={3} style={{ fontSize: 12 }} value={val || ''} onChange={(e) => setField(k, e.target.value)} placeholder={opts.placeholder} />;
+      } else {
+        control = <input className="input" style={{ height: 32, fontSize: 12 }} value={val || ''} onChange={(e) => setField(k, e.target.value)} placeholder={opts.placeholder} />;
+      }
+    } else {
+      control = <div style={{ fontSize: 13, color: val ? 'var(--text)' : 'var(--text-faint)' }}>{val || '—'}</div>;
+    }
+    return <div key={k}><div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>{label}</div>{control}</div>;
+  };
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', height: '100%', borderRight: '1px solid var(--border)', background: 'var(--surface)' }}>
-      {/* Avatar block */}
-      <div style={{ background: 'linear-gradient(180deg, #DCEEFE 0%, #EAF4FE 100%)', padding: '28px 20px 18px', position: 'relative', height: "280px" }}>
-        <div style={{ borderRadius: '50%', background: 'rgba(255,255,255,.85)', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 48, fontWeight: 600, color: '#0EA5E9', boxShadow: '0 4px 14px rgba(14,165,233,.12)', position: 'relative', width: "90px", height: "90px" }}>
-          {card.name.charAt(0)}
-          <button title="Editar foto" style={{ position: 'absolute', bottom: 4, right: 4, width: 30, height: 30, borderRadius: '50%', background: '#fff', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', boxShadow: '0 2px 6px rgba(0,0,0,.08)' }}><Ic name="edit" size={14} /></button>
+      {/* Avatar + estágio + ações */}
+      <div style={{ background: 'linear-gradient(180deg, #DCEEFE 0%, #EAF4FE 100%)', padding: '22px 20px 16px', position: 'relative' }}>
+        <div style={{ borderRadius: '50%', background: 'rgba(255,255,255,.85)', margin: '0 auto', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 40, fontWeight: 600, color: '#0EA5E9', boxShadow: '0 4px 14px rgba(14,165,233,.12)', width: 80, height: 80 }}>
+          {(data.nome || '?').charAt(0).toUpperCase()}
         </div>
-        <div style={{ textAlign: 'center', marginTop: 14, fontWeight: 600, fontSize: 16, color: 'var(--text)' }}>{card.name}</div>
-        {tags.length > 0 &&
-        <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', marginTop: 8 }}>
+        <div style={{ textAlign: 'center', marginTop: 12, fontWeight: 600, fontSize: 16, color: 'var(--text)' }}>{data.nome || '—'}</div>
+
+        {tags.length > 0 && !editing &&
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, justifyContent: 'center', marginTop: 8 }}>
             {tags.map((t, i) =>
-          <span key={i} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `color-mix(in oklab, ${t.color} 14%, #fff)`, color: t.color, fontWeight: 600, textTransform: 'uppercase', border: `1px solid color-mix(in oklab, ${t.color} 30%, transparent)` }}>{t.label}</span>
-          )}
-            <button style={{ width: 18, height: 18, borderRadius: '50%', border: '1px solid var(--border)', background: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 10, cursor: 'pointer' }}>+</button>
-          </div>
-        }
-        <div style={{ marginTop: 10, textAlign: 'center' }}>
-          <button className="btn btn-sm" style={{ fontSize: 11, padding: '4px 10px', background: '#fff' }}><Ic name="plus" size={10} /> Adicionar listas</button>
+              <span key={i} style={{ fontSize: 10, padding: '2px 8px', borderRadius: 10, background: `color-mix(in oklab, ${t.color} 14%, #fff)`, color: t.color, fontWeight: 600, textTransform: 'uppercase', border: `1px solid color-mix(in oklab, ${t.color} 30%, transparent)` }}>{t.label}</span>)}
+          </div>}
+
+        {/* Estágio (lead/cliente) */}
+        <div style={{ textAlign: 'center', marginTop: 10 }}>
+          {editing ?
+            <select className="input" style={{ height: 30, fontSize: 12, width: 170, margin: '0 auto' }} value={estagio} onChange={(e) => setField('estagio', e.target.value)}>
+              <option value="lead">Lead</option>
+              <option value="cliente">Cliente</option>
+            </select> :
+            <span style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', padding: '3px 12px', borderRadius: 999,
+              background: estagio === 'cliente' ? 'color-mix(in oklab, #10b981 16%, #fff)' : 'color-mix(in oklab, #f59e0b 16%, #fff)',
+              color: estagio === 'cliente' ? '#047857' : '#b45309',
+              border: '1px solid ' + (estagio === 'cliente' ? 'color-mix(in oklab, #10b981 30%, transparent)' : 'color-mix(in oklab, #f59e0b 30%, transparent)') }}>
+              {estagio === 'cliente' ? 'Cliente' : 'Lead'}
+            </span>}
         </div>
-        <div style={{ marginTop: 8, textAlign: 'center', fontSize: 12 }}>
-          <span style={{ color: '#0EA5E9', cursor: 'pointer', textDecoration: 'underline' }}>👤 Sem atendente</span>
-        </div>
+
+        {canEdit &&
+          <div style={{ display: 'flex', gap: 6, justifyContent: 'center', marginTop: 12 }}>
+            {editing ?
+              <>
+                <button className="btn btn-sm" style={{ background: '#fff' }} onClick={onCancel} disabled={saving}>Cancelar</button>
+                <button className="btn btn-sm btn-primary" style={{ background: '#0EA5E9', borderColor: '#0EA5E9' }} onClick={onSave} disabled={saving}><Ic name="check" size={12} /> {saving ? 'Salvando…' : 'Salvar'}</button>
+              </> :
+              <button className="btn btn-sm" style={{ background: '#fff' }} onClick={onEdit}><Ic name="edit" size={12} /> Editar ficha</button>}
+          </div>}
       </div>
 
-      {/* Stat grid */}
-      <div style={{ padding: '14px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
+      {/* Stat grid (vendas/ticket/ciclo entram com o PDV) */}
+      <div style={{ padding: '12px 16px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 }}>
         {[
-        { ic: 'leads', color: '#0EA5E9', label: 'Ticket médio', val: 'R$ 156,63' },
-        { ic: 'wallet', color: '#10B981', label: 'Total', val: 'R$ 1.856,32' },
-        { ic: 'cube', color: '#8B5CF6', label: 'Ciclo de compra', val: '19 dias' },
-        { ic: 'package', color: '#F472B6', label: 'Última compra', val: '18 dias' }].
-        map((s, i) =>
-        <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', background: 'var(--surface)' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: 24, height: 24, borderRadius: 6, background: `color-mix(in oklab, ${s.color} 14%, #fff)`, color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name={s.ic} size={13} /></div>
-              <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.label}</div>
-            </div>
-            <div style={{ fontWeight: 700, fontSize: 15, marginTop: 6, color: 'var(--text)' }}>{s.val}</div>
-          </div>
-        )}
+          { ic: 'wallet', color: '#10B981', label: 'Total comprado', val: fmtMoney(data.ltv != null ? data.ltv : data.valor) },
+          { ic: 'leads', color: '#0EA5E9', label: 'Ticket médio', val: (data.orders > 0 ? fmtMoney((Number(data.ltv) || 0) / data.orders) : '—') },
+          { ic: 'cart', color: '#8B5CF6', label: 'Pedidos', val: data.orders != null ? String(data.orders) : '0' },
+          { ic: 'package', color: '#F472B6', label: 'Última compra', val: data.ultimaCompra ? new Date(data.ultimaCompra).toLocaleDateString('pt-BR') : '—' }].
+          map((s, i) =>
+            <div key={i} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', background: 'var(--surface)' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <div style={{ width: 24, height: 24, borderRadius: 6, background: `color-mix(in oklab, ${s.color} 14%, #fff)`, color: s.color, display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name={s.ic} size={13} /></div>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)' }}>{s.label}</div>
+              </div>
+              <div style={{ fontWeight: 700, fontSize: 15, marginTop: 6, color: 'var(--text)' }}>{s.val}</div>
+            </div>)}
       </div>
 
       {/* Sub-tabs */}
       <div style={{ display: 'flex', borderBottom: '1px solid var(--border)', padding: '0 16px' }}>
-        {[['perfil', 'Perfil'], ['endereco', 'Endereço'], ['campos', 'Campos adicionais']].map(([id, label]) => {
+        {[['perfil', 'Perfil'], ['endereco', 'Endereço'], ['mais', 'Mais']].map(([id, label]) => {
           const on = subtab === id;
           return (
             <button key={id} onClick={() => setSubtab(id)}
-            style={{ flex: 1, padding: '10px 4px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
-              color: on ? 'var(--accent)' : 'var(--text-muted)', fontWeight: on ? 600 : 500,
-              borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent' }}>{label}</button>);
-
+              style={{ flex: 1, padding: '10px 4px', background: 'none', border: 'none', cursor: 'pointer', fontSize: 12,
+                color: on ? 'var(--accent)' : 'var(--text-muted)', fontWeight: on ? 600 : 500,
+                borderBottom: on ? '2px solid var(--accent)' : '2px solid transparent' }}>{label}</button>);
         })}
       </div>
 
-      {/* Sub-tab content */}
+      {/* Conteúdo das sub-abas */}
       <div style={{ flex: 1, overflow: 'auto', padding: '14px 16px' }}>
         {subtab === 'perfil' &&
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[
-          ['Nome', card.name],
-          ['Empresa', card.company || 'Informe a empresa do lead'],
-          ['E-mail', card.email || 'Exemplo: meulead@gmail.com'],
-          ['Telefone', card.phone],
-          ['Documento', 'Informe o CPF ou CNPJ'],
-          ['Origem', 'Como o lead ficou sabendo da sua empresa?'],
-          ['Site', 'Exemplo: www.meulead.com.br']].
-          map(([label, val]) =>
-          <div key={label}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>{label}</div>
-                <div style={{ fontSize: 13, color: val.startsWith('Informe') || val.startsWith('Exemplo') || val.startsWith('Como') ? 'var(--text-faint)' : 'var(--text)' }}>{val}</div>
-              </div>
-          )}
-          </div>
-        }
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {fieldRow('Nome', 'nome', { placeholder: 'Nome completo' })}
+            {fieldRow('Empresa', 'empresa', { placeholder: 'Empresa' })}
+            {fieldRow('Tipo', 'tipoPessoa', { options: [{ value: 'pf', label: 'Pessoa Física' }, { value: 'pj', label: 'Pessoa Jurídica' }] })}
+            {data.tipoPessoa === 'pj' ? fieldRow('CNPJ', 'cnpj', { placeholder: '00.000.000/0000-00' }) : fieldRow('CPF', 'cpf', { placeholder: '000.000.000-00' })}
+            {fieldRow('E-mail', 'email', { placeholder: 'email@exemplo.com' })}
+            {fieldRow('Telefone', 'telefone', { placeholder: '(00) 00000-0000' })}
+            {fieldRow('Origem', 'origemLead', { placeholder: 'Como conheceu a empresa' })}
+            {fieldRow('Site', 'site', { placeholder: 'www.exemplo.com' })}
+            {fieldRow('Segmento', 'segmento', { options: SEG_OPTS, placeholder: '—' })}
+            {fieldRow('Atendente', 'atendente', { placeholder: 'Responsável' })}
+          </div>}
         {subtab === 'endereco' &&
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
-            {[['CEP', '60150-160'], ['Endereço', 'Rua Barbosa de Freitas, 1340'], ['Bairro', 'Aldeota'], ['Cidade', 'Fortaleza'], ['Estado', 'CE'], ['Complemento', 'Sala 305']].map(([l, v]) =>
-          <div key={l}>
-                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--text)', marginBottom: 3 }}>{l}</div>
-                <div style={{ fontSize: 13, color: 'var(--text)' }}>{v}</div>
-              </div>
-          )}
-          </div>
-        }
-        {subtab === 'campos' &&
-        <div>
-            <div style={{ position: 'relative', marginBottom: 10 }}>
-              <Ic name="search" size={13} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)' }} />
-              <input className="input" placeholder="Pesquisar..." style={{ paddingLeft: 36, fontSize: 12, height: 30 }} />
-            </div>
-            {[['IDADE', '#', '22'], ['Email responsável', 'T', 'contato@meulead.com'], ['ID call', 'T', 'oEB4XT5km2nzoxef4iD7YR'], ['Link call', 'T', 'https://meet.google.com/dwk-...'], ['utm_content', 'T', '-'], ['utm_source', 'T', '-']].map(([k, ic, v]) =>
-          <div key={k} style={{ marginBottom: 10 }}>
-                <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', textTransform: 'uppercase', marginBottom: 3, letterSpacing: '.04em' }}>{k}</div>
-                <div style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '6px 10px', border: '1px solid var(--border)', borderRadius: 6, background: 'var(--surface)' }}>
-                  <span style={{ fontSize: 11, color: 'var(--text-faint)', fontFamily: 'monospace' }}>{ic}</span>
-                  <span style={{ flex: 1, fontSize: 12 }}>{v}</span>
-                  <button style={{ background: 'none', border: 'none', cursor: 'pointer', color: 'var(--text-faint)' }}><Ic name="trash" size={12} /></button>
-                </div>
-              </div>
-          )}
-          </div>
-        }
-      </div>
-
-      {/* Footer add button */}
-      <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)' }}>
-        <button className="btn btn-primary" style={{ width: '100%', background: '#0EA5E9', borderColor: '#0EA5E9' }}><Ic name="plus" size={13} /> Adicionar</button>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {fieldRow('CEP', 'cep', { placeholder: '00000-000' })}
+            {fieldRow('Logradouro', 'logradouro', { placeholder: 'Rua / Avenida' })}
+            {fieldRow('Número', 'numero')}
+            {fieldRow('Complemento', 'complemento')}
+            {fieldRow('Bairro', 'bairro')}
+            {fieldRow('Cidade', 'cidade')}
+            {fieldRow('Estado (UF)', 'uf', { placeholder: 'CE' })}
+          </div>}
+        {subtab === 'mais' &&
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+            {fieldRow('Aniversário', 'aniversario', { placeholder: 'AAAA-MM-DD' })}
+            {fieldRow('Observações', 'observacoes', { textarea: true, placeholder: 'Anotações sobre o cliente...' })}
+          </div>}
       </div>
     </div>);
 
@@ -1606,9 +1684,34 @@ function PhasePickerStrip({ phases, currentPhaseId, onSelect }) {
     </div>);
 }
 
-function CRMCardDetail({ card, onClose, phases, onMovePhase }) {
+// Converte o rascunho (camelCase) da ficha -> patch com NOMES DE COLUNA.
+function clienteDraftToPatch(d) {
+  d = d || {};
+  const v = (x) => (x === undefined || x === '' ? null : x);
+  const patch = {
+    telefone: v(d.telefone), email: v(d.email), empresa: v(d.empresa),
+    tipo_pessoa: d.tipoPessoa === 'pj' ? 'pj' : 'pf',
+    cpf: v(d.cpf), cnpj: v(d.cnpj),
+    site: v(d.site), origemlead: v(d.origemLead),
+    segmento: v(d.segmento), atendente: v(d.atendente),
+    observacoes: v(d.observacoes), aniversario: v(d.aniversario),
+    cep: v(d.cep), logradouro: v(d.logradouro), numero: v(d.numero),
+    complemento: v(d.complemento), bairro: v(d.bairro), cidade: v(d.cidade),
+    uf: d.uf ? String(d.uf).toUpperCase() : null,
+    estagio: d.estagio === 'cliente' ? 'cliente' : 'lead',
+  };
+  if (d.nome && d.nome.trim()) patch.nome = d.nome.trim();
+  return patch;
+}
+
+function CRMCardDetail({ card, onClose, phases, onMovePhase, onSaved }) {
   const [subtab, setSubtab] = React.useState('perfil');
   const [tab, setTab] = React.useState('historico');
+  const clienteId = card.clienteId || card.id || null;
+  const [cliente, setCliente] = React.useState(null);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(null);
+  const [saving, setSaving] = React.useState(false);
   const TABS = [
   ['historico', 'Histórico', 'history'],
   ['atividades', 'Atividades', 'check'],
@@ -1617,10 +1720,41 @@ function CRMCardDetail({ card, onClose, phases, onMovePhase }) {
   ['agenda', 'Agenda', 'agenda'],
   ['automacao', 'Automação', 'zap']];
 
+  // Carrega o cliente real (mesma ficha p/ lead e cliente).
+  React.useEffect(() => {
+    if (!clienteId || !window.API || !window.API.getCliente) return;
+    let alive = true;
+    window.API.getCliente(clienteId).then((r) => { if (alive) setCliente(r.cliente); }).catch(() => {});
+    return () => { alive = false; };
+  }, [clienteId]);
+
+  // Dados exibidos: cliente real (DTO) ou fallback do card (CRM sem id ainda).
+  const base = cliente || {
+    nome: card.name, empresa: (card.company && card.company !== '—') ? card.company : '',
+    email: card.email, telefone: card.phone, valor: card.value, tipoPessoa: 'pf', estagio: 'lead',
+  };
+  const view = (editing && draft) ? draft : base;
+  const setField = (k, val) => setDraft((p) => ({ ...(p || {}), [k]: val }));
+  const startEdit = () => { setDraft({ ...base }); setEditing(true); };
+  const cancelEdit = () => { setEditing(false); setDraft(null); };
+  const save = async () => {
+    if (!clienteId) { setEditing(false); return; }
+    if (!draft || !draft.nome || !draft.nome.trim()) { window.showToast && window.showToast({ tipo: 'aviso', titulo: 'Informe o nome', descricao: 'O nome do cliente é obrigatório.' }); return; }
+    setSaving(true);
+    try {
+      const r = await window.API.updateCliente(clienteId, clienteDraftToPatch(draft));
+      setCliente(r.cliente); onSaved && onSaved(r.cliente); setEditing(false); setDraft(null);
+    } catch (e) {
+      window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao salvar ficha', descricao: (e && e.message) || 'Não foi possível salvar a ficha.' });
+    } finally {
+      setSaving(false);
+    }
+  };
+
   return (
     <Drawer
-      title={card.name}
-      subtitle={card.company}
+      title={view.nome || card.name}
+      subtitle={view.empresa || card.company}
       onClose={onClose}
       width="70vw"
       belowHead={phases && phases.length > 0 ?
@@ -1630,7 +1764,10 @@ function CRMCardDetail({ card, onClose, phases, onMovePhase }) {
         onSelect={(phaseId) => onMovePhase && onMovePhase(card._id, phaseId)} /> :
       null}>
       <div style={{ display: 'grid', gridTemplateColumns: '320px 1fr', height: '100%', margin: -22 /* cancel drawer padding */ }}>
-        <LeadProfileLeft card={card} subtab={subtab} setSubtab={setSubtab} />
+        <LeadProfileLeft
+          data={view} tags={card.tags || []} editing={editing} setField={setField}
+          canEdit={!!clienteId} saving={saving} onEdit={startEdit} onCancel={cancelEdit} onSave={save}
+          subtab={subtab} setSubtab={setSubtab} />
         <div style={{ display: 'flex', flexDirection: 'column', height: '100%', minHeight: 0 }}>
           {/* Right tab bar */}
           <CRMDetailTabs tabs={TABS} active={tab} onChange={setTab} />
@@ -1645,75 +1782,6 @@ function CRMCardDetail({ card, onClose, phases, onMovePhase }) {
         </div>
       </div>
     </Drawer>);
-
-  // legacy below — unused fallback (kept to preserve diff anchors)
-  return (
-    <Modal title={card.name} onClose={onClose} size="lg" footer={<><button className="btn btn-danger">Arquivar</button><div className="spacer" /><button className="btn" onClick={onClose}>Fechar</button><button className="btn btn-primary">Salvar</button></>}>
-      <div style={{ display: 'grid', gridTemplateColumns: '1.4fr 1fr', gap: 18 }}>
-        <div className="col" style={{ gap: 14 }}>
-          <div className="row" style={{ gap: 14 }}>
-            <Avatar name={card.name} size="lg" />
-            <div style={{ flex: 1 }}>
-              <div className="h2" style={{ fontSize: 'var(--type-lg)' }}>{card.name}</div>
-              <div className="muted">{card.company}</div>
-            </div>
-            <span className="badge badge-accent">PROSPECÇÃO</span>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label className="label">Telefone</label><PhoneInput defaultValue={card.phone} /></div>
-            <div><label className="label">E-mail</label><EmailInput defaultValue={card.email || ''} placeholder="cliente@empresa.com" /></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label className="label">Valor estimado</label><MoneyInput defaultValue={card.value} /></div>
-            <div><label className="label">Responsável</label><select className="input"><option>Karla Zambelly</option></select></div>
-          </div>
-          <div>
-            <label className="label">Tags</label>
-            <div className="row" style={{ gap: 6, flexWrap: 'wrap' }}>
-              <span className="chip chip-accent">VIP</span>
-              <span className="chip">indicação</span>
-              <span className="chip" style={{ cursor: 'default' }}><Ic name="plus" size={11} /> tag</span>
-            </div>
-          </div>
-          <div>
-            <label className="label">Observações</label>
-            <textarea className="input" rows={3} placeholder="Adicione uma nota..." />
-          </div>
-          {card.ai &&
-          <div className="card card-pad" style={{ background: 'var(--ai-soft)', borderColor: 'color-mix(in oklab, var(--ai) 30%, var(--border))' }}>
-              <div className="row"><Ic name="sparkles" size={14} style={{ color: 'var(--ai)' }} /><span style={{ marginLeft: 6, fontWeight: 600, fontSize: 'var(--type-sm)' }}>Adicionado pela IA</span></div>
-              <div style={{ fontSize: 'var(--type-sm)', marginTop: 6 }}>Cliente entrou em contato pelo WhatsApp interessado em "pacote pré-sal premium". A IA qualificou e criou este card automaticamente.</div>
-            </div>
-          }
-        </div>
-        <div className="col" style={{ gap: 14 }}>
-          <div>
-            <div style={{ fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.06em', color: 'var(--text-faint)' }}>HISTÓRICO</div>
-            <div className="col" style={{ gap: 8, marginTop: 8 }}>
-              {[['Card criado', 'IA Júlia', '15/06 14:32'], ['Movido para Prospecção', 'sistema', '15/06 14:32'], ['Tag "VIP" adicionada', 'Karla Z.', '16/06 09:12']].map(([a, by, d], i) =>
-              <div key={i} style={{ fontSize: 'var(--type-xs)', paddingLeft: 14, position: 'relative' }}>
-                  <span style={{ position: 'absolute', left: 0, top: 5, width: 6, height: 6, borderRadius: '50%', background: 'var(--accent)' }} />
-                  <div style={{ fontWeight: 500 }}>{a}</div>
-                  <div className="muted">{by} · {d}</div>
-                </div>
-              )}
-            </div>
-          </div>
-          <div>
-            <div className="row"><span style={{ fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.06em', color: 'var(--text-faint)' }}>CONVERSAS VINCULADAS</span><div className="spacer" /><span className="muted" style={{ fontSize: 'var(--type-xs)', cursor: 'default' }}>Ver todas</span></div>
-            <div className="col" style={{ gap: 6, marginTop: 8 }}>
-              <div className="row" style={{ padding: '8px 10px', border: '1px solid var(--border)', borderRadius: 8, gap: 8, fontSize: 'var(--type-sm)' }}>
-                <ChannelIcon ch="whatsapp" /><span style={{ flex: 1 }}>16/01/2026</span><Ic name="arrow-up-right" size={12} />
-              </div>
-            </div>
-          </div>
-          <div className="row" style={{ gap: 6 }}>
-            <button className="btn btn-sm" style={{ flex: 1 }}><Ic name="agenda" size={13} /> Agendar</button>
-            <button className="btn btn-sm" style={{ flex: 1 }}><Ic name="check" size={13} /> Tarefa</button>
-          </div>
-        </div>
-      </div>
-    </Modal>);
 
 }
 
@@ -1753,9 +1821,9 @@ function NewContractDrawer({ card, onClose }) {
       onClose={onClose} width={620}
       rightHead={<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, marginRight: 6 }}><span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '.06em' }}>NÚMERO</span><strong className="tnum" style={{ fontSize: 12, color: 'var(--text)' }}>{num}</strong></div>}
       footer={(close) => <>
-        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
+        <ActionButton action="voltar" size="md" onClick={() => close()} />
         <div style={{ flex: 1 }} />
-        <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close()}><Ic name="check" size={13} /> Salvar contrato</button>
+        <ActionButton action="salvar" size="md" label="Salvar contrato" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close()} />
       </>}>
 
       {/* Cliente (do card) */}

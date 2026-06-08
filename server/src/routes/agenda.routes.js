@@ -5,6 +5,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermissao } from '../lib/autorizacao.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
 import * as integ from '../lib/integracoes.js';
@@ -12,6 +13,8 @@ import * as gcal from '../lib/google.js';
 
 export const agendaRouter = Router();
 agendaRouter.use(requireAuth);
+agendaRouter.use((req, res, next) =>
+  requirePermissao(req.method === 'GET' ? 'agenda.ver' : 'agenda.gerenciar')(req, res, next));
 
 const uuid = z.string().uuid('id inválido');
 const db = () => adminClient();

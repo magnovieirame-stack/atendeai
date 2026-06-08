@@ -68,6 +68,7 @@ const Ic = ({ name, size = 18, ...rest }) => {
     case 'x':return <svg {...props} style={{ width: "20px", height: "20px" }}><path d="M18 6 6 18M6 6l12 12" /></svg>;
     case 'circle':return <svg {...props}><circle cx="12" cy="12" r="9" /></svg>;
     case 'circle-check':return <svg {...props}><circle cx="12" cy="12" r="9" /><path d="m8.5 12 2.5 2.5 4.5-4.5" /></svg>;
+    case 'x-circle':return <svg {...props} style={{ width: "20px", height: "20px" }}><circle cx="12" cy="12" r="9" /><path d="M15 9l-6 6M9 9l6 6" /></svg>;
     case 'alert':return <svg {...props}><path d="M10.5 3.6 2.6 17.4A1.7 1.7 0 0 0 4 20h16a1.7 1.7 0 0 0 1.4-2.6L13.5 3.6a1.7 1.7 0 0 0-3 0z" /><path d="M12 9v5" /><circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none" /></svg>;
     case 'help':return <svg {...props}><circle cx="12" cy="12" r="9" /><path d="M9.5 9.5a2.5 2.5 0 0 1 4.8 1c0 1.7-2.5 2-2.5 3" /><circle cx="12" cy="17" r=".8" fill="currentColor" stroke="none" /></svg>;
 

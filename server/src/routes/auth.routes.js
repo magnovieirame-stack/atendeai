@@ -13,6 +13,7 @@ import { validateBody } from '../middleware/validate.js';
 import { requireAuth } from '../middleware/auth.js';
 import { authLimiter } from '../middleware/security.js';
 import { setSessionCookies, clearSessionCookies, REFRESH_COOKIE } from '../lib/cookies.js';
+import { carregarAutorizacao } from '../lib/autorizacao.js';
 
 export const authRouter = Router();
 
@@ -71,6 +72,20 @@ authRouter.post('/auth/logout', async (req, res, next) => {
   }
 });
 
-authRouter.get('/auth/me', requireAuth, (req, res) => {
-  res.json({ user: publicUser(req.user) });
+authRouter.get('/auth/me', requireAuth, async (req, res, next) => {
+  try {
+    // Papel e permissões REAIS (de empresa_membros), não mais de metadados vazios.
+    const auth = await carregarAutorizacao(req);
+    res.json({
+      user: {
+        ...publicUser(req.user),
+        empresaId: auth.empresaId,
+        empresa: auth.empresaId ? { id: auth.empresaId, nome: auth.empresaNome } : null, // NOVO · null-safe
+        cargo: (req.user.user_metadata && req.user.user_metadata.cargo) || null, // cargo da ficha (por-usuário, do Auth)
+        papel: auth.papel,            // ex.: 'admin_loja' | 'atendente' | 'super_admin'
+        papelNome: auth.papelNome,    // ex.: 'Admin da Loja'
+        permissoes: Array.from(auth.permissoes), // ex.: ['catalogo.ver', ...]
+      },
+    });
+  } catch (err) { next(err); }
 });

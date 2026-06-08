@@ -98,7 +98,9 @@
     const [showImport, setShowImport] = React.useState(false);
     const [selected, setSelected] = React.useState(new Set());
     const [allLeads, setAllLeads] = React.useState([]);
-    React.useEffect(() => { API.getLeads().then((r) => setAllLeads((r.leads || []).map((l, i) => enrichLead(l, i)))).catch(() => setAllLeads([])); }, []);
+    const [loaded, setLoaded] = React.useState(false);
+    React.useEffect(() => { API.getLeads().then((r) => setAllLeads((r.leads || []).map((l, i) => enrichLead(l, i)))).catch(() => setAllLeads([])).finally(() => setLoaded(true)); }, []);
+    React.useEffect(() => { if (loaded && allLeads.length) skelRemember('leads', allLeads.length); }, [loaded, allLeads]);
     const [visibleCols, setVisibleCols] = React.useState(() => new Set(ALL_COLUMNS.map((c) => c.id)));
     const [filterStages, setFilterStages] = React.useState(() => new Set());
     const [filterTags, setFilterTags] = React.useState(() => new Set());
@@ -116,7 +118,7 @@
       setPinnedIds(s);
     };
     const deleteLead = (id) => {
-      API.deleteLead(id).catch(() => {});
+      API.deleteLead(id).then(() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Lead excluído' }); }).catch((e) => { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir lead', descricao: (e && e.message) || 'Tente novamente.' }); });
       setAllLeads((prev) => prev.filter((l) => l.id !== id));
       setSelected((prev) => { const n = new Set(prev); n.delete(id); return n; });
       setPinnedIds((prev) => { const n = new Set(prev); n.delete(id); return n; });
@@ -180,10 +182,7 @@
         title="Leads"
         subtitle="Consulte, crie, modifique ou remova seus leads"
         actions={
-        <button className="fin-new-btn" onClick={() => setShowNew(true)} aria-label="Novo Lead">
-            <span className="fin-new-label">{'Novo Lead\u00A0'}</span>
-            <span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span>
-          </button>
+        <FabNovo size="sm" label="Novo Lead" onClick={() => setShowNew(true)} />
         }>
 
         <LeadStyles />
@@ -203,9 +202,7 @@
               {filtered.length.toLocaleString('pt-BR')} resultado{filtered.length === 1 ? '' : 's'}
             </span>
             <div style={{ flex: 1 }} />
-            <button className="btn" onClick={() => setShowImport(true)} style={{ borderColor: '#fb923c', color: '#c2410c' }}>
-              <Ic name="upload" size={13} /> Importar
-            </button>
+            <FabNovo size="mini" label="Importar" onClick={() => setShowImport(true)} />
             <button className="btn">
               <Ic name="download" size={13} /> Exportar
             </button>
@@ -318,7 +315,32 @@
           </div>
 
           <div className="lead-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0', background: 'var(--surface-2)' }}>
-            {filtered.length === 0 ?
+            {!loaded ?
+              Array.from({ length: skelCount('leads', 3) }).map((_, i) =>
+                <div key={'sk' + i} className="lead-row lead-body" style={{ pointerEvents: 'none' }}>
+                  <div className="lead-cell lead-cell-check"><Skeleton w={14} h={14} r={4} /></div>
+                  {colVisible('nome') &&
+                    <div className="lead-cell lead-cell-name">
+                      <Skeleton circle w={30} h={30} />
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <Skeleton w="70%" h={12} /><Skeleton w="45%" h={9} style={{ marginTop: 5 }} />
+                      </div>
+                    </div>}
+                  {colVisible('contatos') &&
+                    <div className="lead-cell lead-cell-contacts"><Skeleton w="80%" h={11} /><Skeleton w="90%" h={11} style={{ marginTop: 5 }} /></div>}
+                  {colVisible('tags') &&
+                    <div className="lead-cell lead-cell-tags"><Skeleton w={64} h={18} r={999} /></div>}
+                  {colVisible('dados') &&
+                    <div className="lead-cell lead-cell-data"><Skeleton w="60%" h={13} /><Skeleton w={70} h={18} r={999} style={{ marginTop: 5 }} /></div>}
+                  {colVisible('atendente') &&
+                    <div className="lead-cell lead-cell-att"><div className="row" style={{ gap: 6 }}><Skeleton circle w={26} h={26} /><Skeleton w="55%" h={11} /></div></div>}
+                  {colVisible('data') &&
+                    <div className="lead-cell lead-cell-date"><Skeleton w="70%" h={11} /><Skeleton w="50%" h={9} style={{ marginTop: 5 }} /></div>}
+                  {colVisible('duracao') &&
+                    <div className="lead-cell lead-cell-dur"><Skeleton w="60%" h={11} /></div>}
+                  <div className="lead-cell lead-cell-actions"><Skeleton w={32} h={32} r={8} /></div>
+                </div>) :
+            filtered.length === 0 ?
               <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)', background: 'var(--surface)' }}>
                 <Ic name="leads" size={36} style={{ opacity: .4 }} />
                 <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Nenhum lead encontrado</div>
@@ -414,7 +436,7 @@
           </div>
         </div>
 
-        {showNew && <NewLeadDrawer onClose={() => setShowNew(false)} onSave={async (l) => { setShowNew(false); try { const r = await API.createLead(l); setAllLeads((p) => [enrichLead(r.lead, 0), ...p]); } catch (e) {} }} />}
+        {showNew && <NewLeadDrawer onClose={() => setShowNew(false)} onSave={async (l) => { setShowNew(false); try { const r = await API.createLead(l); setAllLeads((p) => [enrichLead(r.lead, 0), ...p]); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Lead criado', descricao: l.name }); } catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao criar lead', descricao: (e && e.message) || 'Tente novamente.' }); } }} />}
         {viewLead && window.CRMCardDetail && <window.CRMCardDetail
           card={{
             name: viewLead.name,
@@ -518,32 +540,47 @@
       <Drawer title="Novo Lead" subtitle="Cadastre uma nova oportunidade no funil" onClose={onClose} width="50vw"
       footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
-          <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .5 }} onClick={() => close(() => onSave(f))}><Ic name="check" size={13} /> Criar lead</button>
+          <ActionButton action="voltar" size="md" onClick={() => close()} />
+          <ActionButton action="salvar" size="md" label="Criar lead" disabled={!valid} style={{ opacity: valid ? 1 : .5 }} onClick={() => close(() => onSave(f))} />
         </>}>
-        <div className="col" style={{ gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label className="label">Nome *</label><input className="input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Ex: Mariana Sousa" /></div>
-            <div><label className="label">Empresa</label><input className="input" value={f.company} onChange={(e) => set('company', e.target.value)} /></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label className="label">Telefone</label><PhoneInput value={f.phone} onChange={(v) => set('phone', v)} /></div>
-            <div><label className="label">E-mail</label><EmailInput value={f.email} onChange={(v) => set('email', v)} /></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label className="label">Valor estimado (R$)</label><input className="input" type="number" value={f.value} onChange={(e) => set('value', Number(e.target.value) || 0)} /></div>
-            <div><label className="label">Origem</label><select className="input" value={f.source} onChange={(e) => set('source', e.target.value)}><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Google</option><option>Indicação</option><option>Site</option></select></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div>
-              <label className="label">Status inicial</label>
-              <select className="input" value={f.stage} onChange={(e) => set('stage', e.target.value)}>
-                {Object.entries(STAGES_LABEL).map(([id, s]) => <option key={id} value={id}>{s.label}</option>)}
-              </select>
+        <div className="tpc-flat">
+          <div className="fin-section-title">IDENTIFICAÇÃO</div>
+          <div className="fin-section">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div><label className="label">Nome *</label><input className="input" value={f.name} onChange={(e) => set('name', e.target.value)} placeholder="Ex: Mariana Sousa" /></div>
+              <div><label className="label">Empresa</label><input className="input" value={f.company} onChange={(e) => set('company', e.target.value)} /></div>
             </div>
-            <div><label className="label">Atendente</label><select className="input" value={f.attendant} onChange={(e) => set('attendant', e.target.value)}>{ATTENDANTS.filter((a) => a !== '—').map((a) => <option key={a} value={a}>{a}</option>)}</select></div>
           </div>
-          <div><label className="label">Observações</label><textarea className="input" rows={3} value={f.obs} onChange={(e) => set('obs', e.target.value)} /></div>
+
+          <div className="fin-section-title">CONTATO</div>
+          <div className="fin-section">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div><label className="label">Telefone</label><PhoneInput value={f.phone} onChange={(v) => set('phone', v)} /></div>
+              <div><label className="label">E-mail</label><EmailInput value={f.email} onChange={(v) => set('email', v)} /></div>
+            </div>
+          </div>
+
+          <div className="fin-section-title">COMERCIAL</div>
+          <div className="fin-section">
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div><label className="label">Valor estimado (R$)</label><input className="input" type="number" value={f.value} onChange={(e) => set('value', Number(e.target.value) || 0)} /></div>
+              <div><label className="label">Origem</label><select className="input" value={f.source} onChange={(e) => set('source', e.target.value)}><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Google</option><option>Indicação</option><option>Site</option></select></div>
+            </div>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+              <div>
+                <label className="label">Status inicial</label>
+                <select className="input" value={f.stage} onChange={(e) => set('stage', e.target.value)}>
+                  {Object.entries(STAGES_LABEL).map(([id, s]) => <option key={id} value={id}>{s.label}</option>)}
+                </select>
+              </div>
+              <div><label className="label">Atendente</label><select className="input" value={f.attendant} onChange={(e) => set('attendant', e.target.value)}>{ATTENDANTS.filter((a) => a !== '—').map((a) => <option key={a} value={a}>{a}</option>)}</select></div>
+            </div>
+          </div>
+
+          <div className="fin-section-title">OBSERVAÇÕES</div>
+          <div className="fin-section">
+            <div><label className="label">Observações</label><textarea className="input" rows={3} value={f.obs} onChange={(e) => set('obs', e.target.value)} /></div>
+          </div>
         </div>
       </Drawer>);
   }
@@ -551,7 +588,7 @@
   function ImportLeadsDrawer({ onClose }) {
     return (
       <Drawer title="Importar Leads" subtitle="Importe leads de uma planilha (CSV/XLSX)" onClose={onClose} width="40vw"
-      footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><button className="btn btn-primary" onClick={onClose}><Ic name="upload" size={13} /> Importar</button></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" label="Importar" icon="upload" onClick={() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Leads importados' }); onClose(); }} /></>}>
         <div className="col" style={{ gap: 14 }}>
           <div style={{ padding: 24, border: '2px dashed var(--border-strong)', borderRadius: 12, textAlign: 'center', background: 'var(--surface-2)' }}>
             <Ic name="upload" size={28} style={{ color: 'var(--text-faint)' }} />

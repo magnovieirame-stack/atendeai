@@ -6,12 +6,21 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermissao } from '../lib/autorizacao.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
 import { criarNotificacao } from '../lib/notify.js';
 
 export const crmRouter = Router();
 crmRouter.use(requireAuth);
+// Autorização: ver (GET) · mover card/fixar = crm.mover · resto (criar/apagar
+// card, mexer no funil/fases) = crm.gerenciar.
+crmRouter.use((req, res, next) => {
+  let perm = 'crm.gerenciar';
+  if (req.method === 'GET') perm = 'crm.ver';
+  else if (req.method === 'PATCH' && /\/cards\/[^/]+(\/fixar)?$/.test(req.path)) perm = 'crm.mover';
+  return requirePermissao(perm)(req, res, next);
+});
 
 const uuid = z.string().uuid('id inválido');
 const hexCor = z.string().trim().regex(/^#[0-9a-fA-F]{6}$/, 'Cor inválida.');

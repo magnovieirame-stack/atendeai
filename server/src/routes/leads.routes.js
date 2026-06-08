@@ -4,12 +4,15 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermissao } from '../lib/autorizacao.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
 import { criarNotificacao } from '../lib/notify.js';
 
 export const leadsRouter = Router();
 leadsRouter.use(requireAuth);
+leadsRouter.use((req, res, next) =>
+  requirePermissao(req.method === 'GET' ? 'leads.ver' : 'leads.gerenciar')(req, res, next));
 
 const uuid = z.string().uuid('id inválido');
 const db = () => adminClient();

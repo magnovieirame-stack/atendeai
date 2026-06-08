@@ -108,6 +108,7 @@ function TeamDrawer({ initial, allMembers, onClose, onSave, onDelete }) {
       tmr: Number(f.tmr) || 0
     };
     onSave(out);
+    window.showToast && window.showToast({ tipo: 'sucesso', titulo: isEdit ? 'Equipe atualizada' : 'Equipe criada', descricao: out.teamName });
   };
 
   const valid = f.teamName.trim().length >= 2 && f.responsibleId;
@@ -132,14 +133,10 @@ function TeamDrawer({ initial, allMembers, onClose, onSave, onDelete }) {
         drawerClose.current = close;
         return <>
         {isEdit &&
-          <button className="btn btn-delete-soft" onClick={() => setConfirmDel(true)}>
-            <Ic name="trash" size={13} /> Excluir equipe
-          </button>}
+          <ActionButton action="excluir" size="md" label="Excluir equipe" onClick={() => setConfirmDel(true)} />}
         <div style={{ flex: 1 }} />
-        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
-        <button className="btn btn-save" onClick={() => close(handleSave)} disabled={!valid} style={{ opacity: valid ? 1 : .5 }}>
-          <Ic name="check" size={13} /> {isEdit ? 'Salvar alterações' : 'Criar equipe'}
-        </button>
+        <ActionButton action="voltar" size="md" onClick={() => close()} />
+        <ActionButton action="salvar" size="md" label={isEdit ? 'Salvar alterações' : 'Criar equipe'} onClick={() => close(handleSave)} disabled={!valid} style={{ opacity: valid ? 1 : .5 }} />
       </>;
       }}>
 
@@ -464,6 +461,7 @@ function TeamDrawer({ initial, allMembers, onClose, onSave, onDelete }) {
                   const close = drawerClose.current;
                   if (close) close(() => onDelete(initial.id));
                   else onDelete(initial.id);
+                  window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Equipe excluída', descricao: f.teamName });
                 }, 180);
               }}>
                 <Ic name="trash" size={13} /> Excluir equipe

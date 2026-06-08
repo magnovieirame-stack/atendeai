@@ -1,11 +1,14 @@
 // app.jsx — main app entry, router, tweaks panel
 
 function TweaksUI() {
-  const { tweaks, setTweak } = useStore();
+  const { tweaks, setTweak, setVerComo, auth } = useStore();
+  const ehSuper = auth.papel === 'super_admin'; // só super admin de verdade vê o simulador "Ver como"
   return (
     <TweaksPanel title="Tweaks · ATENDE.IA">
-      <TweakSection label="Perfil" />
-      <TweakRadio label="Logado como" value={tweaks.profile} options={[{value:'admin',label:'Admin'},{value:'atendente',label:'Atendente'},{value:'super',label:'Super'}]} onChange={v=>setTweak('profile',v)} />
+      {ehSuper && <>
+        <TweakSection label="Ver como (preview)" />
+        <TweakRadio label="Ver como" value={tweaks.profile} options={[{value:'admin',label:'Admin'},{value:'atendente',label:'Atendente'},{value:'super',label:'Super'}]} onChange={v=>setVerComo(v)} />
+      </>}
       <TweakSection label="Aparência" />
       <TweakRadio label="Tema" value={tweaks.theme} options={[{value:'light',label:'Claro'},{value:'dark',label:'Escuro'}]} onChange={v=>setTweak('theme',v)} />
       <TweakRadio label="Densidade" value={tweaks.density} options={[{value:'compact',label:'Compacta'},{value:'regular',label:'Regular'},{value:'comfy',label:'Confortável'}]} onChange={v=>setTweak('density',v)} />
@@ -28,6 +31,7 @@ function App() {
   return (
     <Provider>
       <AppInner/>
+      <ToastHost />
     </Provider>
   );
 }

@@ -1,5 +1,48 @@
 // catalog-item.jsx — Drawer to add/edit a product or service (with AI training fields)
 
+// Unidades de medida padrão do sistema (o usuário pode cadastrar outras pelo "+").
+const DEFAULT_UNIDADES = [
+  { sigla: 'UN',  nome: 'Unidade' },
+  { sigla: 'CX',  nome: 'Caixa' },
+  { sigla: 'PCT', nome: 'Pacote' },
+  { sigla: 'FD',  nome: 'Fardo' },
+  { sigla: 'KG',  nome: 'Quilograma' },
+  { sigla: 'G',   nome: 'Grama' },
+  { sigla: 'L',   nome: 'Litro' },
+  { sigla: 'ML',  nome: 'Mililitro' },
+  { sigla: 'M',   nome: 'Metro' },
+  { sigla: 'PAR', nome: 'Par' },
+  { sigla: 'DZ',  nome: 'Dúzia' },
+];
+
+// Popup: cadastrar nova unidade (Nome + Sigla). Mesma cara do "Nova categoria".
+function NewUnitModal({ onClose, onCreate }) {
+  const [nome, setNome] = React.useState('');
+  const [sigla, setSigla] = React.useState('');
+  const valid = nome.trim().length >= 2 && sigla.trim().length >= 1;
+  return (
+    <Modal title="Nova unidade" onClose={onClose} size="sm"
+      footer={<>
+        <div style={{ flex: 1 }} />
+        <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
+        <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => onCreate({ nome: nome.trim(), sigla: sigla.trim().toUpperCase() })}>
+          <Ic name="check" size={13} /> Criar
+        </button>
+      </>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+        <div>
+          <label className="label">NOME DA UNIDADE</label>
+          <input className="input" value={nome} autoFocus onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Galão" />
+        </div>
+        <div>
+          <label className="label">SIGLA</label>
+          <input className="input" value={sigla} onChange={(e) => setSigla(e.target.value)} maxLength={8} placeholder="Ex.: GL" style={{ textTransform: 'uppercase' }} />
+        </div>
+      </div>
+    </Modal>
+  );
+}
+
 function CatalogItemDrawer({ initial, onClose, onSave }) {
   const isEdit = !!initial;
   const blank = {
@@ -9,12 +52,13 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
     cat: '',
     short: '',
     desc: '',
-    price: '',
-    promoPrice: '',
-    cost: '',
-    unit: 'un',
+    price: 0,
+    promoPrice: 0,
+    cost: 0,
+    unit: 'UN',
     stock: 0,
     stockMin: 0,
+    controlaEstoque: true,
     active: true,
     showInCatalog: true,
     // service-only
@@ -39,9 +83,77 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
   const [tab, setTab] = React.useState('basico');
   const [tagInput, setTagInput] = React.useState('');
   const [kwInput, setKwInput] = React.useState('');
+  const [cats, setCats] = React.useState([]);          // todas as categorias (Produto + Serviço)
+  const [newCatOpen, setNewCatOpen] = React.useState(false);
+  const [unidades, setUnidades] = React.useState(DEFAULT_UNIDADES); // padrão + personalizadas
+  const [newUnitOpen, setNewUnitOpen] = React.useState(false);
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const isService = f.kind === 'servico';
+  const catTipo = isService ? 'Serviço' : 'Produto';            // tipo conforme produto/serviço
+  const catOptions = cats.filter((c) => c.tipo === catTipo);    // só as do tipo atual
+
+  // Categorias vêm do sistema compartilhado (financeiro-categorias).
+  React.useEffect(() => {
+    let alive = true;
+    if (window.API && window.API.getFinCategorias) {
+      window.API.getFinCategorias()
+        .then((r) => { if (alive) setCats(r.categorias || []); })
+        .catch(() => {});
+    }
+    return () => { alive = false; };
+  }, []);
+
+  // Cria a categoria pelo popup compartilhado (no tipo atual) e já a seleciona.
+  const addCategoria = async (d) => {
+    try {
+      const r = await window.API.createFinCategoria({ nome: d.nome, tipo: d.tipo || catTipo });
+      const cat = r && r.categoria;
+      if (cat) {
+        setCats((p) => p.some((x) => x.id === cat.id) ? p : [...p, cat]);
+        set('cat', cat.nome);
+        window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Categoria criada', descricao: cat.nome });
+      }
+    } catch (e) {
+      window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao criar categoria', descricao: (e && e.message) || 'Não foi possível criar a categoria.' });
+    } finally {
+      setNewCatOpen(false);
+    }
+  };
+
+  // Unidades: junta as padrão com as personalizadas (do banco), dedup por sigla.
+  React.useEffect(() => {
+    let alive = true;
+    if (window.API && window.API.getUnidades) {
+      window.API.getUnidades()
+        .then((r) => {
+          if (!alive) return;
+          const bySigla = {};
+          DEFAULT_UNIDADES.forEach((u) => { bySigla[u.sigla] = u; });
+          (r.unidades || []).forEach((u) => { bySigla[u.sigla] = u; });
+          setUnidades(Object.values(bySigla));
+        })
+        .catch(() => {});
+    }
+    return () => { alive = false; };
+  }, []);
+
+  // Cria a unidade pelo popup e já a seleciona no campo.
+  const addUnidade = async (d) => {
+    try {
+      const r = await window.API.createUnidade({ nome: d.nome, sigla: d.sigla });
+      const u = r && r.unidade;
+      if (u) {
+        setUnidades((p) => p.some((x) => x.sigla === u.sigla) ? p.map((x) => x.sigla === u.sigla ? u : x) : [...p, u]);
+        set('unit', u.sigla);
+        window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Unidade criada', descricao: u.nome + ' (' + u.sigla + ')' });
+      }
+    } catch (e) {
+      window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao criar unidade', descricao: (e && e.message) || 'Não foi possível criar a unidade.' });
+    } finally {
+      setNewUnitOpen(false);
+    }
+  };
 
   const addTag = () => {
     const t = tagInput.trim();
@@ -91,10 +203,8 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
             Quanto mais detalhado, melhor o agente vende e tira dúvidas.
           </span>
         </div>
-        <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
-        <button className="btn btn-save" onClick={() => close(save)}>
-          <Ic name="check" size={13} /> {isEdit ? 'Salvar alterações' : 'Salvar item'}
-        </button>
+        <ActionButton action="voltar" size="md" onClick={() => close()} />
+        <ActionButton action="salvar" size="md" label={isEdit ? 'Salvar alterações' : 'Salvar item'} onClick={() => close(save)} />
       </>}
     >
       {/* Kind switch — Product vs Service */}
@@ -150,7 +260,14 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
               <label className="label">Categoria</label>
-              <input className="input" value={f.cat} onChange={e => set('cat', e.target.value)} placeholder={isService ? 'Ex: Facial, Corporal, Estética avançada' : 'Ex: Skincare, Capilar, Suplementos'} />
+              <div className="row" style={{ gap: 6 }}>
+                <select className="input" value={f.cat || ''} onChange={e => set('cat', e.target.value)} style={{ flex: 1 }}>
+                  <option value="">Selecione uma categoria…</option>
+                  {f.cat && !catOptions.some(c => c.nome === f.cat) && <option value={f.cat}>{f.cat}</option>}
+                  {catOptions.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
+                </select>
+                <button className="btn" type="button" onClick={() => setNewCatOpen(true)} title="Cadastrar categoria"><Ic name="plus" size={13} /></button>
+              </div>
             </div>
             <div>
               <label className="label">Etiquetas</label>
@@ -222,40 +339,51 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <div>
               <label className="label">Preço de venda *</label>
-              <input className="input" value={f.price} onChange={e => set('price', e.target.value)} placeholder="R$ 0,00" />
+              <window.MoneyInput value={f.price} onChange={(v, n) => set('price', n)} />
             </div>
             <div>
               <label className="label">Preço promocional</label>
-              <input className="input" value={f.promoPrice} onChange={e => set('promoPrice', e.target.value)} placeholder="R$ 0,00" />
+              <window.MoneyInput value={f.promoPrice} onChange={(v, n) => set('promoPrice', n)} />
             </div>
             <div>
               <label className="label">Custo</label>
-              <input className="input" value={f.cost} onChange={e => set('cost', e.target.value)} placeholder="R$ 0,00" />
+              <window.MoneyInput value={f.cost} onChange={(v, n) => set('cost', n)} />
             </div>
           </div>
 
           {!isService ? (
             <>
-              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10, alignItems: 'start' }}>
                 <div>
                   <label className="label">Unidade</label>
-                  <select className="input" value={f.unit} onChange={e => set('unit', e.target.value)}>
-                    <option value="un">Unidade</option>
-                    <option value="cx">Caixa</option>
-                    <option value="ml">ml</option>
-                    <option value="g">g</option>
-                    <option value="kg">kg</option>
-                  </select>
+                  <div className="row" style={{ gap: 6 }}>
+                    <select className="input" value={f.unit} onChange={e => set('unit', e.target.value)} style={{ flex: 1 }}>
+                      {!unidades.some(u => u.sigla === f.unit) && f.unit && <option value={f.unit}>{f.unit}</option>}
+                      {unidades.map(u => <option key={u.sigla} value={u.sigla}>{u.nome} ({u.sigla})</option>)}
+                    </select>
+                    <button className="btn" type="button" onClick={() => setNewUnitOpen(true)} title="Cadastrar unidade"><Ic name="plus" size={13} /></button>
+                  </div>
                 </div>
                 <div>
-                  <label className="label">Estoque atual</label>
-                  <input className="input" type="number" value={f.stock} onChange={e => set('stock', e.target.value)} />
-                </div>
-                <div>
-                  <label className="label">Estoque mínimo (alerta)</label>
-                  <input className="input" type="number" value={f.stockMin} onChange={e => set('stockMin', e.target.value)} />
+                  <label className="label">Controlar estoque</label>
+                  <div style={{ paddingTop: 6 }}>
+                    <Toggle on={f.controlaEstoque} onChange={v => set('controlaEstoque', v)} label={f.controlaEstoque ? 'Sim — controla entradas e saídas' : 'Não — vende sem estoque'} />
+                  </div>
                 </div>
               </div>
+
+              {f.controlaEstoque && (
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+                  <div>
+                    <label className="label">Estoque atual</label>
+                    <input className="input" type="number" value={f.stock} onChange={e => set('stock', e.target.value)} />
+                  </div>
+                  <div>
+                    <label className="label">Estoque mínimo (alerta)</label>
+                    <input className="input" type="number" value={f.stockMin} onChange={e => set('stockMin', e.target.value)} />
+                  </div>
+                </div>
+              )}
 
               <div className="card card-pad" style={{ background: 'var(--surface-2)' }}>
                 <div className="row">
@@ -421,6 +549,14 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
           </div>
         </div>
       )}
+
+      {/* Popup de cadastrar categoria — reaproveitado do sistema (accounts.jsx) */}
+      {newCatOpen && window.NewCategoryModal &&
+        <window.NewCategoryModal defaultTipo={catTipo} onClose={() => setNewCatOpen(false)} onCreate={addCategoria} />}
+
+      {/* Popup de cadastrar unidade (Nome + Sigla) */}
+      {newUnitOpen &&
+        <NewUnitModal onClose={() => setNewUnitOpen(false)} onCreate={addUnidade} />}
     </Drawer>
   );
 }

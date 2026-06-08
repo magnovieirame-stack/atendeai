@@ -75,6 +75,9 @@
         updated: 'agora'
       };
       onSave && onSave(t);
+      window.showToast && window.showToast(isNew
+        ? { tipo: 'sucesso', titulo: 'Template criado', descricao: 'Já está disponível para usar nas campanhas.' }
+        : { tipo: 'sucesso', titulo: 'Template salvo', descricao: 'As alterações foram aplicadas.' });
       onClose && onClose();
     };
 

@@ -4,7 +4,7 @@
 // row cards com borda lateral, badges, dark/light mode.
 
 (function() {
-  const { Ic, Drawer, Modal, Avatar, Page } = window;
+  const { Ic, Drawer, Modal, Avatar, Page, ActionButton } = window;
 
   // ---------- Helpers ----------
   const fmtBRL = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -170,6 +170,24 @@
     );
   }
 
+  // Skeleton do KPI — mesma estrutura/medidas do ComKpi real (ícone + label + valor viram blocos).
+  function ComKpiSkeleton({ tone = 'neutral', icon, label }) {
+    return (
+      <div className={'com-kpi com-kpi-' + tone}>
+        <div className="com-kpi-top">
+          <span className="com-kpi-ic"><Ic name={icon} size={16} /></span>
+          <span className="com-kpi-label">{label}</span>
+        </div>
+        <div className="com-kpi-value tnum" style={{ display: 'flex', alignItems: 'center' }}>
+          <Skeleton w={84} h={22} r={6} />
+        </div>
+        <div className="com-kpi-sub" style={{ display: 'flex', alignItems: 'center' }}>
+          <Skeleton w={'70%'} h={11} />
+        </div>
+      </div>
+    );
+  }
+
   // ---------- Status / Type pills ----------
   function StatusPill({ status }) {
     const m = STATUS_LABELS[status] || STATUS_LABELS.pendente;
@@ -212,22 +230,16 @@
     );
   }
 
-  // ---------- Toast / inline confirmation ----------
+  // ---------- Toast ----------
+  // Unificado com o Toast padrão global (window.showToast). Mantemos a assinatura
+  // antiga show(titulo, tone[, descricao]) p/ os componentes que recebem showToast por prop;
+  // ela apenas delega para o padrão do app.
+  const TONE_MAP = { success: 'sucesso', error: 'erro', warning: 'aviso', warn: 'aviso', info: 'info' };
   function useToast() {
-    const [toast, setToast] = React.useState(null);
-    const timer = React.useRef(null);
-    const show = React.useCallback((msg, tone = 'success') => {
-      setToast({ msg, tone });
-      if (timer.current) clearTimeout(timer.current);
-      timer.current = setTimeout(() => setToast(null), 2800);
+    const show = React.useCallback((titulo, tone = 'success', descricao) => {
+      window.showToast({ tipo: TONE_MAP[tone] || 'neutro', titulo, descricao });
     }, []);
-    const node = toast && (
-      <div className={'com-toast com-toast-' + toast.tone} role="status">
-        <Ic name={toast.tone === 'success' ? 'circle-check' : 'alert'} size={14} />
-        {toast.msg}
-      </div>
-    );
-    return { show, node };
+    return { show, node: null };
   }
 
   // ---------- Tabs (sliding pill) ----------
@@ -364,6 +376,7 @@
             <div key={tab} className={'com-tab-anim com-tab-anim-' + tabDir}>
               {tab === 'dashboard' && (
                 <DashboardTab
+                  loading={loading}
                   commissions={commissions}
                   rules={rules}
                   kpis={kpis}
@@ -387,6 +400,7 @@
               )}
               {tab === 'pagamentos' && (
                 <PaymentsTab
+                  loading={loading}
                   commissions={commissions}
                   onPay={() => setShowPayModal(true)}
                   updateCommission={updateCommission}
@@ -419,7 +433,7 @@
               onOpenCommission={(c) => { setDrawerComm(c); }}
               onPayAll={() => {
                 liveGroup.items.forEach(c => updateCommission(c.id, { status: 'paga', paidAt: todayISO }));
-                showToast(`${liveGroup.items.length} comissão(ões) pagas para ${liveGroup.seller.name}`);
+                showToast('Comissões pagas', 'success', `${liveGroup.items.length} comissão(ões) de ${liveGroup.seller.name}`);
                 setDrawerSeller(null);
               }}
               onCancelMany={(items) => {
@@ -441,7 +455,7 @@
             onClose={() => setDrawerComm(null)}
             onUpdate={(patch) => { updateCommission(drawerComm.id, patch); setDrawerComm(c => ({ ...c, ...patch })); }}
             onConfirm={(action) => setConfirmComm({ commission: drawerComm, action })}
-            onEdit={() => { /* edit hook — open same drawer in edit mode (placeholder) */ showToast('Modo de edição em breve', 'success'); }}
+            onEdit={() => { /* edit hook — open same drawer in edit mode (placeholder) */ showToast('Em breve', 'info', 'O modo de edição estará disponível em breve.'); }}
             showToast={showToast}
           />
         )}
@@ -452,10 +466,10 @@
             onSave={(r) => {
               if (drawerRule.id) {
                 setRules(prev => prev.map(x => x.id === drawerRule.id ? { ...x, ...r } : x));
-                showToast('Regra atualizada com sucesso');
+                showToast('Regra atualizada', 'success', r.name);
               } else {
                 setRules(prev => [{ ...r, id: 'r' + (prev.length + 1), status: 'ativa', priority: prev.length + 1 }, ...prev]);
-                showToast('Nova regra criada');
+                showToast('Regra criada', 'success', r.name);
               }
               setDrawerRule(null);
             }}
@@ -468,7 +482,7 @@
             onPay={(ids, info) => {
               setCommissions(prev => prev.map(c => ids.includes(c.id) ? { ...c, status: 'paga', paidAt: info.date, payMethod: info.method, payNote: info.note } : c));
               setShowPayModal(false);
-              showToast(`${ids.length} comissão(ões) paga(s) com sucesso`);
+              showToast('Comissões pagas', 'success', `${ids.length} comissão(ões) paga(s) com sucesso.`);
             }}
           />
         )}
@@ -479,7 +493,7 @@
             onClose={() => setConfirmGroupPay(null)}
             onConfirm={(info) => {
               confirmGroupPay.items.forEach(c => updateCommission(c.id, { status: 'paga', paidAt: info.date, payMethod: info.method, payNote: info.note }));
-              showToast(`${confirmGroupPay.items.length} comissão(ões) pagas para ${confirmGroupPay.seller.name}`, 'success');
+              showToast('Comissões pagas', 'success', `${confirmGroupPay.items.length} comissão(ões) de ${confirmGroupPay.seller.name}`);
               setConfirmGroupPay(null);
             }}
           />
@@ -491,7 +505,7 @@
             onClose={() => setConfirmGroupAction(null)}
             onConfirm={(info) => {
               confirmGroupAction.group.items.forEach(c => updateCommission(c.id, { status: 'paga', paidAt: info.date, payMethod: info.method, payNote: info.note }));
-              showToast(`${confirmGroupAction.group.items.length} comissão(ões) pagas`, 'success');
+              showToast('Comissões pagas', 'success', `${confirmGroupAction.group.items.length} comissão(ões) paga(s).`);
               setConfirmGroupAction(null);
             }}
           />
@@ -505,7 +519,7 @@
             confirmLabel={`Sim, cancelar ${confirmGroupAction.group.items.length}`}
             onConfirm={() => {
               confirmGroupAction.group.items.forEach(c => updateCommission(c.id, { status: 'cancelada' }));
-              showToast(`${confirmGroupAction.group.items.length} comissão(ões) cancelada(s)`, 'success');
+              showToast('Comissões canceladas', 'success', `${confirmGroupAction.group.items.length} comissão(ões) cancelada(s).`);
               setConfirmGroupAction(null);
             }}
             onClose={() => setConfirmGroupAction(null)}
@@ -535,13 +549,13 @@
             onConfirm={() => {
               if (confirmRule.action === 'delete') {
                 setRules(prev => prev.filter(r => r.id !== confirmRule.rule.id));
-                showToast('Regra excluída', 'success');
+                showToast('Regra excluída', 'success', confirmRule.rule.name);
               } else if (confirmRule.action === 'suspend') {
                 setRules(prev => prev.map(r => r.id === confirmRule.rule.id ? { ...r, status: 'pausada' } : r));
-                showToast('Regra suspensa', 'success');
+                showToast('Regra suspensa', 'warn', confirmRule.rule.name);
               } else {
                 setRules(prev => prev.map(r => r.id === confirmRule.rule.id ? { ...r, status: 'ativa' } : r));
-                showToast('Regra reativada', 'success');
+                showToast('Regra reativada', 'success', confirmRule.rule.name);
               }
               setConfirmRule(null);
             }}
@@ -612,7 +626,8 @@
                 const patch = cfg.apply();
                 updateCommission(confirmComm.commission.id, patch);
                 setDrawerComm(c => c ? { ...c, ...patch } : c);
-                showToast(cfg.toast, 'success');
+                // cancel/block usam tom de aviso; demais ações são sucesso.
+                showToast(cfg.toast, (confirmComm.action === 'cancel' || confirmComm.action === 'block') ? 'warn' : 'success');
                 setConfirmComm(null);
               }}
               onClose={() => setConfirmComm(null)}
@@ -691,7 +706,7 @@
   }
 
   // ---------- Tab: Dashboard ----------
-  function DashboardTab({ commissions, rules, kpis }) {
+  function DashboardTab({ loading, commissions, rules, kpis }) {
     const [period, setPeriod] = React.useState('mes');
     const [from, setFrom] = React.useState(todayISO);
     const [to, setTo] = React.useState(todayISO);
@@ -725,22 +740,48 @@
 
         {/* KPI strip — 6 main metrics */}
         <div className="com-kpi-grid">
-          <ComKpi tone="brand"     icon="reports"      label="TOTAL DE COMISSÕES"   value={fmtBRLcompact(kpis.total)}     sub={`${commissions.length} registros · abril/26`} />
-          <ComKpi tone="paga"      icon="check-double" label="PAGAS"                value={fmtBRLcompact(kpis.paga)}      sub={`${commissions.filter(c=>c.status==='paga').length} comissões`} />
-          <ComKpi tone="pendente"  icon="clock"        label="A PAGAR"              value={fmtBRLcompact(kpis.pendente)}  sub={`${commissions.filter(c=>c.status==='pendente'||c.status==='aprovada').length} pendentes`} />
-          <ComKpi tone="prev"      icon="star"         label="PREVISTA NO MÊS"      value={fmtBRLcompact(kpis.prevista)}  sub="Excluindo bloqueadas/canceladas" />
-          <ComKpi tone="team"      icon="users"        label="VENDEDORES"           value={String(kpis.vendedores)}       sub={kpis.topEquipe ? `Top equipe: ${kpis.topEquipe[0]}` : '—'} />
-          <ComKpi tone="avg"       icon="user"         label="MÉDIA POR VENDEDOR"   value={fmtBRLcompact(kpis.media)}     sub="Comissão média no período" />
+          {loading ? (
+            [
+              { tone: 'brand',    icon: 'reports',      label: 'TOTAL DE COMISSÕES' },
+              { tone: 'paga',     icon: 'check-double', label: 'PAGAS' },
+              { tone: 'pendente', icon: 'clock',        label: 'A PAGAR' },
+              { tone: 'prev',     icon: 'star',         label: 'PREVISTA NO MÊS' },
+              { tone: 'team',     icon: 'users',        label: 'VENDEDORES' },
+              { tone: 'avg',      icon: 'user',         label: 'MÉDIA POR VENDEDOR' },
+            ].map((k, i) => <ComKpiSkeleton key={i} tone={k.tone} icon={k.icon} label={k.label} />)
+          ) : (
+            <>
+              <ComKpi tone="brand"     icon="reports"      label="TOTAL DE COMISSÕES"   value={fmtBRLcompact(kpis.total)}     sub={`${commissions.length} registros · abril/26`} />
+              <ComKpi tone="paga"      icon="check-double" label="PAGAS"                value={fmtBRLcompact(kpis.paga)}      sub={`${commissions.filter(c=>c.status==='paga').length} comissões`} />
+              <ComKpi tone="pendente"  icon="clock"        label="A PAGAR"              value={fmtBRLcompact(kpis.pendente)}  sub={`${commissions.filter(c=>c.status==='pendente'||c.status==='aprovada').length} pendentes`} />
+              <ComKpi tone="prev"      icon="star"         label="PREVISTA NO MÊS"      value={fmtBRLcompact(kpis.prevista)}  sub="Excluindo bloqueadas/canceladas" />
+              <ComKpi tone="team"      icon="users"        label="VENDEDORES"           value={String(kpis.vendedores)}       sub={kpis.topEquipe ? `Top equipe: ${kpis.topEquipe[0]}` : '—'} />
+              <ComKpi tone="avg"       icon="user"         label="MÉDIA POR VENDEDOR"   value={fmtBRLcompact(kpis.media)}     sub="Comissão média no período" />
+            </>
+          )}
         </div>
 
         {/* Secondary KPI strip — extras */}
         <div className="com-kpi-grid com-kpi-grid-sm">
-          <ComKpi tone="brand"   icon="reports"      label="TICKET MÉDIO"          value={fmtBRLcompact(ticketMedio)} sub="Valor médio das vendas" />
-          <ComKpi tone="paga"    icon="check-double" label="TAXA PAGAMENTO"        value={taxaPagamento.toFixed(1).replace('.', ',') + '%'} sub={`${commissions.filter(c=>c.status==='paga').length} / ${commissions.length}`} />
-          <ComKpi tone="pendente" icon="shield"      label="BLOQUEADAS"            value={fmtBRLcompact(bloqueada)} sub={`${commissions.filter(c=>c.status==='bloqueada').length} comissões`} />
-          <ComKpi tone="prev"    icon="reports"      label="PREVISTA PRÓX. MÊS"   value={fmtBRLcompact(previstaProx)} sub="Estimativa (+8%)" />
-          <ComKpi tone="team"    icon="flag"         label="REGRAS ATIVAS"         value={String(regrasAtivas) + ' / ' + rules.length} sub="Em uso no momento" />
-          <ComKpi tone="avg"     icon="star"         label="META DO MÊS"           value={fmtBRLcompact(metaMes)} sub={`${metaPct.toFixed(0)}% atingido`} />
+          {loading ? (
+            [
+              { tone: 'brand',    icon: 'reports',      label: 'TICKET MÉDIO' },
+              { tone: 'paga',     icon: 'check-double', label: 'TAXA PAGAMENTO' },
+              { tone: 'pendente', icon: 'shield',       label: 'BLOQUEADAS' },
+              { tone: 'prev',     icon: 'reports',      label: 'PREVISTA PRÓX. MÊS' },
+              { tone: 'team',     icon: 'flag',         label: 'REGRAS ATIVAS' },
+              { tone: 'avg',      icon: 'star',         label: 'META DO MÊS' },
+            ].map((k, i) => <ComKpiSkeleton key={i} tone={k.tone} icon={k.icon} label={k.label} />)
+          ) : (
+            <>
+              <ComKpi tone="brand"   icon="reports"      label="TICKET MÉDIO"          value={fmtBRLcompact(ticketMedio)} sub="Valor médio das vendas" />
+              <ComKpi tone="paga"    icon="check-double" label="TAXA PAGAMENTO"        value={taxaPagamento.toFixed(1).replace('.', ',') + '%'} sub={`${commissions.filter(c=>c.status==='paga').length} / ${commissions.length}`} />
+              <ComKpi tone="pendente" icon="shield"      label="BLOQUEADAS"            value={fmtBRLcompact(bloqueada)} sub={`${commissions.filter(c=>c.status==='bloqueada').length} comissões`} />
+              <ComKpi tone="prev"    icon="reports"      label="PREVISTA PRÓX. MÊS"   value={fmtBRLcompact(previstaProx)} sub="Estimativa (+8%)" />
+              <ComKpi tone="team"    icon="flag"         label="REGRAS ATIVAS"         value={String(regrasAtivas) + ' / ' + rules.length} sub="Em uso no momento" />
+              <ComKpi tone="avg"     icon="star"         label="META DO MÊS"           value={fmtBRLcompact(metaMes)} sub={`${metaPct.toFixed(0)}% atingido`} />
+            </>
+          )}
         </div>
 
         {/* Meta progress bar */}
@@ -1046,7 +1087,7 @@
             {Object.entries(TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v.label}</option>)}
           </select>
           <span className="spacer" style={{ flex: 1 }} />
-          <button className="fin-new-btn" onClick={onCreate} aria-label="Nova Regra"><span className="fin-new-label">{'Nova Regra\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>
+          <FabNovo size="sm" label="Nova Regra" onClick={onCreate} />
         </div>
 
         {loading ? (
@@ -1101,7 +1142,34 @@
   }
 
   // ---------- Tab: Pagamentos ----------
-  function PaymentsTab({ commissions, onPay, updateCommission, showToast, onOpen, onConfirmPay }) {
+  // Skeleton do grupo de pagamento — reusa o .com-pay-group e sua estrutura interna.
+  function PayGroupSkeleton() {
+    return (
+      <div className="card com-pay-group" style={{ cursor: 'default' }}>
+        <div className="com-pay-group-h">
+          <Skeleton circle w={32} h={32} />
+          <div style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+            <Skeleton w={160} h={14} />
+            <Skeleton w={200} h={11} style={{ marginTop: 5 }} />
+          </div>
+          <Skeleton w={96} h={17} />
+        </div>
+        <div className="com-pay-group-summary">
+          <div className="com-pay-summary-l">
+            <Skeleton w={78} h={22} r={999} />
+            <Skeleton w={88} h={22} r={999} />
+            <Skeleton w={74} h={22} r={999} />
+          </div>
+          <div className="com-pay-summary-r">
+            <Skeleton w={92} h={22} r={999} />
+            <Skeleton w={96} h={22} r={999} />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  function PaymentsTab({ loading, commissions, onPay, updateCommission, showToast, onOpen, onConfirmPay }) {
     const [q, setQ] = React.useState('');
     const pendentes = commissions.filter(c => c.status === 'pendente' || c.status === 'aprovada');
     const total = pendentes.reduce((s, c) => s + c.commission, 0);
@@ -1117,6 +1185,7 @@
     const groups = q.trim()
       ? allGroups.filter(g => g.seller.name.toLowerCase().includes(q.trim().toLowerCase()))
       : allGroups;
+    React.useEffect(() => { if (!loading && !q.trim()) skelRemember('com-pay-groups', allGroups.length); }, [loading, allGroups.length]);
 
     return (
       <>
@@ -1144,7 +1213,11 @@
             style={{ width: '100%', height: 38, paddingLeft: 34 }} />
         </div>
 
-        {groups.length === 0 ? (
+        {loading ? (
+          <div className="com-pay-groups">
+            {Array.from({ length: skelCount('com-pay-groups', 3) }).map((_, i) => <PayGroupSkeleton key={i} />)}
+          </div>
+        ) : groups.length === 0 ? (
           q.trim()
             ? <EmptyState icon="search" title="Nenhuma comissão encontrada" sub={`Nenhum vendedor corresponde a "${q.trim()}".`} />
             : <EmptyState icon="check-circle" title="Tudo em dia!" sub="Não há comissões pendentes de pagamento." />
@@ -1240,33 +1313,33 @@
         width={680}
         footer={
           <>
-            <button className="btn" onClick={onEdit}><Ic name="edit" size={12} /> Editar</button>
+            <ActionButton action="editar" size="md" onClick={onEdit} />
             {commission.status === 'pendente' && (
               <>
-                <button className="btn" onClick={() => onConfirm('cancel')}><Ic name="x" size={12} /> Cancelar</button>
-                <button className="btn" onClick={() => onConfirm('block')}><Ic name="shield" size={12} /> Bloquear</button>
+                <ActionButton action="cancelar" size="md" onClick={() => onConfirm('cancel')} />
+                <ActionButton action="atencao" size="md" label="Bloquear" icon="shield" onClick={() => onConfirm('block')} />
                 <span className="spacer" style={{ flex: 1 }} />
-                <button className="btn btn-primary" onClick={() => onConfirm('approve')}><Ic name="check" size={12} /> Aprovar</button>
+                <ActionButton action="salvar" size="md" label="Aprovar" onClick={() => onConfirm('approve')} />
               </>
             )}
             {commission.status === 'aprovada' && (
               <>
-                <button className="btn" onClick={() => onConfirm('cancel')}><Ic name="x" size={12} /> Cancelar</button>
-                <button className="btn" onClick={() => onConfirm('block')}><Ic name="shield" size={12} /> Bloquear</button>
+                <ActionButton action="cancelar" size="md" onClick={() => onConfirm('cancel')} />
+                <ActionButton action="atencao" size="md" label="Bloquear" icon="shield" onClick={() => onConfirm('block')} />
                 <span className="spacer" style={{ flex: 1 }} />
-                <button className="btn btn-primary" onClick={() => onConfirm('pay')}><Ic name="dollar" size={12} /> Pagar comissão</button>
+                <ActionButton action="salvar" size="md" label="Pagar comissão" icon="dollar" onClick={() => onConfirm('pay')} />
               </>
             )}
             {commission.status === 'bloqueada' && (
               <>
                 <span className="spacer" style={{ flex: 1 }} />
-                <button className="btn btn-primary" onClick={() => onConfirm('release')}><Ic name="check" size={12} /> Liberar para análise</button>
+                <ActionButton action="salvar" size="md" label="Liberar para análise" onClick={() => onConfirm('release')} />
               </>
             )}
             {(commission.status === 'paga' || commission.status === 'cancelada') && (
               <>
                 <span className="spacer" style={{ flex: 1 }} />
-                <button className="btn" onClick={onClose}>Fechar</button>
+                <ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} />
               </>
             )}
           </>
@@ -1373,11 +1446,9 @@
         width={720}
         footer={(close) =>
           <>
-            <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
+            <ActionButton action="voltar" size="md" onClick={() => close()} />
             <span className="spacer" style={{ flex: 1 }} />
-            <button className="btn btn-save" disabled={!canSave} onClick={() => close(() => onSave(form))}>
-              <Ic name="check" size={12} /> {isEdit ? 'Salvar alterações' : 'Criar regra'}
-            </button>
+            <ActionButton action="salvar" size="md" disabled={!canSave} label={isEdit ? 'Salvar alterações' : 'Criar regra'} onClick={() => close(() => onSave(form))} />
           </>
         }
       >
@@ -1572,22 +1643,23 @@
         leftHead={<Avatar name={seller.name} />}
         footer={
           <>
-            <button className="btn" onClick={onClose}>Fechar</button>
+            <ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} />
             <span className="spacer" style={{ flex: 1 }} />
-            <button
-              className="btn"
+            <ActionButton
+              action="cancelar"
+              size="md"
+              label={`Cancelar (${selectedItems.length})`}
               disabled={selectedItems.length === 0}
               onClick={() => onCancelMany(selectedItems)}
-            >
-              <Ic name="x" size={12} /> Cancelar ({selectedItems.length})
-            </button>
-            <button
-              className="btn btn-primary"
+            />
+            <ActionButton
+              action="salvar"
+              size="md"
+              icon="dollar"
+              label={`Pagar ${selectedItems.length > 0 ? fmtBRL(selectedTotal) : ''} (${selectedItems.length})`}
               disabled={selectedItems.length === 0}
               onClick={() => onPayMany(selectedItems)}
-            >
-              <Ic name="dollar" size={12} /> Pagar {selectedItems.length > 0 ? fmtBRL(selectedTotal) : ''} ({selectedItems.length})
-            </button>
+            />
           </>
         }
       >

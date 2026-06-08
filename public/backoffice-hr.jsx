@@ -24,7 +24,7 @@
         subtitle={c.cargo + ' · ' + c.depto}
         onClose={onClose} width={680}
         rightHead={<BoChip color={st.color} label={st.label} solid />}
-        footer={(close) => (<><button className="btn fin-btn-back btn-fixed" onClick={() => close()}><Ic name="arrow-left" size={13} /> Voltar</button><div style={{ flex: 1 }} /><button className="btn btn-save btn-fixed"><Ic name="edit" size={13} /> Editar</button></>)}>
+        footer={(close) => (<><ActionButton action="voltar" size="md" onClick={() => close()} /><div style={{ flex: 1 }} /><ActionButton action="editar" size="md" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Colaborador atualizado', descricao: c.nome + '.' })} /></>)}>
         <style>{`
           .hr-dl-row { display: grid; grid-template-columns: 150px 1fr; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border); align-items: center; }
           .hr-dl-row:last-child { border-bottom: 0; }
@@ -46,14 +46,27 @@
             <div key={d} className="bo-mini">
               <span className="bo-mini-ic" style={{ background: 'color-mix(in oklab,#3b82f6 12%,white)', color: '#1d4ed8' }}><Ic name="file-text" size={16} /></span>
               <div className="bo-mini-main"><div className="bo-mini-title">{d}</div></div>
-              <button className="btn btn-sm btn-ghost"><Ic name="download" size={13} /></button>
+              <button className="btn btn-sm btn-ghost" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Download iniciado', descricao: d + '.' })}><Ic name="download" size={13} /></button>
             </div>))}
         </div>
       </Drawer>);
   }
 
+  // ───────── Skeletons ─────────
+  function BoKpiSkeleton({ count = 6 }) {
+    return Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="bo-kpi" style={{ borderTopColor: 'var(--border-strong)' }}>
+        <div className="bo-kpi-head">
+          <span className="bo-kpi-icon" style={{ background: 'var(--surface-3)' }}><Skeleton w={17} h={17} r={4} /></span>
+          <span className="bo-kpi-label"><Skeleton w="70%" h={12} /></span>
+        </div>
+        <div className="bo-kpi-value"><Skeleton w="55%" h={24} /></div>
+        <div className="bo-kpi-foot"><Skeleton w="45%" h={11} /></div>
+      </div>));
+  }
+
   // ───────── Aba: Colaboradores ─────────
-  function ColaboradoresTab({ onOpen }) {
+  function ColaboradoresTab({ onOpen, loading }) {
     const [query, setQuery] = React.useState('');
     const [dep, setDep] = React.useState('todos');
     const filtered = React.useMemo(() => {
@@ -83,7 +96,19 @@
             <div>Colaborador</div><div>Departamento</div><div>Admissão</div><div>Salário</div><div>Status</div><div></div>
           </div>
           <div className="bo-list-body">
-            {filtered.map((c) => (
+            {loading ? Array.from({ length: skelCount('bo-colaboradores', 3) }).map((_, i) => (
+              <div key={i} className="bo-row bo-row-body" style={{ gridTemplateColumns: COLS, borderLeftColor: 'var(--border-strong)' }}>
+                <div className="row" style={{ gap: 11, minWidth: 0 }}>
+                  <Skeleton circle w={36} h={36} />
+                  <div className="bo-cell"><Skeleton w="65%" h={14} /><Skeleton w="45%" h={11} /></div>
+                </div>
+                <div className="bo-cell"><Skeleton w="70%" h={13} /><Skeleton w="55%" h={11} /></div>
+                <div className="bo-cell"><Skeleton w="80%" h={13} /></div>
+                <div className="bo-cell"><Skeleton w="55%" h={14} /></div>
+                <div className="bo-cell"><Skeleton w={68} h={20} /></div>
+                <div className="bo-cell"></div>
+              </div>
+            )) : filtered.map((c) => (
               <div key={c.nome} className="bo-row bo-row-body" style={{ gridTemplateColumns: COLS, borderLeftColor: (CST[c.status] || CST.ativo).color }} onClick={() => onOpen(c)}>
                 <div className="row" style={{ gap: 11, minWidth: 0 }}>
                   <Avatar name={c.nome} />
@@ -150,7 +175,7 @@
                 <div className="bo-mini-sub tnum">{f.inicio} → {f.fim} · {f.dias} dias</div>
               </div>
               {f.status === 'pendente'
-                ? <button className="btn btn-sm btn-save"><Ic name="check" size={13} /> Aprovar</button>
+                ? <button className="btn btn-sm btn-save" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Férias aprovadas', descricao: f.colaborador + ' · ' + f.inicio + ' → ' + f.fim + '.' })}><Ic name="check" size={13} /> Aprovar</button>
                 : <BoChip color="#10b981" label="Aprovada" />}
             </div>))}
         </BoPanel>
@@ -178,6 +203,9 @@
   function BackofficeHR() {
     const [tab, setTab] = React.useState('colab');
     const [open, setOpen] = React.useState(null);
+    const [loading, setLoading] = React.useState(true);  // skeleton no mount (scaffolding p/ API real)
+    React.useEffect(() => setLoading(false), []);
+    React.useEffect(() => { if (data.colaboradores.length) skelRemember('bo-colaboradores', data.colaboradores.length); }, []);
     const kpis = React.useMemo(() => {
       const c = data.colaboradores;
       return {
@@ -191,21 +219,23 @@
     }, []);
     return (
       <Page title="RH" subtitle="Recrutamento, colaboradores e desenvolvimento humano"
-        actions={<BoNewBtn label="Novo colaborador" onClick={() => {}} />}>
+        actions={<FabNovo size="sm" label="Novo colaborador" onClick={() => {}} />}>
         <BoStyles />
         <div className="bo-kpi-grid">
+          {loading ? <BoKpiSkeleton count={6} /> : <>
           <BoKpi tone="blue" icon="users" label="Colaboradores ativos" value={kpis.ativos} foot="Headcount" />
           <BoKpi tone="teal" icon="user" label="Novas contratações" value={kpis.novos} foot="Em admissão" />
           <BoKpi tone="violet" icon="funnel" label="Vagas abertas" value={kpis.vagas} foot="Recrutamento" />
           <BoKpi tone="amber" icon="agenda" label="Férias programadas" value={kpis.ferias} foot="Próximas" />
           <BoKpi tone="orange" icon="star" label="Aniversariantes" value={kpis.aniver} foot="Este mês" />
           <BoKpi tone="slate" icon="activity" label="Turnover" value={kpis.turnover} foot="12 meses" />
+          </>}
         </div>
         <div className="tabs">
           {[['colab', 'Colaboradores'], ['recrut', 'Recrutamento'], ['ferias', 'Férias & Benefícios']].map(([id, label]) => (
             <div key={id} className={'tab' + (tab === id ? ' active' : '')} onClick={() => setTab(id)}>{label}</div>))}
         </div>
-        {tab === 'colab' && <ColaboradoresTab onOpen={setOpen} />}
+        {tab === 'colab' && <ColaboradoresTab onOpen={setOpen} loading={loading} />}
         {tab === 'recrut' && <RecrutamentoTab />}
         {tab === 'ferias' && <FeriasTab />}
         {open && <ColabDrawer colab={open} onClose={() => setOpen(null)} />}

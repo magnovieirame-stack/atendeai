@@ -56,16 +56,50 @@
   }
 
   // ---------- Page ----------
+  function AccountsSkeleton({ count = 3 }) {
+    // Replica a estrutura real do .acc-card (head + body com saldo, grade de 6 ações 80×70 e
+    // natureza) reusando as MESMAS classes — assim a altura nasce idêntica à do card real.
+    return (<>
+      {Array.from({ length: count }).map((_, i) => (
+        <div key={i} className="acc-card" style={{ '--acc-color': 'var(--border-strong)' }}>
+          <div className="acc-card-head">
+            <div className="acc-card-bank">
+              <span className="acc-card-bank-ic"><Skeleton circle w={22} h={22} /></span>
+              <div className="acc-card-bank-text">
+                <div className="acc-card-bank-title"><Skeleton w="65%" h={16} /></div>
+                <div className="acc-card-bank-sub"><Skeleton w={54} h={11} /><Skeleton w={54} h={11} /></div>
+              </div>
+            </div>
+          </div>
+          <div className="acc-card-body">
+            <div className="acc-balance">
+              <div className="acc-balance-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                <Skeleton w={120} h={11} /><Skeleton w={26} h={26} r={6} />
+              </div>
+              <div className="acc-balance-value"><Skeleton w="55%" h={26} /></div>
+            </div>
+            <div className="acc-actions-grid">
+              {Array.from({ length: 6 }).map((_, k) => <Skeleton key={k} w={80} h={70} r={5} />)}
+            </div>
+            <div className="acc-nature"><Skeleton w="60%" h={14} style={{ margin: '0 auto' }} /></div>
+          </div>
+        </div>
+      ))}
+    </>);
+  }
   function AccountsPage() {
     const [items, setItems] = React.useState([]);
+    const [loaded, setLoaded] = React.useState(false);
+    const showSkel = !loaded; // some SÓ quando os dados chegam (loading real, sem delay artificial)
     const [hidden, setHidden] = React.useState({}); // saldo oculto por conta (carregado do banco)
     const contaToUi = (c) => ({ id: c.id, descricao: c.descricao, banco: c.banco, agencia: c.agencia, conta: c.conta, tipo: c.tipoConta || 'Corrente', pessoa: c.fisicaJuridica || 'Jurídica', operacao: '', saldo: c.saldo, natureza: c.gerencial ? 'gerencial' : 'capital', cor: c.cor || '#22c55e', obs: c.observacoes || '', gerencialDefault: !!c.gerencialDefault, saldoOculto: !!c.saldoOculto });
     const loadContas = React.useCallback(() => API.getContas().then((r) => {
       const ui = (r.contas || []).map(contaToUi);
       setItems(ui);
       setHidden(Object.fromEntries(ui.map((c) => [c.id, !!c.saldoOculto])));
-    }).catch(() => {}), []);
+    }).catch(() => {}).finally(() => setLoaded(true)), []);
     React.useEffect(() => { loadContas(); }, [loadContas]);
+    React.useEffect(() => { if (items.length) skelRemember('contas', items.length); }, [items]);
     // Usuário atual — usado como "Responsável" (travado) nas movimentações.
     const [userName, setUserName] = React.useState('');
     React.useEffect(() => { API.me().then((r) => setUserName((r.user && (r.user.name || r.user.email)) || '')).catch(() => {}); }, []);
@@ -117,11 +151,15 @@
       observacoes: d.obs || '',
     });
     const handleSave = async (data) => {
+      const editing = !!(editItem && editItem.id);
       try {
-        if (editItem && editItem.id) await API.updateConta(editItem.id, toDto(data));
+        if (editing) await API.updateConta(editItem.id, toDto(data));
         else await API.createConta(toDto(data));
         await loadContas();
-      } catch (e) {}
+        window.showToast({ tipo: 'sucesso', titulo: editing ? 'Conta atualizada' : 'Conta cadastrada', descricao: data.descricao });
+      } catch (e) {
+        window.showToast({ tipo: 'erro', titulo: 'Falha ao salvar conta', descricao: (e && e.message) || 'Tente novamente.' });
+      }
       setShowNew(false); setEditItem(null);
     };
 
@@ -130,25 +168,38 @@
     const handleMovement = async ({ kind, account, amount, destId, dataRegistro, categoria, descricao }) => {
       const n = Number(amount) || 0;
       if (!n) return;
-      if (kind === 'transferir') {
-        await API.transferir({ origemId: account.id, destId, valor: n, data: dataRegistro, descricao });
-      } else {
-        await API.createEntrada({
-          tipo: kind === 'aporte' ? 'entrada' : 'saida',
-          valor: n, contaId: account.id, descricao,
-          categoria: categoria ? categoria.nome : '',
-          responsavel: userName, pago: true,
-          emissao: dataRegistro, vencimento: dataRegistro, competencia: dataRegistro,
-        });
+      const titulos = { aporte: 'Aporte realizado', retirada: 'Retirada realizada', transferir: 'Transferência realizada' };
+      try {
+        if (kind === 'transferir') {
+          await API.transferir({ origemId: account.id, destId, valor: n, data: dataRegistro, descricao });
+        } else {
+          await API.createEntrada({
+            tipo: kind === 'aporte' ? 'entrada' : 'saida',
+            valor: n, contaId: account.id, descricao,
+            categoria: categoria ? categoria.nome : '',
+            responsavel: userName, pago: true,
+            emissao: dataRegistro, vencimento: dataRegistro, competencia: dataRegistro,
+          });
+        }
+        await loadContas();
+        window.showToast({ tipo: 'sucesso', titulo: titulos[kind] || 'Movimentação realizada', descricao: 'R$ ' + fmtBRL(n) + ' · ' + (account.descricao || '') });
+      } catch (e) {
+        window.showToast({ tipo: 'erro', titulo: 'Falha na movimentação', descricao: (e && e.message) || 'Tente novamente.' });
+        throw e; // mantém a aba aberta e exibe o erro inline
       }
-      await loadContas();
     };
 
     // Encerramento: backend valida a regra de saldo (transfere se necessário) e remove a conta.
     const handleEncerrar = async ({ account, dataRegistro, destId, motivo }) => {
-      await API.encerrarConta(account.id, { destId: destId || null, data: dataRegistro, motivo });
-      await loadContas();
-      setConfirmDel(null);
+      try {
+        await API.encerrarConta(account.id, { destId: destId || null, data: dataRegistro, motivo });
+        await loadContas();
+        window.showToast({ tipo: 'sucesso', titulo: 'Conta encerrada', descricao: account.descricao });
+        setConfirmDel(null);
+      } catch (e) {
+        window.showToast({ tipo: 'erro', titulo: 'Falha ao encerrar conta', descricao: (e && e.message) || 'Tente novamente.' });
+        throw e; // mantém a aba aberta e exibe o erro inline
+      }
     };
 
     const sum = totalSaldo(filtered);
@@ -161,7 +212,16 @@
 
         {/* Grid de cartões */}
         <div className="acc-grid">
-          {filtered.map((it) => {
+          {/* "Add" tile — primeiro da grade */}
+          <button className="acc-card acc-card-add" onClick={() => {setEditItem(null);setShowNew(true);}}>
+            <div className="acc-card-add-circle">
+              <Ic name="plus" size={28} />
+            </div>
+            <div className="acc-card-add-title">Cadastrar conta</div>
+            <div className="acc-card-add-sub">Adicione uma conta bancária, caixa ou reserva</div>
+          </button>
+          {showSkel && <AccountsSkeleton count={skelCount('contas', 3)} />}
+          {!showSkel && filtered.map((it) => {
             const isHidden = hidden[it.id];
             return (
               <div key={it.id} className="acc-card" style={{ '--acc-color': it.cor }}>
@@ -213,16 +273,7 @@
 
           })}
 
-          {/* "Add" tile */}
-          <button className="acc-card acc-card-add" onClick={() => {setEditItem(null);setShowNew(true);}}>
-            <div className="acc-card-add-circle">
-              <Ic name="plus" size={28} />
-            </div>
-            <div className="acc-card-add-title">Cadastrar conta</div>
-            <div className="acc-card-add-sub">Adicione uma conta bancária, caixa ou reserva</div>
-          </button>
-
-          {filtered.length === 0 &&
+          {!showSkel && filtered.length === 0 &&
           <div style={{ gridColumn: '1 / -1', padding: 60, textAlign: 'center', color: 'var(--text-faint)' }}>
               <Ic name="bank" size={36} style={{ opacity: .35 }} />
               <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>
@@ -345,12 +396,11 @@
         width={820}
         footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
-          <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close(handleSave)}>
-            <Ic name="check" size={13} /> Salvar
-          </button>
+          <ActionButton action="voltar" size="md" onClick={() => close()} />
+          <ActionButton action="salvar" size="md" disabled={!valid} onClick={() => close(handleSave)} />
         </>}>
 
+        <div className="acc-cad-form">
         <div className="fin-section-title">IDENTIFICAÇÃO</div>
         <div className="fin-section">
           <div className="acc-grid-3">
@@ -423,6 +473,7 @@
         <div className="fin-section">
           <textarea className="input" rows={3} value={f.obs} onChange={(e) => set('obs', e.target.value)} placeholder="Observações..." />
         </div>
+        </div>
       </Drawer>);
 
   }
@@ -459,7 +510,7 @@
   }
 
   // ---------- Seletor de categoria (grupo suspenso + criar nova) ----------
-  const TIPO_CORES = { Financeira: '#3b82f6', Produto: '#f59e0b', Cliente: '#10b981' };
+  const TIPO_CORES = { Financeira: '#3b82f6', Produto: '#f59e0b', Serviço: '#8b5cf6', Cliente: '#10b981' };
   function CategoryField({ value, categories, onPick, onNew }) {
     const [open, setOpen] = React.useState(false);
     return (
@@ -502,9 +553,9 @@
   }
 
   // ---------- Popup: nova categoria ----------
-  function NewCategoryModal({ onClose, onCreate }) {
+  function NewCategoryModal({ onClose, onCreate, defaultTipo }) {
     const [nome, setNome] = React.useState('');
-    const [tipo, setTipo] = React.useState('Financeira');
+    const [tipo, setTipo] = React.useState(defaultTipo || 'Financeira');
     const valid = nome.trim().length >= 2;
     return (
       <Modal title="Nova categoria" onClose={onClose} size="sm"
@@ -525,6 +576,7 @@
             <select className="input" value={tipo} onChange={(e) => setTipo(e.target.value)}>
               <option value="Financeira">Financeira</option>
               <option value="Produto">Produto</option>
+              <option value="Serviço">Serviço</option>
               <option value="Cliente">Cliente</option>
             </select>
           </div>
@@ -580,13 +632,11 @@
         width={560}
         footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back" onClick={() => close()} disabled={saving}>Voltar</button>
-          <button className="btn btn-primary" disabled={!valid || saving} style={{ background: meta.color, borderColor: meta.color, opacity: (!valid || saving) ? .55 : 1 }}
-        onClick={() => submit(close)}>
-            <Ic name="check" size={13} /> {saving ? 'Salvando…' : meta.verb}
-          </button>
+          <ActionButton action="voltar" size="md" onClick={() => close()} disabled={saving} />
+          <ActionButton action="salvar" size="md" disabled={!valid || saving} label={saving ? 'Salvando…' : meta.verb} onClick={() => submit(close)} />
         </>}>
 
+        <div className="acc-cad-form">
         <div className="fin-section-title">MOVIMENTO</div>
         <div className="fin-section">
           <div className="acc-move-summary" style={{ marginBottom: 16 }}>
@@ -638,6 +688,7 @@
         <div className="fin-section">
           <textarea className="input" rows={3} value={obs} onChange={(e) => setObs(e.target.value)} placeholder="Observações..." />
         </div>
+        </div>
       </Drawer>
 
       {newCatOpen &&
@@ -647,6 +698,7 @@
           const created = await addCategory(d);
           setCategoria(created);
           setNewCatOpen(false);
+          window.showToast({ tipo: 'sucesso', titulo: 'Categoria criada', descricao: created.nome });
         }} />
       }
     </>);
@@ -692,12 +744,11 @@
         width={560}
         footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
-          <button className="btn" disabled={!valid} style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white', opacity: valid ? 1 : .55 }} onClick={() => setConfirmOpen(true)}>
-            <Ic name="trash" size={13} /> Encerrar
-          </button>
+          <ActionButton action="voltar" size="md" onClick={() => close()} />
+          <ActionButton action="excluir" size="md" label="Encerrar" disabled={!valid} onClick={() => setConfirmOpen(true)} />
         </>}>
 
+        <div className="acc-cad-form">
         <div className="fin-section-title">CONTA A ENCERRAR</div>
         <div className="fin-section">
           <div className="acc-move-summary" style={{ marginBottom: 16 }}>
@@ -735,6 +786,7 @@
             <Ic name="info" size={14} style={{ marginTop: 2, flexShrink: 0, color: 'var(--hue-amber)' }} />
             <span>Esta conta tem saldo. Selecione uma conta destino para transferir o saldo antes do encerramento.</span>
           </div>}
+        </div>
         </div>
       </Drawer>
 
@@ -1338,14 +1390,20 @@
 
         /* ===== StatementDrawer (Fluxo Operacional Financeiro) ===== */
         .stm-section-title {
-          font-size: var(--type-xs); font-weight: 700; letter-spacing: .12em;
-          color: var(--text-muted); text-transform: uppercase;
+          font-size: 11px; font-weight: 700; letter-spacing: .1em;
+          color: var(--accent-700); text-transform: uppercase;
           margin: 14px 2px 8px;
+          display: flex; align-items: center; gap: 8px;
+        }
+        .stm-section-title::before {
+          content: ''; width: 14px; height: 14px; border-radius: 4px; flex-shrink: 0;
+          background: color-mix(in oklab, var(--accent) 18%, transparent);
+          box-shadow: inset 0 0 0 1.5px var(--accent);
         }
         .stm-section {
-          background: var(--surface-2);
+          background: color-mix(in oklab, var(--accent) 4%, var(--surface));
           border: 1px solid var(--border);
-          border-radius: 12px;
+          border-radius: 6px;
           padding: 16px;
           display: flex; flex-direction: column; gap: 14px;
         }
@@ -1563,6 +1621,16 @@
 
         @media (max-width: 900px) {
           .stm-row { grid-template-columns: 110px minmax(0, 1.6fr) 100px 120px; }
+        }
+
+        /* Abas de conta (Cadastro/Editor, Aporte/Retirada/Transferir, Encerrar):
+           grupos de tópicos sem destaque verde à esquerda + cantos menos arredondados */
+        .acc-cad-form .fin-section {
+          border-left: 1px solid var(--border);
+          border-radius: 6px;
+        }
+        @media (max-width: 900px) {
+          .stm-row { grid-template-columns: 110px minmax(0, 1.6fr) 100px 120px; }
           .stm-row > div:nth-child(3), .stm-row > div:nth-child(4) { display: none; } /* esconde Categoria e Responsável no estreito */
         }
       `}</style>);
@@ -1571,5 +1639,5 @@
 
   // ---------- Exports ----------
   function FinAccounts() {return <AccountsPage />;}
-  Object.assign(window, { FinAccounts });
+  Object.assign(window, { FinAccounts, NewCategoryModal });
 })();

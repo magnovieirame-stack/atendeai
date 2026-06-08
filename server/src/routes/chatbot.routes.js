@@ -11,6 +11,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
 import { requireAuth } from '../middleware/auth.js';
+import { requirePermissao } from '../lib/autorizacao.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
 import * as integ from '../lib/integracoes.js';
@@ -20,6 +21,32 @@ import * as wa from '../lib/whatsapp.js';
 
 export const chatbotRouter = Router();
 chatbotRouter.use(requireAuth);
+
+// Autorização do chatbot. Mistura ficha de cliente (clientes.*) com atendimento.
+//   - /clientes e /clientes/:id  -> clientes.ver/criar/editar/excluir
+//   - GET geral                  -> atendimento.ver
+//   - excluir tag/resposta, apagar contato, limpar conversa -> atendimento.gerenciar (admin)
+//   - remover tag DO contato (reversível) e demais POST/PATCH -> atendimento.responder
+function permChatbot(method, p) {
+  // ficha do cliente: /clientes ou /clientes/:id (NÃO confundir com /clientes-contato)
+  if (/\/clientes(\/[^/]+)?$/.test(p)) {
+    if (method === 'GET') return 'clientes.ver';
+    if (method === 'POST') return 'clientes.criar';
+    if (method === 'PATCH') return 'clientes.editar';
+    if (method === 'DELETE') return 'clientes.excluir';
+  }
+  if (method === 'GET') return 'atendimento.ver';
+  if (method === 'DELETE') {
+    if (/\/contatos\/[^/]+\/tags\/[^/]+$/.test(p)) return 'atendimento.responder'; // tirar tag do contato (reversível)
+    if (/\/tags\/[^/]+$/.test(p)) return 'atendimento.gerenciar';                  // apagar tag compartilhada
+    if (/\/respostas-rapidas\/[^/]+$/.test(p)) return 'atendimento.gerenciar';     // apagar resposta-rápida
+    if (/\/contatos\/[^/]+\/mensagens$/.test(p)) return 'atendimento.gerenciar';   // limpar conversa
+    if (/\/contatos\/[^/]+$/.test(p)) return 'atendimento.gerenciar';              // apagar contato inteiro
+    return 'atendimento.gerenciar';
+  }
+  return 'atendimento.responder'; // enviar msg, abrir/encerrar/fixar/bloquear, criar/editar tag e resposta, atribuir tag, nova conversa
+}
+chatbotRouter.use((req, res, next) => requirePermissao(permChatbot(req.method, req.path))(req, res, next));
 
 const BUCKET = 'arquivos';
 const MAX_FILE = 25 * 1024 * 1024; // 25 MB
@@ -406,24 +433,85 @@ chatbotRouter.get('/clientes/:id', async (req, res, next) => {
     const id = uuid.parse(req.params.id);
     const { data, error } = await req.supabase.from('clientes').select('*').eq('id', id).single();
     if (error) throw error;
-    res.json({ cliente: mapCliente(data) });
+    const empresaId = await getEmpresaId(req);
+    let orders = 0, ltv = 0, ultimaCompra = null;
+    if (empresaId) {
+      const { data: vs } = await adminClient().from('vendas').select('total,created_at').eq('empresa_id', empresaId).eq('cliente_id', id);
+      (vs || []).forEach((v) => { orders += 1; ltv += Number(v.total) || 0; if (!ultimaCompra || v.created_at > ultimaCompra) ultimaCompra = v.created_at; });
+    }
+    res.json({ cliente: { ...mapCliente(data), orders, ltv, ultimaCompra } });
   } catch (err) { next(err); }
 });
-const clientePatchSchema = z.object({
-  nome: z.string().trim().max(120).optional(),
-  telefone: z.string().trim().max(40).optional(),
-  email: z.string().trim().max(120).optional(),
+// Schema da ficha (chaves = NOMES DE COLUNA do banco, p/ continuar compatível
+// com a ficha do chat, que já envia patches assim). Leitura volta camelCase.
+const clienteSchema = z.object({
+  nome: z.string().trim().min(1, 'Informe o nome.').max(120),
+  telefone: z.string().trim().max(40).nullable().optional(),
+  email: z.string().trim().max(120).nullable().optional(),
   empresa: z.string().trim().max(120).nullable().optional(),
   cargo: z.string().trim().max(80).nullable().optional(),
   produtointeresse: z.string().trim().max(160).nullable().optional(),
   origemlead: z.string().trim().max(60).nullable().optional(),
+  tipo_pessoa: z.enum(['pf', 'pj']).nullable().optional(),
+  cpf: z.string().trim().max(20).nullable().optional(),
+  cnpj: z.string().trim().max(20).nullable().optional(),
+  rg: z.string().trim().max(20).nullable().optional(),
+  razao_social: z.string().trim().max(160).nullable().optional(),
+  nome_fantasia: z.string().trim().max(160).nullable().optional(),
+  inscricao_estadual: z.string().trim().max(40).nullable().optional(),
+  responsavel_nome: z.string().trim().max(120).nullable().optional(),
+  responsavel_cargo: z.string().trim().max(60).nullable().optional(),
+  responsavel_cpf: z.string().trim().max(20).nullable().optional(),
+  responsavel_email: z.string().trim().max(120).nullable().optional(),
+  responsavel_telefone: z.string().trim().max(40).nullable().optional(),
+  cep: z.string().trim().max(12).nullable().optional(),
+  logradouro: z.string().trim().max(160).nullable().optional(),
+  numero: z.string().trim().max(20).nullable().optional(),
+  complemento: z.string().trim().max(80).nullable().optional(),
+  bairro: z.string().trim().max(80).nullable().optional(),
+  cidade: z.string().trim().max(80).nullable().optional(),
+  uf: z.string().trim().max(2).nullable().optional(),
+  site: z.string().trim().max(120).nullable().optional(),
+  segmento: z.string().trim().max(20).nullable().optional(),
+  atendente: z.string().trim().max(120).nullable().optional(),
+  ativo: z.coerce.boolean().optional(),
+  observacoes: z.string().trim().max(2000).nullable().optional(),
+  aniversario: z.string().trim().max(10).nullable().optional(),
+  estagio: z.enum(['lead', 'cliente']).optional(),
+  extras: z.record(z.any()).optional(),
 }).strip();
+const clientePatchSchema = clienteSchema.partial();
+
+// POST /api/chatbot/clientes — cria um cliente "puro" (sem abrir conversa no chat).
+chatbotRouter.post('/clientes', validateBody(clienteSchema), async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const row = { ...req.body, empresa_id: empresaId, temcontato: false };
+    const { data, error } = await req.supabase.from('clientes').insert(row).select('*').single();
+    if (error) throw error;
+    res.status(201).json({ cliente: mapCliente(data) });
+  } catch (err) { next(err); }
+});
+
 chatbotRouter.patch('/clientes/:id', validateBody(clientePatchSchema), async (req, res, next) => {
   try {
     const id = uuid.parse(req.params.id);
     const { data, error } = await req.supabase.from('clientes').update(req.body).eq('id', id).select('*').single();
     if (error) throw error;
     res.json({ cliente: mapCliente(data) });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/chatbot/clientes/:id — remove o cliente (se não tiver vínculos).
+chatbotRouter.delete('/clientes/:id', async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const { error } = await req.supabase.from('clientes').delete().eq('id', id);
+    if (error) {
+      if (error.code === '23503') return res.status(409).json({ error: 'Cliente possui conversa ou registros vinculados e não pode ser excluído.' });
+      throw error;
+    }
+    res.json({ ok: true });
   } catch (err) { next(err); }
 });
 
@@ -508,11 +596,13 @@ chatbotRouter.get('/clientes', async (req, res, next) => {
   try {
     // sanitiza q: remove caracteres com significado na sintaxe de filtro do PostgREST
     const q = (req.query.q || '').toString().replace(/[,()*\\%]/g, '').trim().slice(0, 60);
-    let query = req.supabase.from('clientes').select('id,nome,telefone,email,fotolink').order('nome', { ascending: true }).limit(100);
+    let query = req.supabase.from('clientes').select('*').order('nome', { ascending: true }).limit(500);
     if (q) query = query.or(`nome.ilike.%${q}%,telefone.ilike.%${q}%`);
     const { data, error } = await query;
     if (error) throw error;
-    res.json({ clientes: (data || []).map((c) => ({ id: c.id, nome: c.nome || 'Sem nome', telefone: c.telefone || '', email: c.email || '', foto: c.fotolink || null })) });
+    const empresaId = await getEmpresaId(req);
+    const kpis = await vendasKpiPorCliente(empresaId);
+    res.json({ clientes: (data || []).map((c) => { const k = kpis[c.id] || {}; return { ...mapCliente(c), orders: k.orders || 0, ltv: k.ltv || 0, ultimaCompra: k.ultima || null }; }) });
   } catch (err) { next(err); }
 });
 
@@ -579,7 +669,36 @@ function mapCliente(c) {
     foto: c.fotolink || null, empresa: c.empresa || null, cargo: c.cargo || null,
     produtoInteresse: c.produtointeresse || null, valorNegocio: c.valordonegocio || null,
     origemLead: c.origemlead || null, criadoEm: c.created_at,
+    // ficha cadastral completa (0016)
+    tipoPessoa: c.tipo_pessoa || 'pf',
+    cpf: c.cpf || null, cnpj: c.cnpj || null, rg: c.rg || null,
+    razaoSocial: c.razao_social || null, nomeFantasia: c.nome_fantasia || null,
+    inscricaoEstadual: c.inscricao_estadual || null,
+    responsavelNome: c.responsavel_nome || null, responsavelCargo: c.responsavel_cargo || null,
+    responsavelCpf: c.responsavel_cpf || null, responsavelEmail: c.responsavel_email || null,
+    responsavelTelefone: c.responsavel_telefone || null,
+    cep: c.cep || null, logradouro: c.logradouro || null, numero: c.numero || null,
+    complemento: c.complemento || null, bairro: c.bairro || null, cidade: c.cidade || null, uf: c.uf || null,
+    site: c.site || null, segmento: c.segmento || null, atendente: c.atendente || null,
+    ativo: c.ativo !== false, observacoes: c.observacoes || null, aniversario: c.aniversario || null,
+    estagio: c.estagio || 'lead',
+    extras: (c.extras && typeof c.extras === 'object') ? c.extras : {},
   };
+}
+
+// KPIs de compras por cliente (a partir das vendas do PDV). adminClient pois
+// a tabela vendas tem RLS sem policies (só o service_role lê).
+async function vendasKpiPorCliente(empresaId) {
+  const map = {};
+  if (!empresaId) return map;
+  const { data } = await adminClient().from('vendas').select('cliente_id,total,created_at').eq('empresa_id', empresaId);
+  (data || []).forEach((v) => {
+    if (!v.cliente_id) return;
+    const m = map[v.cliente_id] || (map[v.cliente_id] = { orders: 0, ltv: 0, ultima: null });
+    m.orders += 1; m.ltv += Number(v.total) || 0;
+    if (!m.ultima || (v.created_at && v.created_at > m.ultima)) m.ultima = v.created_at;
+  });
+  return map;
 }
 
 // ---- POST /api/chatbot/contatos/:id/midia (imagem/audio/video/arquivo) ----

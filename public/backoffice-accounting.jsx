@@ -4,8 +4,46 @@
 (function () {
   const { fmtBRL, fmtBRLcompact, data, TONES } = window.BO;
 
+  // ───────── Skeletons ─────────
+  function BoKpiSkeleton({ count = 6 }) {
+    return Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="bo-kpi" style={{ borderTopColor: 'var(--border-strong)' }}>
+        <div className="bo-kpi-head">
+          <span className="bo-kpi-icon" style={{ background: 'var(--surface-3)' }}><Skeleton w={17} h={17} r={4} /></span>
+          <span className="bo-kpi-label"><Skeleton w="70%" h={12} /></span>
+        </div>
+        <div className="bo-kpi-value"><Skeleton w="55%" h={24} /></div>
+        <div className="bo-kpi-foot"><Skeleton w="45%" h={11} /></div>
+      </div>));
+  }
+  // Linhas de painel (label à esquerda + valor à direita) — reusa o mesmo container do real.
+  function BoPanelRowsSkeleton({ count = 4 }) {
+    return Array.from({ length: count }).map((_, i) => (
+      <div key={i} className="bo-mini">
+        <div className="bo-mini-main"><Skeleton w="55%" h={14} /></div>
+        <Skeleton w="22%" h={14} />
+      </div>));
+  }
+
   // ───────── Aba: DRE ─────────
-  function DRETab() {
+  function DRETab({ loading }) {
+    if (loading) {
+      return (
+        <div className="bo-dash-grid" style={{ gridTemplateColumns: '1.5fr 1fr' }}>
+          <BoPanel title="Demonstrativo de Resultado do Exercício" icon="reports" iconColor="#10b981">
+            <div style={{ margin: '0 -4px' }}>
+              {Array.from({ length: skelCount('bo-dre', 8) }).map((_, i) => (
+                <div key={i} className="acc-dre-row" style={{ borderTop: '1px solid var(--border)' }}>
+                  <Skeleton w="45%" h={14} /><Skeleton w="20%" h={14} />
+                </div>))}
+            </div>
+          </BoPanel>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+            <BoPanel title="Margens" icon="activity" iconColor="#10b981"><BoPanelRowsSkeleton count={3} /></BoPanel>
+            <BoPanel title="Resumo do período" icon="coins" iconColor="#10b981"><BoPanelRowsSkeleton count={4} /></BoPanel>
+          </div>
+        </div>);
+    }
     return (
       <div className="bo-dash-grid" style={{ gridTemplateColumns: '1.5fr 1fr' }}>
         <BoPanel title="Demonstrativo de Resultado do Exercício" icon="reports" iconColor="#10b981" action={<button className="btn btn-sm"><Ic name="download" size={13} /> Exportar</button>}>
@@ -107,6 +145,9 @@
 
   function BackofficeAccounting() {
     const [tab, setTab] = React.useState('dre');
+    const [loading, setLoading] = React.useState(true);  // skeleton no mount (scaffolding p/ API real)
+    React.useEffect(() => setLoading(false), []);
+    React.useEffect(() => { if (data.dre.length) skelRemember('bo-dre', data.dre.length); }, []);
     const k = data.contabilKpis;
     return (
       <Page title="Contábil" subtitle="Resultados financeiros e contábeis da organização"
@@ -114,18 +155,20 @@
         <BoStyles />
         <style>{`.acc-dre-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 4px; font-size: var(--type-base); }`}</style>
         <div className="bo-kpi-grid">
+          {loading ? <BoKpiSkeleton count={6} /> : <>
           <BoKpi tone="green" icon="arrow-up-right" label="Receita total" value={fmtBRLcompact(k.receitaTotal)} foot="Receita líquida" />
           <BoKpi tone="red" icon="download" label="Despesas totais" value={fmtBRLcompact(k.despesaTotal)} foot="No período" />
           <BoKpi tone="violet" icon="coins" label="Lucro líquido" value={fmtBRLcompact(k.lucroLiquido)} foot="Do exercício" />
           <BoKpi tone="blue" icon="activity" label="Fluxo de caixa" value={fmtBRLcompact(k.fluxoCaixa)} foot="Saldo do mês" />
           <BoKpi tone="teal" icon="reports" label="Resultado operacional" value={fmtBRLcompact(k.resultadoOperacional)} foot="EBIT" />
           <BoKpi tone="amber" icon="star" label="Margem de lucro" value={String(k.margem).replace('.', ',') + '%'} foot="Líquida" />
+          </>}
         </div>
         <div className="tabs">
           {[['dre', 'DRE'], ['plano', 'Plano de Contas'], ['fluxo', 'Fluxo de Caixa']].map(([id, label]) => (
             <div key={id} className={'tab' + (tab === id ? ' active' : '')} onClick={() => setTab(id)}>{label}</div>))}
         </div>
-        {tab === 'dre' && <DRETab />}
+        {tab === 'dre' && <DRETab loading={loading} />}
         {tab === 'plano' && <PlanoTab />}
         {tab === 'fluxo' && <FluxoTab />}
       </Page>);

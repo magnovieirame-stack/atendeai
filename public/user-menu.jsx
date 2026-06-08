@@ -1,18 +1,19 @@
 // user-menu.jsx — Account dropdown menu in topbar + Help widget (Receba Ajuda)
 
 function UserMenu() {
-  const { tweaks, setTweak, setRoute } = useStore();
+  const { tweaks, setTweak, setRoute, auth } = useStore();
   const [open, setOpen] = React.useState(false);
   const [helpOpen, setHelpOpen] = React.useState(false);
   const closeTimer = React.useRef(null);
   const wrapRef = React.useRef(null);
 
   const profile = tweaks.profile;
-  const me = profile === 'super' ?
-  { name: 'Magno Vieira', role: 'Super Admin', email: 'magno@atende.ia' } :
-  profile === 'atendente' ?
-  { name: 'Karla Zambelly', role: 'Atendente', email: 'karla@iguabela.com' } :
-  { name: 'Paulo Henrique', role: 'Administrador', email: 'paulo@iguabela.com' };
+  // Identidade REAL do usuário logado (do /auth/me) — independente do "Ver como".
+  const me = {
+    name: auth.nome || auth.email || 'Usuário',
+    role: auth.cargo || auth.papelNome || '—',
+    email: auth.email || '',
+  };
 
   const isAtendente = profile === 'atendente';
   const [first, second] = me.name.split(' ');
@@ -72,6 +73,7 @@ function UserMenu() {
               <Avatar name={me.name} size="lg" />
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="um-head-name">{me.name}</div>
+                <div className="um-head-email" style={{ fontWeight: 600, color: 'var(--text)' }}>{me.role}</div>
                 <div className="um-head-email">{me.email}</div>
               </div>
             </div>
@@ -303,19 +305,19 @@ function HelpWidget({ onClose }) {
 // SidebarUserMenu — same items as UserMenu, but in sidebar footer (pops upward)
 // ============================================================
 function SidebarUserMenu({ collapsed = false }) {
-  const { tweaks, setTweak, setRoute } = useStore();
+  const { tweaks, setTweak, setRoute, auth } = useStore();
   const [open, setOpen] = React.useState(false);
   const [helpOpen, setHelpOpen] = React.useState(false);
   const closeTimer = React.useRef(null);
   const wrapRef = React.useRef(null);
 
-  // Fixed identity per spec: Paula Maria · Administrador (real photo)
+  // Identidade REAL do usuário logado (do /auth/me) — independente do "Ver como".
   const me = {
-    name: 'Magnno Vieira',
-    role: 'Administrador',
-    email: 'magnno@iguabela.com',
-    photo: 'assets/magnno.png'
+    name: auth.nome || auth.email || 'Usuário',
+    role: auth.cargo || auth.papelNome || '—',
+    email: auth.email || '',
   };
+  const inicial = initials(me.name);
   const isAtendente = tweaks.profile === 'atendente';
 
   const openNow = () => {clearTimeout(closeTimer.current);setOpen(true);};
@@ -359,7 +361,7 @@ function SidebarUserMenu({ collapsed = false }) {
           onClick={() => setOpen((o) => !o)}
           title={collapsed ? `${me.name} · ${me.role}` : ''}>
           <div className="sidebar-user-avatar">
-            <img src={me.photo} alt={me.name} />
+            <span style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colorFor(me.name), color: '#fff', fontWeight: 700, fontSize: 13 }}>{inicial}</span>
             <span className="sidebar-user-dot" aria-hidden="true" />
           </div>
           <div className="sidebar-user-id">
@@ -373,10 +375,11 @@ function SidebarUserMenu({ collapsed = false }) {
         <div className="sidebar-user-dropdown" onMouseEnter={openNow} onMouseLeave={closeSoon}>
             <div className="um-head">
               <div className="sidebar-user-avatar lg">
-                <img src={me.photo} alt={me.name} />
+                <span style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colorFor(me.name), color: '#fff', fontWeight: 700, fontSize: 16 }}>{inicial}</span>
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="um-head-name">{me.name}</div>
+                <div className="um-head-email" style={{ fontWeight: 600, color: 'var(--text)' }}>{me.role}</div>
                 <div className="um-head-email">{me.email}</div>
               </div>
             </div>

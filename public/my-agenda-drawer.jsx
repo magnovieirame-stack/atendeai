@@ -106,8 +106,8 @@ function MyAgendaDrawer({ agentName = 'Júlia', agentTitle = 'Atendimento', onCl
             <Ic name="check" size={12} style={{ color: 'var(--accent)' }} /> Salvo automaticamente
           </div>
           <div style={{ flex: 1 }} />
-          <button className="btn" onClick={onClose}>Fechar</button>
-          <button className="btn btn-primary" onClick={onClose}><Ic name="check" size={14} /> Aplicar configuração</button>
+          <ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} />
+          <ActionButton action="salvar" size="md" label="Aplicar configuração" onClick={() => { window.showToast({ tipo: 'sucesso', titulo: 'Agenda atualizada' }); onClose && onClose(); }} />
         </>
       }
     >
@@ -229,6 +229,7 @@ function MyAgHoursPanel({ avail, setAvail, slotDuration }) {
     const next = { ...avail };
     [1, 2, 3, 4, 5].forEach(id => { if (id !== sourceId) next[id] = { on: true, ranges: src.ranges.map(r => ({ ...r })) }; });
     setAvail(next);
+    window.showToast({ tipo: 'sucesso', titulo: 'Configuração copiada', descricao: 'Aplicada de Seg a Sex.' });
   };
 
   return (

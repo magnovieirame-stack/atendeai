@@ -63,7 +63,9 @@ const API = {
 
   // --- Cliente (ficha) ---
   getCliente(id) { return this._req('/chatbot/clientes/' + id); },
+  createCliente(dto) { return this._json('/chatbot/clientes', 'POST', dto); },
   updateCliente(id, patch) { return this._json('/chatbot/clientes/' + id, 'PATCH', patch); },
+  deleteCliente(id) { return this._req('/chatbot/clientes/' + id, { method: 'DELETE' }); },
 
   // --- CRM ---
   getFunis() { return this._req('/crm/funis'); },
@@ -102,8 +104,35 @@ const API = {
   // --- Leads (comercial) ---
   getLeads() { return this._req('/leads'); },
   createLead(dto) { return this._json('/leads', 'POST', dto); },
+
+  // --- Plataforma (super admin) ---
+  getPlataformaClientes() { return this._req('/plataforma/clientes'); },
+  createPlataformaCliente(dto) { return this._json('/plataforma/clientes', 'POST', dto); },
+  updatePlataformaCliente(id, dto) { return this._json('/plataforma/clientes/' + id, 'PATCH', dto); },
+  deletePlataformaCliente(id) { return this._req('/plataforma/clientes/' + id, { method: 'DELETE' }); },
+  getPlanos() { return this._req('/plataforma/planos'); },
+  getPlanoLojas(id) { return this._req('/plataforma/planos/' + id + '/lojas'); },
+  createPlano(dto) { return this._json('/plataforma/planos', 'POST', dto); },
+  updatePlano(id, dto) { return this._json('/plataforma/planos/' + id, 'PATCH', dto); },
+  migrarPlano(id, para) { return this._json('/plataforma/planos/' + id + '/migrar', 'POST', { para }); },
+  deletePlano(id) { return this._req('/plataforma/planos/' + id, { method: 'DELETE' }); },
+  provisionarCliente(id, dto) { return this._json('/plataforma/clientes/' + id + '/provisionar', 'POST', dto || {}); },
   updateLead(id, dto) { return this._json('/leads/' + id, 'PATCH', dto); },
   deleteLead(id) { return this._req('/leads/' + id, { method: 'DELETE' }); },
+
+  // --- Catálogo (comercial) ---
+  getProdutos() { return this._req('/catalogo/produtos'); },
+  createProduto(dto) { return this._json('/catalogo/produtos', 'POST', dto); },
+  updateProduto(id, dto) { return this._json('/catalogo/produtos/' + id, 'PATCH', dto); },
+  deleteProduto(id) { return this._req('/catalogo/produtos/' + id, { method: 'DELETE' }); },
+  getMovimentacoes(produtoId) { return this._req('/catalogo/produtos/' + produtoId + '/movimentacoes'); },
+  // --- Vendas (PDV) ---
+  createVenda(dto) { return this._json('/vendas', 'POST', dto); },
+  getVendas() { return this._req('/vendas'); },
+  // Unidades de medida personalizadas
+  getUnidades() { return this._req('/catalogo/unidades'); },
+  createUnidade(dto) { return this._json('/catalogo/unidades', 'POST', dto); },
+  deleteUnidade(id) { return this._req('/catalogo/unidades/' + id, { method: 'DELETE' }); },
 
   // --- Agenda: compromissos ---
   getAgenda() { return this._req('/agenda'); },
@@ -286,3 +315,120 @@ function dbMsgToUi(m) {
 }
 
 Object.assign(window, { dbContatoToConv, dbMsgToUi, fmtHora, fmtTamanho, corContraste });
+
+// ───────── Catálogo: conversores entre a API e a UI ─────────
+// A lista (catalog.jsx) e o drawer (catalog-item.jsx) usam nomes de campo
+// diferentes. Centralizamos as conversões aqui, contra o DTO da API.
+function _parseBRL(s) {
+  if (typeof s === 'number') return s;
+  const n = Number(String(s || '').replace(/[^\d,.-]/g, '').replace(/\.(?=\d{3}(\D|$))/g, '').replace(',', '.'));
+  return isNaN(n) ? 0 : n;
+}
+function _fmtDataBR(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  const p = (n) => String(n).padStart(2, '0');
+  return p(d.getDate()) + '/' + p(d.getMonth() + 1) + '/' + d.getFullYear();
+}
+
+// DTO da API -> linha que a LISTA do catálogo renderiza.
+const _CAT_PALETTE = ['#fde68a', '#fbcfe8', '#bfdbfe', '#bbf7d0', '#e9d5ff', '#fed7aa', '#fecaca', '#a7f3d0', '#fef3c7', '#dbeafe', '#f5d0fe', '#fef9c3'];
+function produtoDtoToRow(p, i = 0) {
+  const cat = p.categoria || (p.tipo === 'servico' ? 'Serviço' : 'Produto');
+  // Serviço nunca controla estoque; produto depende do toggle controlaEstoque.
+  const controla = p.tipo === 'servico' ? false : (p.controlaEstoque !== false);
+  return {
+    id: p.id,
+    name: p.nome,
+    cat,
+    desc: p.descricaoCurta || p.descricao || '',
+    price: 'R$ ' + Number(p.preco || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+    priceN: Number(p.preco || 0),
+    stockQty: Number(p.estoque || 0),
+    controla,            // false -> a lista mostra "Livre" em vez de estoque/Esgotado
+    active: p.ativo !== false,
+    sales: Number(p.vendas) || 0, // unidades vendidas (PDV)
+    since: _fmtDataBR(p.criadoEm),
+    img: _CAT_PALETTE[i % _CAT_PALETTE.length],
+    _dto: p, // DTO completo, usado ao abrir o drawer de edição
+  };
+}
+
+// DTO da API -> objeto inicial do DRAWER (catalog-item.jsx).
+function produtoDtoToForm(p) {
+  const ex = (p.extras && typeof p.extras === 'object') ? p.extras : {};
+  return {
+    id: p.id,
+    kind: p.tipo === 'servico' ? 'servico' : 'produto',
+    name: p.nome || '',
+    sku: p.sku || '',
+    cat: p.categoria || '',
+    short: p.descricaoCurta || '',
+    desc: p.descricao || '',
+    price: Number(p.preco || 0),         // número — o MoneyInput formata
+    promoPrice: Number(p.precoPromo || 0),
+    cost: Number(p.custo || 0),
+    unit: p.unidade || 'UN',
+    stock: Number(p.estoque || 0),
+    stockMin: Number(p.estoqueMin || 0),
+    controlaEstoque: p.controlaEstoque !== false,
+    active: p.ativo !== false,
+    showInCatalog: p.apareceCatalogo !== false,
+    duration: p.duracao != null ? p.duracao : 60,
+    location: p.local || 'No salão',
+    requiresBooking: p.requerAgendamento !== false,
+    tags: Array.isArray(p.tags) ? p.tags : [],
+    // campos ainda não modelados: vêm de extras para não perder o que foi digitado
+    variants: Array.isArray(ex.variants) ? ex.variants : [],
+    images: [],
+    aiSummary: ex.aiSummary || '',
+    aiTone: ex.aiTone || 'Amigável',
+    aiKeywords: Array.isArray(ex.aiKeywords) ? ex.aiKeywords : [],
+    aiFaq: Array.isArray(ex.aiFaq) && ex.aiFaq.length ? ex.aiFaq : [{ q: '', a: '' }],
+    aiUpsell: ex.aiUpsell || '',
+    aiContraindications: ex.aiContraindications || '',
+    aiNotShare: ex.aiNotShare || '',
+    aiAttachments: [],
+  };
+}
+
+// Objeto do DRAWER -> DTO que a API espera. Preços em "R$ x" viram número;
+// variantes e campos de IA vão para `extras` (núcleo primeiro).
+function produtoFormToDto(f) {
+  f = f || {};
+  return {
+    tipo: f.kind === 'servico' ? 'servico' : 'produto',
+    nome: (f.name || '').trim(),
+    sku: f.sku || '',
+    categoria: f.cat || '',
+    descricaoCurta: f.short || '',
+    descricao: f.desc || '',
+    preco: _parseBRL(f.price),
+    precoPromo: f.promoPrice ? _parseBRL(f.promoPrice) : null,
+    custo: f.cost ? _parseBRL(f.cost) : null,
+    unidade: f.unit || 'UN',
+    estoque: Number(f.stock) || 0,
+    estoqueMin: Number(f.stockMin) || 0,
+    // Serviço nunca controla estoque; produto segue o toggle.
+    controlaEstoque: f.kind === 'servico' ? false : (f.controlaEstoque !== false),
+    ativo: f.active !== false,
+    apareceCatalogo: f.showInCatalog !== false,
+    duracao: f.kind === 'servico' && f.duration ? parseInt(f.duration, 10) || null : null,
+    local: f.kind === 'servico' ? (f.location || '') : '',
+    requerAgendamento: f.requiresBooking !== false,
+    tags: Array.isArray(f.tags) ? f.tags : [],
+    extras: {
+      variants: Array.isArray(f.variants) ? f.variants : [],
+      aiSummary: f.aiSummary || '',
+      aiTone: f.aiTone || '',
+      aiKeywords: Array.isArray(f.aiKeywords) ? f.aiKeywords : [],
+      aiFaq: Array.isArray(f.aiFaq) ? f.aiFaq.filter((x) => x && (x.q || x.a)) : [],
+      aiUpsell: f.aiUpsell || '',
+      aiContraindications: f.aiContraindications || '',
+      aiNotShare: f.aiNotShare || '',
+    },
+  };
+}
+
+Object.assign(window, { produtoDtoToRow, produtoDtoToForm, produtoFormToDto });

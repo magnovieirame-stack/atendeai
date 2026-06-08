@@ -117,10 +117,24 @@ const CEP_DB = {
 async function lookupCep(cep) {
   const d = onlyDigits(cep);
   if (d.length !== 8) return null;
-  await new Promise(r => setTimeout(r, 350)); // simula latência
+  // 1) API real (ViaCEP) — roda no navegador (viacep.com.br liberado no CSP do backend).
+  try {
+    const resp = await fetch(`https://viacep.com.br/ws/${d}/json/`, { headers: { Accept: 'application/json' } });
+    if (resp.ok) {
+      const j = await resp.json();
+      if (j && !j.erro) return {
+        logradouro: j.logradouro || '',
+        bairro: j.bairro || '',
+        cidade: j.localidade || '',
+        uf: (j.uf || '').toUpperCase(),
+        complemento: j.complemento || '',
+      };
+    }
+  } catch (e) { /* offline/bloqueado → tenta a base local */ }
+  // 2) Fallback offline: pequena base local de exemplo (se houver).
   if (CEP_DB[d]) return CEP_DB[d];
-  // fallback genérico
-  return { logradouro: 'Rua ' + d.slice(0,3), bairro: 'Centro', cidade: 'Cidade ' + d.slice(3,5), uf: 'SP' };
+  // 3) Não achou: não preenche nada (deixa digitar) — sem inventar endereço.
+  return null;
 }
 
 // ─────────────────────────────────────────── Base masked input ───────────────────────────────

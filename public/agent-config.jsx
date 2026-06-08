@@ -173,12 +173,12 @@ function AdminAgent() {
         <>
           <button className="btn fin-btn-back" onClick={() => setRoute('agent')}><Ic name="arrow-left" size={14} /> Voltar</button>
           <button className="btn" onClick={() => setShowTest(true)}><Ic name="play" size={14} /> Testar agente</button>
-          <button className="btn btn-primary"><Ic name="check" size={14} /> Salvar e publicar</button>
+          <button className="btn btn-primary" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Agente publicado', descricao: 'A nova versão está no ar.' })}><Ic name="check" size={14} /> Salvar e publicar</button>
         </>
       }
     >
       {/* ============ HEADER STRIP ============ */}
-      <AgentHeader profile={initial} active={active} setActive={setActive} identity={identity} />
+      <AgentHeader profile={initial} active={active} setActive={(v) => { setActive(v); window.showToast && window.showToast({ tipo: 'sucesso', titulo: v ? 'Agente ativado' : 'Agente desativado', descricao: v ? 'O agente voltou a atender as conversas.' : 'O agente parou de atender novas conversas.' }); }} identity={identity} />
 
       {/* ============ BODY: responsive 3-column ============ */}
       <div className="agent-cfg-grid">
@@ -353,7 +353,7 @@ function VersionsCard({ versions }) {
             <span style={{ fontWeight: 600 }}>{v}</span>
             <span className="muted">{t} · {a}</span>
             <div className="spacer" />
-            {c === 'atual' ? <span className="badge badge-success">atual</span> : <span className="muted" style={{ fontSize: 11, cursor: 'pointer' }}>reverter</span>}
+            {c === 'atual' ? <span className="badge badge-success">atual</span> : <span className="muted" style={{ fontSize: 11, cursor: 'pointer' }} onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Versão revertida', descricao: `O agente voltou para a versão ${v}.` })}>reverter</span>}
           </div>
         ))}
       </div>

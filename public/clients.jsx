@@ -71,6 +71,71 @@
     return MOCK_CLIENTS.map((c, i) => enrichClient(c, i));
   }
 
+  // DTO da API (ficha completa) -> linha que a lista renderiza.
+  // KPIs comerciais (pedidos/vendas/ticket/última compra/ciclo) ficam zerados
+  // até o PDV existir; LTV usa o campo `valor` do cadastro por ora.
+  function clienteDtoToRow(d, i) {
+    const name = d.nome || (d.tipoPessoa === 'pj' ? (d.nomeFantasia || d.razaoSocial) : '') || 'Sem nome';
+    const company = d.empresa || (d.tipoPessoa === 'pj' ? (d.razaoSocial || '') : '') || '';
+    const city = d.cidade ? (d.cidade + (d.uf ? '-' + d.uf : '')) : '';
+    const initial = (name || '?').split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase();
+    const colorIdx = (name || '').length % AVATAR_BG.length;
+    return {
+      id: d.id,
+      name, company,
+      phone: d.telefone || '',
+      email: d.email || '',
+      city,
+      segment: d.segmento || 'bronze',
+      active: d.ativo !== false,
+      source: d.origemLead || '',
+      attendant: d.atendente || '—',
+      since: d.criadoEm ? new Date(d.criadoEm).toLocaleDateString('pt-BR') : '',
+      orders: Number(d.orders) || 0,
+      sales: Number(d.orders) || 0,
+      ticket: (d.orders > 0 ? (Number(d.ltv) || 0) / d.orders : 0),
+      ltv: Number(d.ltv) || 0,
+      lastOrder: d.ultimaCompra ? new Date(d.ultimaCompra).toLocaleDateString('pt-BR') : '—',
+      cycle: 0,
+      avatarBg: AVATAR_BG[colorIdx],
+      initial,
+      tags: [], // tags ficam no CRM (crm-clientesfunil) — integrar depois
+      _dto: d,
+    };
+  }
+
+  // Form do NewClientDrawer -> corpo (nomes de coluna) que a API espera.
+  function clientFormToDto(f) {
+    const isPJ = f.tipo === 'pj';
+    return {
+      nome: f.name,
+      empresa: isPJ ? (f.razao || null) : (f.company && f.company !== '—' ? f.company : null),
+      telefone: f.phone || null,
+      email: f.email || null,
+      tipo_pessoa: isPJ ? 'pj' : 'pf',
+      cpf: !isPJ ? (f.cpf || null) : null,
+      rg: !isPJ ? (f.rg || null) : null,
+      aniversario: !isPJ ? (f.birth || null) : null,
+      cnpj: isPJ ? (f.cnpj || null) : null,
+      razao_social: isPJ ? (f.razao || null) : null,
+      nome_fantasia: isPJ ? (f.fantasia || null) : null,
+      inscricao_estadual: isPJ ? (f.ie || null) : null,
+      responsavel_nome: isPJ ? (f.respName || null) : null,
+      responsavel_cargo: isPJ ? (f.respRole || null) : null,
+      responsavel_cpf: isPJ ? (f.respCpf || null) : null,
+      responsavel_email: isPJ ? (f.respEmail || null) : null,
+      responsavel_telefone: isPJ ? (f.respPhone || null) : null,
+      cep: f.cep || null, logradouro: f.logradouro || null, numero: f.numero || null,
+      complemento: f.complemento || null, bairro: f.bairro || null, cidade: f.cidade || null,
+      uf: f.uf ? f.uf.toUpperCase() : null,
+      origemlead: f.source || null,
+      segmento: f.segment || null,
+      atendente: f.attendant && f.attendant !== '—' ? f.attendant : null,
+      observacoes: f.obs || null,
+      ativo: true,
+    };
+  }
+
   function fmtBRL(v) {
     return 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   }
@@ -98,7 +163,9 @@
     const [showNew, setShowNew] = React.useState(false);
     const [showImport, setShowImport] = React.useState(false);
     const [selected, setSelected] = React.useState(new Set());
-    const [allClients, setAllClients] = React.useState(() => buildClients());
+    const [allClients, setAllClients] = React.useState([]);
+    const [loading, setLoading] = React.useState(true);
+    const [loadErr, setLoadErr] = React.useState('');
     const [visibleCols, setVisibleCols] = React.useState(() => new Set(ALL_COLUMNS.map((c) => c.id)));
     const [filterSegments, setFilterSegments] = React.useState(() => new Set());
     const [filterTags, setFilterTags] = React.useState(() => new Set());
@@ -112,19 +179,54 @@
     const [viewClient, setViewClient] = React.useState(null);
     const [chatClient, setChatClient] = React.useState(null);
 
+    // Carrega os clientes do backend (tabela clientes, por empresa).
+    const reload = React.useCallback(async () => {
+      setLoading(true); setLoadErr('');
+      try {
+        const r = await window.API.getClientes();
+        const rows = (r.clientes || []).map((d, i) => clienteDtoToRow(d, i));
+        setAllClients(rows);
+        if (rows.length) skelRemember('clientes', rows.length);
+      } catch (e) {
+        setLoadErr((e && e.message) || 'Falha ao carregar os clientes.');
+      } finally {
+        setLoading(false);
+      }
+    }, []);
+    React.useEffect(() => { reload(); }, [reload]);
+
     const togglePin = (id) => {
       const s = new Set(pinnedIds);
       if (s.has(id)) s.delete(id);else s.add(id);
       setPinnedIds(s);
     };
-    const toggleActive = (id) => {
-      setAllClients((prev) => prev.map((c) => c.id === id ? { ...c, active: !c.active } : c));
+    const toggleActive = async (id) => {
+      const c = allClients.find((x) => x.id === id);
+      if (!c) return;
+      const next = !c.active;
+      setAllClients((prev) => prev.map((x) => x.id === id ? { ...x, active: next } : x));
+      try {
+        await window.API.updateCliente(id, { ativo: next });
+        window.showToast && window.showToast({ tipo: 'sucesso', titulo: next ? 'Cliente ativado' : 'Cliente desativado', descricao: c.name });
+      } catch (e) {
+        setAllClients((prev) => prev.map((x) => x.id === id ? { ...x, active: !next } : x));
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao alterar status', descricao: (e && e.message) || 'Não foi possível alterar o status.' });
+      }
     };
-    const deleteClient = (id) => {
-      setAllClients((prev) => prev.filter((c) => c.id !== id));
-      setSelected((prev) => {const n = new Set(prev);n.delete(id);return n;});
-      setPinnedIds((prev) => {const n = new Set(prev);n.delete(id);return n;});
+    const deleteClient = async (id) => {
+      const prev = allClients;
+      const cli = allClients.find((c) => c.id === id);
+      setAllClients((p) => p.filter((c) => c.id !== id));
+      setSelected((p) => {const n = new Set(p);n.delete(id);return n;});
+      setPinnedIds((p) => {const n = new Set(p);n.delete(id);return n;});
       setConfirmDelete(null);
+      try {
+        await window.API.deleteCliente(id);
+        window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Cliente excluído', descricao: cli && cli.name });
+      } catch (e) {
+        setAllClients(prev);
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao excluir cliente', descricao: (e && e.message) || 'Não foi possível excluir o cliente.' });
+      }
     };
     const handleOpenChat = (cli) => {
       setOpenMenuId(null);
@@ -201,10 +303,7 @@
         title="Clientes"
         subtitle="Carteira de compradores · histórico, recompra e segmentação"
         actions={
-        <button className="fin-new-btn" onClick={() => setShowNew(true)} aria-label="Novo cliente">
-            <span className="fin-new-label">{'Novo Cliente\u00A0'}</span>
-            <span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span>
-          </button>
+        <FabNovo size="sm" label="Novo Cliente" onClick={() => setShowNew(true)} />
         }>
 
         <ClientStyles />
@@ -262,9 +361,7 @@
             <StatusPills value={filterStatus} onChange={setFilterStatus} />
 
             <div style={{ flex: 1 }} />
-            <button className="btn" onClick={() => setShowImport(true)} style={{ borderColor: '#fb923c', color: '#c2410c' }}>
-              <Ic name="upload" size={13} /> Importar
-            </button>
+            <FabNovo size="mini" label="Importar" onClick={() => setShowImport(true)} />
             <button className="btn">
               <Ic name="download" size={13} /> Exportar
             </button>
@@ -378,11 +475,41 @@
           </div>
 
           <div className="client-scroll" style={{ flex: 1, minHeight: 0, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: 4, padding: '4px 0', background: 'var(--surface-2)' }}>
-            {filtered.length === 0 ?
+            {loading ?
+            Array.from({ length: skelCount('clientes', 3) }).map((_, i) =>
+              <div key={'sk' + i} className="client-row client-body" style={{ borderLeft: '2px solid var(--border)', pointerEvents: 'none' }}>
+                  <div className="client-cell client-cell-check"><Skeleton w={14} h={14} r={4} /></div>
+                  {colVisible('nome') &&
+                    <div className="client-cell client-cell-name">
+                      <Skeleton circle w={36} h={36} />
+                      <div style={{ minWidth: 0, flex: 1 }}><Skeleton w="70%" h={12} /><Skeleton w="50%" h={9} style={{ marginTop: 5 }} /></div>
+                    </div>}
+                  {colVisible('contatos') &&
+                    <div className="client-cell client-cell-contacts"><Skeleton w="80%" h={11} /><Skeleton w="90%" h={11} style={{ marginTop: 5 }} /></div>}
+                  {colVisible('tags') &&
+                    <div className="client-cell client-cell-tags"><Skeleton w={70} h={18} r={999} /><Skeleton w={50} h={16} r={999} style={{ marginTop: 5 }} /></div>}
+                  {colVisible('compras') &&
+                    <div className="client-cell client-cell-orders"><Skeleton w={72} h={22} r={999} /></div>}
+                  {colVisible('valores') &&
+                    <div className="client-cell client-cell-values"><Skeleton w="70%" h={12} /><Skeleton w="55%" h={10} style={{ marginTop: 5 }} /></div>}
+                  {colVisible('ultima') &&
+                    <div className="client-cell client-cell-last"><Skeleton w="70%" h={12} /><Skeleton w="55%" h={10} style={{ marginTop: 5 }} /></div>}
+                  {colVisible('atendente') &&
+                    <div className="client-cell client-cell-att"><div className="row" style={{ gap: 6 }}><Skeleton circle w={26} h={26} /><Skeleton w="55%" h={11} /></div></div>}
+                  <div className="client-cell client-cell-toggle"><Skeleton w={40} h={22} r={999} /></div>
+                  <div className="client-cell client-cell-actions"><Skeleton w={28} h={28} r={8} /></div>
+                </div>) :
+            loadErr ?
+            <div style={{ padding: 60, textAlign: 'center', background: 'var(--surface)' }}>
+                <Ic name="users" size={36} style={{ opacity: .4, color: '#ef4444' }} />
+                <div style={{ marginTop: 12, fontWeight: 700, color: '#b91c1c' }}>{loadErr}</div>
+                <button className="btn" style={{ marginTop: 12 }} onClick={reload}>Tentar de novo</button>
+              </div> :
+            filtered.length === 0 ?
             <div style={{ padding: 60, textAlign: 'center', color: 'var(--text-faint)', background: 'var(--surface)' }}>
                 <Ic name="users" size={36} style={{ opacity: .4 }} />
-                <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>Nenhum cliente encontrado</div>
-                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>Ajuste os filtros ou cadastre um novo cliente.</div>
+                <div style={{ marginTop: 12, fontWeight: 600, color: 'var(--text-muted)' }}>{allClients.length === 0 ? 'Nenhum cliente cadastrado' : 'Nenhum cliente encontrado'}</div>
+                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>{allClients.length === 0 ? 'Cadastre o primeiro cliente no botão "Novo cliente".' : 'Ajuste os filtros ou cadastre um novo cliente.'}</div>
               </div> :
 
             filtered.map((cli) => {
@@ -510,15 +637,29 @@
           </div>
         </div>
 
-        {showNew && <NewClientDrawer onClose={() => setShowNew(false)} onSave={(c) => {setAllClients((p) => [enrichClient(c, p.length), ...p]);setShowNew(false);}} />}
+        {showNew && <NewClientDrawer onClose={() => setShowNew(false)} onSave={async (c) => {
+          try {
+            const r = await window.API.createCliente(clientFormToDto(c));
+            setAllClients((p) => [clienteDtoToRow(r.cliente, 0), ...p]);
+            window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Cliente criado', descricao: c.name });
+          } catch (e) {
+            window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao criar cliente', descricao: (e && e.message) || 'Não foi possível criar o cliente.' });
+          }
+        }} />}
         {viewClient && window.CRMCardDetail && <window.CRMCardDetail
           card={{
+            clienteId: viewClient.id,
             name: viewClient.name,
             company: viewClient.company || '—',
             email: viewClient.email,
             phone: viewClient.phone,
             value: viewClient.ltv,
             tags: (viewClient.tags || []).map((t) => ({ label: t.name, color: t.color }))
+          }}
+          onSaved={(c) => {
+            setAllClients((p) => p.map((x) => x.id === c.id ? { ...clienteDtoToRow(c, 0), avatarBg: x.avatarBg } : x));
+            setViewClient((v) => (v && v.id === c.id) ? { ...v, ...clienteDtoToRow(c, 0) } : v);
+            window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Cliente atualizado', descricao: c.nome || c.name });
           }}
           onClose={() => setViewClient(null)} />}
         {showImport && <ImportClientsDrawer onClose={() => setShowImport(false)} />}
@@ -649,6 +790,7 @@
   }
 
   function ClientActionsMenu({ client, pinned, onClose, onChat, onPdv, onPin, onAppointment, onDelete }) {
+    const { can } = useStore();
     const wrapRef = React.useRef(null);
     React.useEffect(() => {
       const onDoc = (e) => {if (wrapRef.current && !wrapRef.current.contains(e.target)) onClose();};
@@ -664,7 +806,7 @@
     { id: 'pdv', label: 'Nova venda', icon: 'cart', onClick: onPdv },
     { id: 'pin', label: pinned ? 'Desafixar' : 'Fixar', icon: 'pin', onClick: onPin },
     { id: 'appt', label: 'Agendamento', icon: 'agenda', onClick: onAppointment },
-    { id: 'del', label: 'Excluir', icon: 'trash', onClick: onDelete, danger: true }];
+    can('clientes.excluir') && { id: 'del', label: 'Excluir', icon: 'trash', onClick: onDelete, danger: true }].filter(Boolean);
 
     return (
       <div ref={wrapRef}
@@ -704,15 +846,16 @@
   }
 
   // Bloco visual do formulário (definido fora do render p/ não remontar inputs)
+  // Bloco de tópico no padrão global (título com marcador verde acima da caixa).
+  // icon/color mantidos na assinatura por compatibilidade, mas o visual segue o padrão único.
   function CliBlock({ icon, title, color, children }) {
     return (
-      <div className="cli-block">
-        <div className="cli-block-hd">
-          <span className="cli-block-ic" style={color ? { background: `color-mix(in oklab,${color} 14%,white)`, color } : undefined}><Ic name={icon} size={15} /></span>
-          <span className="cli-block-title">{title}</span>
+      <>
+        <div className="fin-section-title">{title}</div>
+        <div className="fin-section">
+          <div className="col" style={{ gap: 10 }}>{children}</div>
         </div>
-        <div className="col" style={{ gap: 10 }}>{children}</div>
-      </div>);
+      </>);
   }
 
   function NewClientDrawer({ onClose, onSave }) {
@@ -749,16 +892,12 @@
       <Drawer title="Nova ficha de cliente" subtitle="Cadastro completo da carteira de clientes" onClose={onClose} width={760}
       footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
-          <button className="btn btn-save" disabled={!valid} style={{ opacity: valid ? 1 : .5 }} onClick={() => close(() => handleSave())}><Ic name="check" size={13} /> Criar cliente</button>
+          <ActionButton action="voltar" size="md" onClick={() => close()} />
+          <ActionButton action="salvar" size="md" label="Criar cliente" disabled={!valid} style={{ opacity: valid ? 1 : .5 }} onClick={() => close(() => handleSave())} />
         </>}>
+        <div className="tpc-flat">
         <style>{`
           .cli-typebar { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px 14px; flex-wrap: wrap; }
-          .cli-block { background: var(--surface-2); border: 1px solid var(--border); border-radius: 14px; padding: 16px; }
-          .cli-block + .cli-block { margin-top: 14px; }
-          .cli-block-hd { display: flex; align-items: center; gap: 9px; margin-bottom: 13px; }
-          .cli-block-ic { width: 28px; height: 28px; border-radius: 8px; display: inline-flex; align-items: center; justify-content: center; background: var(--accent-soft); color: var(--accent-700); flex-shrink: 0; }
-          .cli-block-title { font-weight: 600; font-size: var(--type-md); letter-spacing: -.01em; }
           .cli-grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
           .cli-grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 10px; }
           .cli-grid-cep { display: grid; grid-template-columns: 150px 1fr 110px; gap: 10px; }
@@ -849,13 +988,14 @@
           </div>
           <div><label className="label">Observações</label><textarea className="input" rows={3} value={f.obs} onChange={(e) => set('obs', e.target.value)} placeholder="Preferências, histórico, anotações..." /></div>
         </CliBlock>
+        </div>
       </Drawer>);
   }
 
   function ImportClientsDrawer({ onClose }) {
     return (
       <Drawer title="Importar Clientes" subtitle="Importe sua base a partir de uma planilha (CSV/XLSX)" onClose={onClose} width="40vw"
-      footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={onClose}>Voltar</button><button className="btn btn-primary" onClick={onClose}><Ic name="upload" size={13} /> Importar</button></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" label="Importar" icon="upload" onClick={() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Clientes importados' }); onClose(); }} /></>}>
         <div className="col" style={{ gap: 14 }}>
           <div style={{ padding: 24, border: '2px dashed var(--border-strong)', borderRadius: 12, textAlign: 'center', background: 'var(--surface-2)' }}>
             <Ic name="upload" size={28} style={{ color: 'var(--text-faint)' }} />
