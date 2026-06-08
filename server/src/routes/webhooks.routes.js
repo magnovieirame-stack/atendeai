@@ -76,18 +76,26 @@ webhooksRouter.get('/instagram', (req, res) => {
 webhooksRouter.post('/instagram', async (req, res) => {
   const signature = req.get('x-hub-signature-256') || '';
   const raw = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
-  if (!ig.verifyWebhookSignature(raw, signature)) return res.sendStatus(403);
+  console.log('[wh ig] POST recebido | tem assinatura?', !!signature, '| bytes', raw.length, '| object', req.body && req.body.object);
+  if (!ig.verifyWebhookSignature(raw, signature)) {
+    console.error('[wh ig] ASSINATURA INVÁLIDA — confira se IG_APP_SECRET no Vercel é igual à chave do app do Instagram');
+    return res.sendStatus(403);
+  }
 
   // Serverless (Vercel): processamos ANTES de responder, senão a função pode ser
   // congelada após o res e perder a gravação. Sempre respondemos 200 no fim.
   try {
     const body = req.body || {};
+    console.log('[wh ig] payload:', JSON.stringify(body).slice(0, 1000));
     if (body.object === 'instagram') {
       for (const entry of body.entry || []) {
+        // Instagram pode mandar mensagens em "messaging" (DM) — tratamos isso.
         for (const ev of entry.messaging || []) {
           try { await processarMensageria('instagram', ev); } catch (e) { console.error('[wh ig]', e?.message || e); }
         }
       }
+    } else {
+      console.log('[wh ig] object não é "instagram":', body.object);
     }
   } catch (e) { console.error('[wh ig]', e?.message || e); }
   res.sendStatus(200);
