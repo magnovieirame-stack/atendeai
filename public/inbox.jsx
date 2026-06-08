@@ -1221,9 +1221,11 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
         .then((r) => {
           const novas = (r.mensagens || []).map(dbMsgToUi);
           setMessages((prev) => {
+            // preserva mensagens otimistas ainda "em voo" (não derruba o que acabou de enviar)
+            const pendentes = prev.filter((m) => m._pending);
             const a = prev[prev.length - 1], b = novas[novas.length - 1];
-            if (prev.length === novas.length && (!b || (a && a._id === b._id))) return prev;
-            return novas;
+            if (!pendentes.length && prev.length === novas.length && (!b || (a && a._id === b._id))) return prev;
+            return pendentes.length ? [...novas, ...pendentes] : novas;
           });
         })
         .catch(() => {});
@@ -1243,18 +1245,20 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
   const handleSend = async () => {
     const t = composing.trim();
     if (!t) return;
-    if (conv._db) {
-      setComposing('');
-      try {
-        const r = await API.sendTexto(conv.id, t);
-        setMessages((prev) => [...prev, dbMsgToUi(r.mensagem)]);
-        if (onSent) onSent(conv.id); // joga a conversa pro topo + atualiza a hora
-      } catch (e) {
-        window.showToast({ tipo: 'erro', titulo: 'Falha ao enviar', descricao: e.message || 'Não foi possível enviar a mensagem.' });
-      }
-    } else {
-      addAgentMessage({ kind: 'text', text: t });
-      setComposing('');
+    setComposing('');
+    if (!conv._db) { addAgentMessage({ kind: 'text', text: t }); return; }
+    // Otimista: mostra na hora (sem esperar o backend/Meta). Depois reconcilia.
+    const tempId = 'tmp-' + Date.now();
+    setMessages((prev) => [...prev, { _id: tempId, from: 'agent', kind: 'text', text: t, time: now(), _pending: true }]);
+    if (onSent) onSent(conv.id); // joga a conversa pro topo + atualiza a hora
+    try {
+      const r = await API.sendTexto(conv.id, t);
+      // troca a provisória pela definitiva (com _id real) — sem duplicar
+      setMessages((prev) => prev.map((m) => m._id === tempId ? dbMsgToUi(r.mensagem) : m));
+    } catch (e) {
+      setMessages((prev) => prev.filter((m) => m._id !== tempId));
+      setComposing(t); // devolve o texto pro campo
+      window.showToast({ tipo: 'erro', titulo: 'Falha ao enviar', descricao: e.message || 'Não foi possível enviar a mensagem.' });
     }
   };
   const onKeyDown = (e) => {if (e.key === 'Enter' && !e.shiftKey) {e.preventDefault();handleSend();}};
