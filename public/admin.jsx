@@ -639,8 +639,8 @@ function abrirLoginCanal(connectUrl, onDone) {
     finish(e.data);
   }
   window.addEventListener('message', onMsg);
-  // Se o usuário fechar o popup sem concluir, encerramos o "carregando".
-  const timer = setInterval(() => { if (popup && popup.closed) finish(null); }, 800);
+  // Quando o popup fecha (concluiu ou foi fechado), encerramos e atualizamos a tela.
+  const timer = setInterval(() => { if (popup && popup.closed) finish(null); }, 500);
 }
 
 // Modal de conexão por LOGIN (Instagram e Facebook) — abre popup OAuth.
@@ -653,9 +653,16 @@ function CanalOAuthModal({ cfg, disponivel, current, onClose, onConnected }) {
     setErro(null); setBusy(true);
     abrirLoginCanal(cfg.connectUrl(), (res) => {
       setBusy(false);
-      if (!res) return; // popup fechado sem concluir
-      if (res.ok) { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Canal conectado', descricao: cfg.nome + ' está pronto para receber mensagens.' }); onConnected && onConnected(); }
-      else { setErro(res.mensagem || 'Não foi possível conectar.'); window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao conectar', descricao: res.mensagem || ('Não foi possível conectar o ' + cfg.nome + '.') }); }
+      // Erro explícito: mostra e mantém o modal aberto pra tentar de novo.
+      if (res && !res.ok) {
+        setErro(res.mensagem || 'Não foi possível conectar.');
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao conectar', descricao: res.mensagem || ('Não foi possível conectar o ' + cfg.nome + '.') });
+        return;
+      }
+      // Sucesso (postMessage) OU popup fechado sem mensagem (cross-origin):
+      // atualiza a tela de qualquer forma — assim reflete a conexão sem sair/entrar.
+      if (res && res.ok) window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Canal conectado', descricao: cfg.nome + ' está pronto para receber mensagens.' });
+      onConnected && onConnected();
     });
   };
   const desconectar = async () => {

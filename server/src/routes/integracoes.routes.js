@@ -52,7 +52,7 @@ function popupClose(res, ok, mensagem, canal = 'instagram') {
 <body><div><h3>${ok ? '✅ ' + nome + ' conectado' : '⚠️ Não foi possível conectar'}</h3>
 <p style="opacity:.8;font-size:14px">${(mensagem || (ok ? 'Pode fechar esta janela.' : 'Tente novamente.')).replace(/</g, '&lt;')}</p>
 <p style="opacity:.6;font-size:13px">Esta janela fecha sozinha…</p></div>
-<script>try{if(window.opener)window.opener.postMessage(${payload},window.location.origin);}catch(e){}setTimeout(function(){window.close();},1500);</script>
+<script>try{if(window.opener)window.opener.postMessage(${payload},window.location.origin);}catch(e){}setTimeout(function(){window.close();},900);</script>
 </body></html>`);
 }
 
