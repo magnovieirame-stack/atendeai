@@ -89,9 +89,16 @@ webhooksRouter.post('/instagram', async (req, res) => {
     console.log('[wh ig] payload:', JSON.stringify(body).slice(0, 1000));
     if (body.object === 'instagram') {
       for (const entry of body.entry || []) {
-        // Instagram pode mandar mensagens em "messaging" (DM) — tratamos isso.
+        // Formato 1: "messaging" (estilo Messenger) — usado p/ alguns eventos.
         for (const ev of entry.messaging || []) {
           try { await processarMensageria('instagram', ev); } catch (e) { console.error('[wh ig]', e?.message || e); }
+        }
+        // Formato 2: "changes" com field=messages -> value tem sender/recipient/message.
+        // É assim que o Instagram entrega as DMs (e o "Testar" do painel).
+        for (const ch of entry.changes || []) {
+          if (ch.field === 'messages' && ch.value) {
+            try { await processarMensageria('instagram', ch.value); } catch (e) { console.error('[wh ig]', e?.message || e); }
+          }
         }
       }
     } else {
