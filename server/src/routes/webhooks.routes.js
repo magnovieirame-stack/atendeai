@@ -205,17 +205,24 @@ webhooksRouter.get('/whatsapp', (req, res) => {
 webhooksRouter.post('/whatsapp', async (req, res) => {
   const signature = req.get('x-hub-signature-256') || '';
   const raw = req.rawBody || Buffer.from(JSON.stringify(req.body || {}));
-  if (!wa.verifyWebhookSignature(raw, signature)) return res.sendStatus(403);
+  console.log('[wh wa] POST recebido | tem assinatura?', !!signature, '| bytes', raw.length, '| object', req.body && req.body.object);
+  if (!wa.verifyWebhookSignature(raw, signature)) {
+    console.error('[wh wa] ASSINATURA INVÁLIDA — o WhatsApp deve estar no MESMO app cujo segredo é FB_APP_SECRET no Vercel');
+    return res.sendStatus(403);
+  }
 
   try {
     const body = req.body || {};
+    console.log('[wh wa] payload:', JSON.stringify(body).slice(0, 1200));
     if (body.object === 'whatsapp_business_account') {
       for (const entry of body.entry || []) {
         for (const ch of entry.changes || []) {
-          if (ch.field !== 'messages') continue;
+          if (ch.field !== 'messages') { console.log('[wh wa] change ignorada, field=', ch.field); continue; }
           try { await processarWhatsapp(ch.value || {}); } catch (e) { console.error('[wh wa]', e?.message || e); }
         }
       }
+    } else {
+      console.log('[wh wa] object inesperado:', body.object);
     }
   } catch (e) { console.error('[wh wa]', e?.message || e); }
   res.sendStatus(200);
@@ -225,12 +232,14 @@ const WA_TIPO = { image: 'imagem', audio: 'audio', voice: 'audio', video: 'video
 
 async function processarWhatsapp(value) {
   const messages = value.messages || [];
-  if (!messages.length) return; // ignora 'statuses' (recibos de entrega) por enquanto
+  if (!messages.length) { console.log('[wh wa] sem messages (provavel statuses/recibo):', JSON.stringify(value).slice(0, 200)); return; }
 
   const phoneNumberId = value.metadata?.phone_number_id ? String(value.metadata.phone_number_id) : null;
+  console.log(`[wh wa] ${messages.length} msg(s) | phone_number_id=${phoneNumberId}`);
   if (!phoneNumberId) return;
 
   const integ = await store.findByExternalId('whatsapp', phoneNumberId);
+  console.log('[wh wa] integração p/', phoneNumberId, ':', integ ? ('achou status=' + integ.status) : 'NÃO ACHOU');
   if (!integ || integ.status !== 'conectado') return;
   const db = adminClient();
   const empresaId = integ.empresa_id;
