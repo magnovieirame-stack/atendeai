@@ -67,11 +67,15 @@ export async function downloadMedia(url, token) {
   return { buffer: buf, mime: res.headers.get('content-type') || 'application/octet-stream' };
 }
 
-// Verificação da assinatura do webhook (segredo do mesmo app do Facebook).
+// Verificação da assinatura do webhook. Tenta o segredo do app do WhatsApp E o
+// do Facebook (caso o WhatsApp esteja no mesmo app ou em um app separado).
 export function verifyWebhookSignature(rawBody, signatureHeader) {
-  if (!signatureHeader || !config.whatsapp.appSecret) return false;
-  const expected = 'sha256=' + crypto.createHmac('sha256', config.whatsapp.appSecret).update(rawBody).digest('hex');
-  const a = Buffer.from(signatureHeader);
-  const b = Buffer.from(expected);
-  return a.length === b.length && crypto.timingSafeEqual(a, b);
+  if (!signatureHeader) return false;
+  const secrets = [config.whatsapp.appSecret, config.facebook.appSecret].filter(Boolean);
+  const sig = Buffer.from(signatureHeader);
+  for (const secret of secrets) {
+    const expected = Buffer.from('sha256=' + crypto.createHmac('sha256', secret).update(rawBody).digest('hex'));
+    if (sig.length === expected.length && crypto.timingSafeEqual(sig, expected)) return true;
+  }
+  return false;
 }

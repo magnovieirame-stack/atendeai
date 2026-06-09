@@ -74,8 +74,10 @@ config.facebook.redirectUri = config.appBaseUrl
 config.google.redirectUri = config.appBaseUrl
   ? config.appBaseUrl + '/api/integracoes/google/callback'
   : '';
-// A assinatura do webhook do WhatsApp usa o segredo do mesmo app (Facebook).
-config.whatsapp.appSecret = config.facebook.appSecret;
+// A assinatura do webhook do WhatsApp usa o segredo do app onde o WhatsApp está.
+// Se o WhatsApp estiver em OUTRO app (não o do Facebook), defina WHATSAPP_APP_SECRET.
+// Caso contrário, cai no segredo do app do Facebook (mesmo app).
+config.whatsapp.appSecret = process.env.WHATSAPP_APP_SECRET || config.facebook.appSecret;
 
 // Flags de prontidão — o servidor sobe mesmo sem credenciais (para servir o
 // frontend), mas as rotas que precisam do Supabase avisam claramente se faltar.
