@@ -6,19 +6,6 @@ function SuperDashboard() {
   React.useEffect(() => setLoading(false), []);
   return (
     <Page title="Visão geral da plataforma" subtitle="Dados em tempo real · atualizado há 12s">
-      {/* TEMP · preview do FabNovo nos 3 tamanhos (passe o mouse) */}
-      <div className="card card-pad" style={{ marginBottom: 'var(--pad-3)' }}>
-        <div style={{ fontWeight: 700, marginBottom: 2 }}>Botão "Nova X" expansível <span className="badge badge-neutral" style={{ marginLeft: 6 }}>preview</span></div>
-        <div className="muted" style={{ fontSize: 'var(--type-sm)', marginBottom: 16 }}>Recolhido só com o (+); passe o mouse pra ver o rótulo deslizar e o (+) girar. 3 tamanhos do Kit (Small 36 · Medium 40 · Large 56).</div>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: 16, maxWidth: 460 }}>
-          {[['lg', 'Large'], ['md', 'Medium'], ['sm', 'Small'], ['mini', 'Mini']].map(([sz, nome]) => (
-            <div key={sz} style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
-              <span className="muted" style={{ width: 70, fontSize: 11, fontWeight: 700, textTransform: 'uppercase' }}>{nome}</span>
-              <div style={{ flex: 1, display: 'flex', justifyContent: 'flex-end' }}><FabNovo size={sz} label="Nova receita" /></div>
-            </div>
-          ))}
-        </div>
-      </div>
       <div className="stat-grid">
         {loading ? Array.from({ length: 4 }).map((_, i) => (
           <div key={i} className="card card-pad">
@@ -152,7 +139,6 @@ function ClientDrawer({ initial, onClose, onSave, onDelete }) {
         return <>
         {isEdit && <ActionButton action="excluir" size="md" onClick={()=>setConfirmDel(true)} />}
         <div style={{flex:1}}/>
-        <ActionButton action="voltar" size="md" onClick={() => close()} />
         {!isEdit && <ActionButton action="salvar" size="md" label="Salvar e enviar boas-vindas" icon="mail" onClick={() => close(() => { handleSave(); window.showToast({ tipo:'sucesso', titulo:'Boas-vindas enviadas', descricao:'Cliente cadastrado e e-mail de boas-vindas enviado.', duracao:4000 }); })} />}
         <ActionButton action="salvar" size="md" label={isEdit ? 'Salvar alterações' : 'Cadastrar cliente'} onClick={() => close(() => { handleSave(); window.showToast(isEdit ? { tipo:'sucesso', titulo:'Alterações salvas', descricao:'As alterações do cliente foram salvas.', duracao:4000 } : { tipo:'sucesso', titulo:'Cliente criado!', descricao:'Novo cliente cadastrado com sucesso.', duracao:4000 }); })} />
       </>;
@@ -928,7 +914,7 @@ function MudarPlanoDrawer({ loja, onClose }) {
 
   return (
     <Drawer title="Mudar plano" subtitle={loja.name} onClose={onClose} width={520}
-      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" label="Confirmar mudança" onClick={() => { window.showToast(mudou ? { tipo:'sucesso', titulo:'Plano alterado', descricao:`${atualNome} → ${novo}.`, duracao:4000 } : { tipo:'info', titulo:'Nada foi alterado', descricao:'O plano selecionado é o mesmo plano atual.', duracao:4000 }); onClose(); }} /></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Confirmar mudança" onClick={() => { window.showToast(mudou ? { tipo:'sucesso', titulo:'Plano alterado', descricao:`${atualNome} → ${novo}.`, duracao:4000 } : { tipo:'info', titulo:'Nada foi alterado', descricao:'O plano selecionado é o mesmo plano atual.', duracao:4000 }); onClose(); }} /></>}>
       <div className="col" style={{ gap: 16 }}>
         {/* Plano atual */}
         <div style={{ display: 'flex', alignItems: 'center', gap: 12, padding: 14, border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface-2)' }}>
@@ -1035,7 +1021,7 @@ function NovaAtividadeDrawer({ loja, onClose, onSalvar }) {
   const salvar = () => { onSalvar && onSalvar({ titulo: titulo || 'Atividade', date: _ddmm(data), person: resp }); window.showToast({ tipo:'sucesso', titulo:'Atividade criada', descricao:`${titulo || 'Atividade'} foi adicionada.`, duracao:4000 }); };
   return (
     <Drawer title="Nova atividade" subtitle={loja.name} onClose={onClose} width={460}
-      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" onClick={salvar} /></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" onClick={salvar} /></>}>
       <div className="col" style={{ gap: 14 }}>
         <div><label className="label">Tipo</label><select className="input" value={tipo} onChange={(e) => setTipo(e.target.value)}>{TIPOS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
         <div><label className="label">Título / assunto</label><input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Ligar sobre renovação" /></div>
@@ -1071,7 +1057,7 @@ function AgendamentoDrawer({ loja, onClose, onAgendar }) {
   const agendar = () => { onAgendar && onAgendar({ title: titulo || 'Compromisso', desc: (local || (modo === 'online' ? 'Reunião online' : 'Presencial')), time: hora, ...(_badgeData(data)) }); window.showToast({ tipo:'sucesso', titulo:'Agendamento criado', descricao:`${titulo || 'Compromisso'} agendado para ${_ddmm ? _ddmm(data) : data} às ${hora}.`, duracao:4000 }); };
   return (
     <Drawer title="Novo agendamento" subtitle={loja.name} onClose={onClose} width={460}
-      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" label="Agendar" icon="agenda" onClick={agendar} /></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Agendar" icon="agenda" onClick={agendar} /></>}>
       <div className="col" style={{ gap: 14 }}>
         <div><label className="label">Título do compromisso</label><input className="input" value={titulo} onChange={(e) => setTitulo(e.target.value)} placeholder="Ex.: Demo do sistema" /></div>
         <div><label className="label">Tipo</label><select className="input" value={tipo} onChange={(e) => setTipo(e.target.value)}>{TIPOS.map(([k, l]) => <option key={k} value={k}>{l}</option>)}</select></div>
@@ -1147,7 +1133,7 @@ function EditarFichaDrawer({ loja, onClose }) {
   const sub = (t) => <div style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', color: 'var(--text-muted)' }}>{t}</div>;
   return (
     <Drawer title="Editar ficha" subtitle={loja.name} onClose={onClose} width={520}
-      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" onClick={() => { window.showToast({ tipo:'sucesso', titulo:'Ficha atualizada', descricao:`Os dados de ${f.name || loja.name} foram salvos.`, duracao:4000 }); onClose(); }} /></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" onClick={() => { window.showToast({ tipo:'sucesso', titulo:'Ficha atualizada', descricao:`Os dados de ${f.name || loja.name} foram salvos.`, duracao:4000 }); onClose(); }} /></>}>
       <div className="col" style={{ gap: 14 }}>
         {sub('Dados da loja')}
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>{inp('Loja', 'name')}{inp('Segmento', 'segmento')}{inp('CNPJ', 'cnpj')}{inp('Cidade', 'cidade')}</div>
@@ -1614,7 +1600,6 @@ function NovaLojaDrawer({ onClose, onSaved, initial }) {
     <Drawer title={isEdit ? 'Editar cadastro' : 'Nova ficha de cliente'} subtitle={isEdit ? 'Edite os dados do cliente da plataforma.' : 'Cadastre uma loja (cliente da plataforma). Campos com * são obrigatórios.'} onClose={onClose} width={760}
       footer={(close) => <>
         <div style={{ flex: 1 }} />
-        <ActionButton action="voltar" size="md" onClick={() => close()} />
         <ActionButton action="salvar" size="md" label={saving ? 'Salvando…' : (isEdit ? 'Salvar alterações' : 'Criar cliente')} efeito={false} disabled={saving} onClick={() => salvar(close)} />
       </>}>
       <div className="tpc-flat">
@@ -2161,7 +2146,6 @@ function PlanoDrawer({ plano, onClose, onSaved }) {
   return (
     <Drawer title={novo ? 'Novo plano' : 'Editar plano'} subtitle={`Etapa ${step + 1} de ${PLANO_STEPS.length} · ${PLANO_STEPS[step].label}`} onClose={onClose} width="60vw"
       footer={(close) => <>
-        <ActionButton action="voltar" size="md" onClick={close} />
         <div style={{ flex: 1 }} />
         {step > 0 && <ActionButton action="anterior" size="md" onClick={() => goTo(step - 1)} />}
         {step < last
@@ -2337,7 +2321,7 @@ function ApagarPlanoDrawer({ plano, planos, onClose, onDeleted }) {
 
   return (
     <Drawer title="Apagar plano" subtitle={plano.name} onClose={onClose} width={520}
-      footer={(close) => <><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={() => close()} />
+      footer={(close) => <><div style={{ flex: 1 }} />
         <ActionButton action="excluir" size="md" label={apagando ? 'Apagando…' : 'Apagar plano'} disabled={!podeApagar || apagando} onClick={() => apagar(close)} /></>}>
       <ApagarPlanoStyles />
 

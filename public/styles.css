@@ -1064,6 +1064,9 @@ textarea.da01-area.is-edit { border-color: var(--accent); box-shadow: 0 0 0 2px 
 .drawer-hd { padding: 18px 22px; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 12px; flex-shrink: 0; }
 .drawer-bd { flex: 1; min-height: 0; overflow: auto; padding: 22px; }
 .drawer-ft { padding: 14px 22px; border-top: 1px solid var(--border); display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+/* X de fechar do cabeçalho: hover no vermelho do kit (voltar/cancelar).
+   border-color explícito pra vencer o .btn:hover (que deixaria a borda cinza). */
+.drawer-x:hover { color: #FF452A; background: #FFEBEC; border-color: #FF452A; }
 
 /* Misc */
 .dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }

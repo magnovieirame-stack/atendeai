@@ -106,7 +106,6 @@ function MyAgendaDrawer({ agentName = 'Júlia', agentTitle = 'Atendimento', onCl
             <Ic name="check" size={12} style={{ color: 'var(--accent)' }} /> Salvo automaticamente
           </div>
           <div style={{ flex: 1 }} />
-          <ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} />
           <ActionButton action="salvar" size="md" label="Aplicar configuração" onClick={() => { window.showToast({ tipo: 'sucesso', titulo: 'Agenda atualizada' }); onClose && onClose(); }} />
         </>
       }

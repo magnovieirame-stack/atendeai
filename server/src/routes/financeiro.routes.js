@@ -20,6 +20,8 @@ const dataOpt = z.string().trim().max(10).optional().nullable(); // 'YYYY-MM-DD'
 
 async function getEmpresaId(req) {
   if (req._empresaId !== undefined) return req._empresaId;
+  // Reusa o empresaId já carregado pela autorização (req._auth) — evita ida redundante ao banco.
+  if (req._auth && req._auth.empresaId != null) { req._empresaId = req._auth.empresaId; return req._empresaId; }
   const { data } = await req.supabase.from('empresa_membros').select('empresa_id').limit(1);
   req._empresaId = data && data[0] ? data[0].empresa_id : null;
   return req._empresaId;

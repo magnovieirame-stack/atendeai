@@ -24,7 +24,7 @@
         subtitle={c.cargo + ' · ' + c.depto}
         onClose={onClose} width={680}
         rightHead={<BoChip color={st.color} label={st.label} solid />}
-        footer={(close) => (<><ActionButton action="voltar" size="md" onClick={() => close()} /><div style={{ flex: 1 }} /><ActionButton action="editar" size="md" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Colaborador atualizado', descricao: c.nome + '.' })} /></>)}>
+        footer={(close) => (<><div style={{ flex: 1 }} /><ActionButton action="editar" size="md" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Colaborador atualizado', descricao: c.nome + '.' })} /></>)}>
         <style>{`
           .hr-dl-row { display: grid; grid-template-columns: 150px 1fr; gap: 14px; padding: 11px 0; border-bottom: 1px solid var(--border); align-items: center; }
           .hr-dl-row:last-child { border-bottom: 0; }

@@ -18,6 +18,16 @@ const ACCENT_PRESETS = {
   "grafite":"#1f2937",
 };
 
+// MODO DEMO — botões "Entrar como" do login. Identidade fake (só front, p/ a UI
+// refletir o papel escolhido) e home de cada papel. NÃO concede acesso real:
+// o backend continua exigindo o papel verdadeiro do cookie de sessão.
+const DEMO_IDENTITY = {
+  admin:     { papel: 'admin_loja',  papelNome: 'Admin da Loja', empresaNome: 'Iguabela Beleza · DEMO', nome: 'Visitante (demo)', email: 'demo@pk360.app', cargo: null },
+  atendente: { papel: 'atendente',   papelNome: 'Atendente',     empresaNome: 'Iguabela Beleza · DEMO', nome: 'Visitante (demo)', email: 'demo@pk360.app', cargo: null },
+  super:     { papel: 'super_admin', papelNome: 'Super Admin',   empresaNome: null,                     nome: 'Visitante (demo)', email: 'demo@pk360.app', cargo: null },
+};
+const DEMO_HOME = { super: 'super-dashboard', atendente: 'atendente-dashboard', admin: 'dashboard' };
+
 // Global navigation context
 const RouterCtx = React.createContext(null);
 const StoreCtx = React.createContext(null);
@@ -43,6 +53,8 @@ function Provider({ children }) {
     if (typeof k === 'object') setTweakRaw(k);
     else setTweakRaw(k, v);
   };
+  // Modo demo: dados simulados p/ testar a UI sem login real. Sai ao voltar pro login.
+  const [demo, setDemo] = React.useState(false);
   // Troca MANUAL do "Ver como": muda o preview e PERSISTE a escolha (sobrevive ao
   // F5). Só o controle do painel chama isto — o sync automático abaixo não grava,
   // então usuário real (que nunca mexe no toggle) nunca cria um valor salvo.
@@ -65,6 +77,20 @@ function Provider({ children }) {
       setRouteRaw(last.route); setRouteParam(last.routeParam);
       return h.slice(0,-1);
     });
+  };
+
+  // Entra no MODO DEMO a partir do login: liga o demo, ajusta o perfil/versão e os
+  // dados ricos, e navega direto pra home do papel (driblando o guard de auth-route).
+  const enterDemo = (profileId) => {
+    // Liga a flag de demo SINCRONAMENTE (antes do render): o api.jsx lê window.__DEMO__
+    // pra desviar TODA chamada de rede pros mocks locais. Se ligasse só via efeito,
+    // o 1º load de uma tela poderia escapar pra rede real (efeitos rodam bottom-up).
+    window.__DEMO__ = profileId || 'admin';
+    setDemo(true);
+    setTweak({ profile: profileId, dataState: 'rich' });
+    setRouteRaw(DEMO_HOME[profileId] || 'dashboard');
+    setRouteParam(null);
+    setHistory([]);
   };
 
   // when profile changes via tweaks, switch to a default route — mas NUNCA tira o
@@ -90,21 +116,43 @@ function Provider({ children }) {
     r.style.setProperty('--accent', tweaks.accent);
   }, [tweaks.theme, tweaks.density, tweaks.accent]);
 
+  // Voltar pra tela de login (logout, "Sair", etc.) sempre encerra o modo demo.
+  React.useEffect(() => { if (route === 'login' && demo) setDemo(false); }, [route, demo]);
+  // Espelha o fim do demo na flag global: ao sair do demo, volta ao fluxo REAL
+  // (rede liberada, zero mock). Entrar é feito sincronamente em enterDemo.
+  React.useEffect(() => { if (!demo) window.__DEMO__ = false; }, [demo]);
+
   // Papel + permissões REAIS (do backend, via /auth/me). Usado só para UX —
   // quem realmente bloqueia é o backend. `can('codigo')` consulta as permissões.
-  const [auth, setAuth] = React.useState({ papel: null, papelNome: null, cargo: null, empresaId: null, empresaNome: null, nome: null, email: null, permissoes: new Set(), loaded: false });
+  const [auth, setAuth] = React.useState({ papel: null, papelNome: null, cargo: null, empresaId: null, empresaNome: null, nome: null, email: null, permissoes: new Set(), preferencias: null, loaded: false });
   const reloadAuth = React.useCallback(() => {
     if (!window.API || !window.API.me) return Promise.resolve(null);
     return window.API.me()
       .then((r) => {
         const u = (r && r.user) || {};
-        setAuth({ papel: u.papel || null, papelNome: u.papelNome || null, cargo: u.cargo || null, empresaId: (u.empresa && u.empresa.id) || u.empresaId || null, empresaNome: (u.empresa && u.empresa.nome) || null, nome: u.name || null, email: u.email || null, permissoes: new Set(u.permissoes || []), loaded: true });
+        setAuth({ papel: u.papel || null, papelNome: u.papelNome || null, cargo: u.cargo || null, empresaId: (u.empresa && u.empresa.id) || u.empresaId || null, empresaNome: (u.empresa && u.empresa.nome) || null, nome: u.name || null, email: u.email || null, permissoes: new Set(u.permissoes || []), preferencias: (u.preferencias && typeof u.preferencias === 'object') ? u.preferencias : null, loaded: true });
         return u.papel || null;
       })
       .catch(() => { setAuth((a) => ({ ...a, loaded: true })); return null; });
   }, []);
   React.useEffect(() => { reloadAuth(); }, [reloadAuth]);
-  const can = React.useCallback((codigo) => auth.permissoes.has(codigo), [auth]);
+
+  // Hidrata tema/densidade salvos no Perfil (cross-device) quando o auth carrega.
+  // (Fica DEPOIS da declaração do `auth` — senão dá ReferenceError no render/TDZ.)
+  // Deps só [auth.preferencias]: aplica o salvo ao logar — não revoga uma troca local
+  // que o usuário faça depois (essa salva por conta própria e não recarrega o auth).
+  React.useEffect(() => {
+    const p = auth.preferencias;
+    if (!p) return;
+    if (p.tema && p.tema !== tweaks.theme) setTweak('theme', p.tema);
+    if (p.densidade && p.densidade !== tweaks.density) setTweak('density', p.densidade);
+  }, [auth.preferencias]);
+  // No demo, libera tudo (só p/ o menu/telas renderizarem o papel escolhido); fora
+  // do demo, usa as permissões REAIS. O backend nunca confia nisto.
+  const can = React.useCallback((codigo) => (demo ? true : auth.permissoes.has(codigo)), [demo, auth]);
+  // Identidade exibida: no demo, espelha o papel escolhido (mantém empresaId/permissoes
+  // reais por baixo); fora do demo, é o auth real do /auth/me.
+  const authView = demo ? { ...auth, loaded: true, ...(DEMO_IDENTITY[tweaks.profile] || DEMO_IDENTITY.admin) } : auth;
 
   // "Ver como": ao logar, o perfil/versão ESPELHA o papel REAL do /auth/me.
   //  - super_admin: pode usar o simulador "Ver como" e a escolha persiste (F5);
@@ -112,6 +160,7 @@ function Provider({ children }) {
   // É só visual; o backend sempre usa o papel real (do cookie).
   const syncedRef = React.useRef(null);
   React.useEffect(() => {
+    if (demo) return; // no demo o perfil é o escolhido nos botões — não sincroniza
     if (!auth.loaded || !auth.papel) return;
     if (syncedRef.current === auth.papel) return; // já sincronizou este papel
     syncedRef.current = auth.papel;
@@ -125,7 +174,8 @@ function Provider({ children }) {
   const value = {
     tweaks, setTweak, setVerComo,
     route, routeParam, setRoute, back, history,
-    auth, can, reloadAuth,
+    auth: authView, can, reloadAuth,
+    demo, enterDemo,
   };
 
   return (

@@ -1,6 +1,7 @@
-// pdv.jsx — PDV de Venda (Balcão / varejo de produtos). SOMENTE VISUAL (mock).
-// Aba lateral de 80% da largura, aberta pelo botão "PDV de Venda" do chatbot.
-// Quando aprovado, ligamos no catálogo real + backend de vendas.
+// pdv.jsx — PDV de Venda (Balcão / varejo de produtos). LIGADO ao catálogo real
+// e ao backend de vendas (window.API.createVenda: baixa estoque, gera receita,
+// vira lead→cliente). Aba lateral de 80%, aberta pelo "PDV de Venda" do chatbot,
+// pelo carrinho do Catálogo e pelo "Nova venda" da página de Vendas.
 
 (function () {
   const fmtBRL = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -145,7 +146,7 @@
             <div style={{ flex: 1 }} />
             <ActionButton action="cancelar" size="md" onClick={() => close()} />
             <ActionButton action="atencao" size="md" label="Aguardar" icon="clock" onClick={() => aguardar(close)} />
-            <ActionButton action="salvar" size="md" label={submitting ? 'Finalizando…' : 'Finalizar venda'} disabled={submitting} onClick={() => finalizar(close)} />
+            <ActionButton action="salvar" size="md" label={submitting ? 'Finalizando…' : 'Finalizar venda'} disabled={submitting || restante > 0.01} title={restante > 0.01 ? 'O pagamento ainda não cobre o total' : undefined} onClick={() => finalizar(close)} />
           </div>
         )}>
         <PDVStyles />

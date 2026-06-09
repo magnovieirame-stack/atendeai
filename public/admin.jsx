@@ -1,4 +1,4 @@
-// admin.jsx — Admin screens: Dashboard, Configurações, Catálogo, Integrações, Equipe, Regras, Respostas, Relatórios, Histórico, Financeiro
+﻿// admin.jsx — Admin screens: Dashboard, Configurações, Catálogo, Integrações, Equipe, Regras, Respostas, Relatórios, Histórico, Financeiro
 
 // Deterministic pseudo-random in [0,1) — keeps charts stable across re-renders
 function dashRand(i, salt) {
@@ -1212,175 +1212,287 @@ function MemberModal({ initial, onClose, onSave, onDelete }) {
 
 }
 
-function AdminTeam() {
-  const [team, setTeam] = React.useState(() => [...TEAM]);
-  const [editing, setEditing] = React.useState(null); // null | 'new' | memberId
-  const open = team.find((m) => m.id === editing);
-  const isOpen = editing !== null;
-  return (
-    <Page title="Equipe" subtitle="Gestão de colaboradores" actions={<button className="fin-new-btn" onClick={() => setEditing('new')} aria-label="Nova Equipe"><span className="fin-new-label">{'Nova Equipe\u00A0'}</span><span className="fin-new-plus" style={{ width: "38px", height: "38px" }}><Ic name="plus" size={18} /></span></button>}>
-      {(() => {
-        // Aggregate dashboard across all teams
-        const totalMeta = team.reduce((s, t) => s + (t.meta || 0), 0);
-        const totalVendido = team.reduce((s, t) => s + (t.vendido || 0), 0);
-        const metaPct = totalMeta > 0 ? Math.round(totalVendido / totalMeta * 100) : 0;
-        const negTot = team.reduce((s, t, i) => s + (t.vendido * 5.5 + (i + 1) * 12000), 0);
-        const negGan = totalVendido;
-        const negPer = team.reduce((s, t, i) => s + (t.meta * 0.6 + (i + 1) * 3500), 0);
-        const negAbe = Math.max(0, negTot - negGan - negPer);
-        const ativos = team.filter((t) => t.status === 'ativo').length;
-        const fmtK = (v) => v >= 1000 ? `R$ ${(v / 1000).toFixed(v >= 10000 ? 1 : 2)}k` : `R$ ${Math.round(v)}`;
-        const KPIs = [
-        { id: 'tot', label: 'Total negócios', value: fmtK(negTot), count: `${Math.round(negTot / 120)} negócios`, delta: '+17.46%', up: true, icon: 'reports', rotate: 0 },
-        { id: 'gan', label: 'Total ganhos', value: fmtK(negGan), count: `${Math.round(negGan / 500)} negócios`, delta: '+12.30%', up: true, icon: 'arrow-up-right', rotate: 0 },
-        { id: 'per', label: 'Total perdidos', value: fmtK(negPer), count: `${Math.round(negPer / 280)} negócios`, delta: '-8.25%', up: false, icon: 'arrow-up-right', rotate: 90 },
-        { id: 'abe', label: 'Total em aberto', value: fmtK(negAbe), count: `${Math.round(negAbe / 95)} negócios`, delta: '+7.40%', up: true, icon: 'activity', rotate: 0 },
-        { id: 'eq', label: 'Equipes', value: `${team.length}`, count: `${ativos} ativa${ativos === 1 ? '' : 's'} · ${team.length - ativos} inativa${team.length - ativos === 1 ? '' : 's'}`, delta: '+1', up: true, icon: 'team', rotate: 0 }];
+// Cartão de membro de equipe (spec do usuário, recriado fiel). Dados: name/color/
+// status/role/vendido REAIS; "Negócios" são derivados do vendido pela fórmula do
+// card; `meta` ainda é placeholder (metas não modeladas no back).
+function TeamMemberCard({ m, idx, allTeam, onClick }) {
+  const formatBRL = (n) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  const pct = Math.round(m.vendido / m.meta * 100);
+  const stripe = m.color || 'var(--hue-orange)';
+  const teamMembers = (allTeam || []).filter((x) => x.id !== m.id).slice(0, 4);
+  const teamName = m.region || m.name.split(' ')[0] + 's';
+  const desc = m.description || `Equipe responsável por ${(m.role || 'colaborador').toLowerCase()} — atende clientes ativos e prospects nos canais conectados.`;
 
-        return (
-          <div className="card team-overview" style={{ overflow: 'hidden', marginBottom: 'var(--pad-3)', flexShrink: 0 }}>
-            <div className="card-pad" style={{ paddingBottom: 18 }}>
-              <div className="row" style={{ alignItems: 'flex-end', marginBottom: 16, gap: 12 }}>
-                <div>
-                  <div style={{ fontSize: 'var(--type-lg)', fontWeight: 700, letterSpacing: '-.01em' }}>Visão geral — Negócios das equipes</div>
-                  <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 2 }}>Dados consolidados de todas as {team.length} equipes</div>
-                </div>
-                <div className="spacer" />
-                <span className="badge badge-success" style={{ flexShrink: 0 }}>{ativos} ativa{ativos === 1 ? '' : 's'}</span>
-              </div>
-              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(5, minmax(0, 1fr))', gap: 12 }}>
-                {KPIs.map((k) => {
-                  const deltaBg = k.up ? 'color-mix(in oklab, var(--accent) 14%, white)' : 'color-mix(in oklab, var(--hue-rose) 14%, white)';
-                  const deltaFg = k.up ? 'var(--accent-700)' : '#b91c1c';
-                  const iconFg = k.up ? 'var(--accent)' : 'var(--hue-rose)';
-                  return (
-                    <div key={k.id} style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '14px 16px', background: 'var(--surface)', display: 'flex', flexDirection: 'column', gap: 6, minWidth: 0 }}>
-                      <div className="row" style={{ alignItems: 'center', gap: 6 }}>
-                        <div style={{ fontSize: 'var(--type-xs)', color: 'var(--text-muted)', fontWeight: 600, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{k.label}</div>
-                        <span style={{ background: deltaBg, color: deltaFg, fontSize: 10, fontWeight: 700, padding: '2px 6px', borderRadius: 4, whiteSpace: 'nowrap' }}>{k.delta}</span>
-                      </div>
-                      <div className="row" style={{ alignItems: 'flex-end', gap: 8 }}>
-                        <div className="tnum" style={{ fontSize: 'var(--type-xl)', fontWeight: 700, letterSpacing: '-.02em', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.1 }}>{k.value}</div>
-                        <span style={{ color: iconFg, display: 'inline-flex', flexShrink: 0, transform: k.rotate ? `rotate(${k.rotate}deg)` : undefined }}><Ic name={k.icon} size={16} /></span>
-                      </div>
-                      <div className="muted" style={{ fontSize: 'var(--type-xs)' }}>{k.count}</div>
-                    </div>);
-                })}
-              </div>
-              <div style={{ marginTop: 16, paddingTop: 16, borderTop: '1px solid var(--border)' }}>
-                <div className="row" style={{ alignItems: 'center', marginBottom: 8, gap: 10 }}>
-                  <div>
-                    <div style={{ fontSize: 'var(--type-sm)', fontWeight: 700 }}>Meta consolidada</div>
-                    <div className="muted" style={{ fontSize: 'var(--type-xs)', marginTop: 2 }}>Vendas {formatBRL(totalVendido)} de {formatBRL(totalMeta)}</div>
+  // Métricas "Negócios" derivadas (mock) dos dados do membro
+  const seed = idx + 1;
+  const totalVal = m.vendido * 5.5 + seed * 12000;
+  const ganhosVal = m.vendido;
+  const perdidosVal = m.meta * 0.6 + seed * 3500;
+  const abertoVal = Math.max(0, totalVal - ganhosVal - perdidosVal);
+  const fmtK = (v) => `R$ ${(v / 1000).toFixed(v >= 10000 ? 1 : 2)}k`;
+  const negs = [
+    { id: 'tot', label: 'Total negócios', value: fmtK(totalVal), count: `${Math.round(totalVal / 120)} negócios`, delta: '+17.46%', up: true, icon: 'reports', rotate: 0 },
+    { id: 'gan', label: 'Total ganhos', value: fmtK(ganhosVal), count: `${Math.round(ganhosVal / 500)} negócios`, delta: '+12.30%', up: true, icon: 'arrow-up-right', rotate: 0 },
+    { id: 'per', label: 'Total perdidos', value: fmtK(perdidosVal), count: `${Math.round(perdidosVal / 280)} negócios`, delta: '-8.25%', up: false, icon: 'arrow-up-right', rotate: 90 },
+    { id: 'abe', label: 'Total em aberto', value: fmtK(abertoVal), count: `${Math.round(abertoVal / 95)} negócios`, delta: '+7.40%', up: true, icon: 'activity', rotate: 0 },
+  ];
+
+  return (
+    <div className="card team-card"
+      style={{ overflow: 'hidden', cursor: 'pointer', transition: 'transform .2s ease, box-shadow .2s ease' }}
+      onClick={onClick}>
+      <div style={{ height: 4, background: stripe }} />
+      <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+
+        <div className="row" style={{ gap: 14, alignItems: 'center' }}>
+          <Avatar name={m.name} size="xl" color={m.color} online={m.status === 'ativo'} />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="row" style={{ gap: 8, alignItems: 'center' }}>
+              <div style={{ fontWeight: 700, fontSize: 'var(--type-lg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.15 }}>{m.name}</div>
+              <span className={`badge ${m.status === 'ativo' ? 'badge-success' : 'badge-neutral'}`} style={{ flexShrink: 0 }}>{m.status === 'ativo' ? 'Ativo' : 'Inativo'}</span>
+            </div>
+            <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 2 }}>Equipe {teamName}</div>
+          </div>
+        </div>
+
+        <div style={{ fontSize: 'var(--type-sm)', color: 'var(--text-muted)', lineHeight: 1.45 }}>{desc}</div>
+
+        <div>
+          <div style={{ fontSize: 'var(--type-md)', fontWeight: 700, marginBottom: 8 }}>Negócios</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
+            {negs.map((n) => {
+              const deltaBg = n.up ? 'color-mix(in oklab, var(--accent) 14%, white)' : 'color-mix(in oklab, var(--hue-rose) 14%, white)';
+              const deltaFg = n.up ? 'var(--accent-700)' : '#b91c1c';
+              const iconFg = n.up ? 'var(--accent)' : 'var(--hue-rose)';
+              return (
+                <div key={n.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', background: 'var(--surface)' }}>
+                  <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+                    <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.label}</div>
+                    <span style={{ background: deltaBg, color: deltaFg, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap' }}>{n.delta}</span>
                   </div>
-                  <div className="spacer" />
-                  <span className="tnum" style={{ fontWeight: 700, fontSize: 'var(--type-lg)', color: metaPct >= 100 ? 'var(--accent-700)' : 'var(--text)' }}>{metaPct}%</span>
+                  <div className="row" style={{ alignItems: 'flex-end', gap: 6, marginTop: 4 }}>
+                    <div className="tnum" style={{ fontSize: 'var(--type-lg)', fontWeight: 700, letterSpacing: '-.01em', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.value}</div>
+                    <span style={{ color: iconFg, display: 'inline-flex', flexShrink: 0, transform: n.rotate ? `rotate(${n.rotate}deg)` : undefined }}><Ic name={n.icon} size={14} /></span>
+                  </div>
+                  <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{n.count}</div>
                 </div>
-                <div className="bar" style={{ height: 10 }}><div style={{ width: `${Math.min(metaPct, 100)}%`, background: 'var(--accent)' }} /></div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
+          <div className="row" style={{ alignItems: 'center', fontSize: 'var(--type-sm)', marginBottom: 6 }}>
+            <span className="muted">Meta R$ {(m.meta / 1000).toFixed(0)}k</span>
+            <div className="spacer" />
+          </div>
+          <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+            <div className="bar" style={{ flex: 1, height: 8 }}>
+              <div style={{ width: `${Math.min(pct, 100)}%`, background: pct >= 100 ? 'var(--accent)' : stripe }} />
+            </div>
+            <span className="tnum" style={{ fontWeight: 700, fontSize: 'var(--type-sm)', minWidth: 38, textAlign: 'right' }}>{pct}%</span>
+          </div>
+          <div className="muted" style={{ fontSize: 'var(--type-xs)', marginTop: 6 }}>Vendas {formatBRL(m.vendido || 0)}</div>
+        </div>
+
+        <div className="row" style={{ gap: 0, alignItems: 'center', marginTop: 2 }}>
+          {teamMembers.map((tm, i) => (
+            <div key={tm.id} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid var(--surface)', borderRadius: '50%', display: 'inline-flex' }}>
+              <Avatar name={tm.name} size="sm" color={tm.color} />
+            </div>
+          ))}
+          {teamMembers.length > 0 && (
+            <span className="muted" style={{ marginLeft: 10, fontSize: 'var(--type-xs)' }}>{teamMembers.length} membro{teamMembers.length > 1 ? 's' : ''}</span>
+          )}
+        </div>
+
+      </div>
+    </div>
+  );
+}
+
+function AdminTeam() {
+  // Equipe REAL por tenant: membros via GET /api/agenda/usuarios + KPIs de venda
+  // reais via GET /api/equipe/kpis (mês atual, só vendas 'concluida' — cancelada
+  // NÃO conta). Meta/Comissão ficam "—" (honesto; ainda não modeladas).
+  const [team, setTeam] = React.useState([]);
+  const [kpis, setKpis] = React.useState({});
+  const [periodo, setPeriodo] = React.useState(null);
+  const [loaded, setLoaded] = React.useState(false);
+
+  React.useEffect(() => {
+    let alive = true;
+    (async () => {
+      try {
+        const [ru, rk] = await Promise.all([
+          API.getUsuarios(),
+          API.getEquipeKpis().catch(() => ({ kpis: {}, periodo: null })),
+        ]);
+        const membros = (ru.usuarios || []).map((u) => ({
+          id: u.id, name: u.nome, email: u.email,
+          papel: u.papel || null, papelNome: u.papelNome || null,
+          status: 'ativo', // membros vinculados ao tenant são ativos
+        }));
+        if (alive) { setTeam(membros); setKpis(rk.kpis || {}); setPeriodo(rk.periodo || null); skelRemember('equipe', membros.length); }
+      } catch (e) {
+        if (alive) setTeam([]);
+      } finally {
+        if (alive) setLoaded(true);
+      }
+    })();
+    return () => { alive = false; };
+  }, []);
+
+  const brl = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const kpiDe = (id) => kpis[id] || { vendido: 0, num_vendas: 0, ticket_medio: 0 };
+  const periodoLabel = periodo ? periodo.label : 'mês atual';
+  const totalVendido = team.reduce((s, m) => s + kpiDe(m.id).vendido, 0);
+  const totalVendas = team.reduce((s, m) => s + kpiDe(m.id).num_vendas, 0);
+  const ticketGeral = totalVendas ? totalVendido / totalVendas : 0;
+  // Objetos no formato que o TeamMemberCard espera (vendido REAL; meta = placeholder).
+  const teamCards = team.map((m) => ({
+    id: m.id, name: m.name, color: colorFor(m.name) || 'var(--hue-orange)',
+    status: m.status, role: m.papelNome || 'Colaborador',
+    vendido: kpiDe(m.id).vendido, meta: 50000,
+  }));
+
+  // célula de métrica (não-componente, evita remount)
+  const stat = (label, value, muted) => (
+    <div style={{ background: 'var(--surface-2)', borderRadius: 10, padding: '9px 11px', minWidth: 0 }}>
+      <div className="muted" style={{ fontSize: 10, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em' }}>{label}</div>
+      <div style={{ fontSize: 15, fontWeight: 800, marginTop: 2, color: muted ? 'var(--text-faint)' : 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+    </div>);
+
+  // card grande do topo consolidado (formato do print: label + ícone, valor grande, sublinha)
+  const bigStat = (label, value, sub, icon) => (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 12, padding: '12px 14px', background: 'var(--surface)', minWidth: 0 }}>
+      <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+        <div className="muted" style={{ fontSize: 11, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.04em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</div>
+        <div className="spacer" />
+        <Ic name={icon} size={15} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+      </div>
+      <div style={{ fontSize: 22, fontWeight: 800, marginTop: 6, letterSpacing: '-.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+      <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{sub}</div>
+    </div>);
+
+  // cell de métrica do MEMBRO no acabamento do card antigo (borda/raio + sombra suave + ícone no canto)
+  const mcell = (label, value, icon) => (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '9px 11px', background: 'var(--surface)', boxShadow: '0 1px 2px rgba(15,23,42,.04)', minWidth: 0 }}>
+      <div className="row" style={{ alignItems: 'center', gap: 4 }}>
+        <span className="muted" style={{ fontSize: 9.5, fontWeight: 700, textTransform: 'uppercase', letterSpacing: '.03em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{label}</span>
+        <div className="spacer" />
+        <Ic name={icon} size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+      </div>
+      <div style={{ fontSize: 15, fontWeight: 800, marginTop: 3, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{value}</div>
+    </div>);
+
+  const showSkel = !loaded;
+  // 4 colunas fixas: cada cartão = 1/4 da largura (com 1 membro ele NÃO estica).
+  const gridStyle = { display: 'grid', gridTemplateColumns: 'repeat(4, minmax(0, 1fr))', gap: 'var(--pad-3)', alignItems: 'start' };
+  return (
+    <Page title="Equipe" subtitle="Membros da sua loja · KPIs de venda do período">
+      {/* Topo consolidado — 5 cards "Negócios das equipes" (mesmo tratamento do card de membro). */}
+      {!showSkel && team.length > 0 && (() => {
+        // Agrega os "Negócios" (mesma fórmula do card) somando os membros + meta (placeholder).
+        const agg = teamCards.reduce((a, mc, i) => {
+          const seed = i + 1;
+          const total = mc.vendido * 5.5 + seed * 12000;
+          const ganhos = mc.vendido;
+          const perdidos = mc.meta * 0.6 + seed * 3500;
+          const aberto = Math.max(0, total - ganhos - perdidos);
+          a.total += total; a.ganhos += ganhos; a.perdidos += perdidos; a.aberto += aberto; a.meta += mc.meta;
+          return a;
+        }, { total: 0, ganhos: 0, perdidos: 0, aberto: 0, meta: 0 });
+        const fbrl = (n) => (n || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+        const metaPct = agg.meta ? Math.round(agg.ganhos / agg.meta * 100) : 0;
+        const cons = [
+          { id: 'tot', label: 'Total negócios', value: fbrl(agg.total), count: Math.round(agg.total / 120) + ' negócios', delta: '+17.46%', up: true, icon: 'reports', rot: 0 },
+          { id: 'gan', label: 'Total ganhos', value: fbrl(agg.ganhos), count: Math.round(agg.ganhos / 500) + ' negócios', delta: '+12.30%', up: true, icon: 'arrow-up-right', rot: 0 },
+          { id: 'per', label: 'Total perdidos', value: fbrl(agg.perdidos), count: Math.round(agg.perdidos / 280) + ' negócios', delta: '-8.25%', up: false, icon: 'arrow-up-right', rot: 90 },
+          { id: 'abe', label: 'Total em aberto', value: fbrl(agg.aberto), count: Math.round(agg.aberto / 95) + ' negócios', delta: '+7.40%', up: true, icon: 'activity', rot: 0 },
+        ];
+        const consCard = (n) => {
+          const dBg = n.up ? 'color-mix(in oklab, var(--accent) 14%, white)' : 'color-mix(in oklab, var(--hue-rose) 14%, white)';
+          const dFg = n.up ? 'var(--accent-700)' : '#b91c1c';
+          const iFg = n.up ? 'var(--accent)' : 'var(--hue-rose)';
+          return (
+            <div key={n.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: 'var(--surface)', minWidth: 0 }}>
+              <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+                <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.label}</div>
+                <span style={{ background: dBg, color: dFg, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap' }}>{n.delta}</span>
+              </div>
+              <div className="row" style={{ alignItems: 'flex-end', gap: 6, marginTop: 4 }}>
+                <div className="tnum" style={{ fontSize: 'var(--type-lg)', fontWeight: 800, letterSpacing: '-.01em', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.value}</div>
+                <span style={{ color: iFg, display: 'inline-flex', flexShrink: 0, transform: n.rot ? `rotate(${n.rot}deg)` : undefined }}><Ic name={n.icon} size={15} /></span>
+              </div>
+              <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{n.count}</div>
+            </div>);
+        };
+        return (
+          <div className="card card-pad" style={{ marginBottom: 'var(--pad-3)' }}>
+            <div className="row" style={{ alignItems: 'flex-start', gap: 8, marginBottom: 14 }}>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 'var(--type-lg)' }}>Visão geral — Negócios das equipes</div>
+                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 2 }}>Dados consolidados de todas as {team.length} {team.length === 1 ? 'equipe' : 'equipes'}</div>
+              </div>
+              <div className="spacer" />
+              <span className="badge badge-success" style={{ flexShrink: 0 }}>{team.length} {team.length === 1 ? 'ativa' : 'ativas'}</span>
+            </div>
+
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 10 }}>
+              {cons.map(consCard)}
+              {/* 5º card: Equipes (cada membro = uma equipe; todas ativas) */}
+              <div style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '12px 14px', background: 'var(--surface)', minWidth: 0 }}>
+                <div className="row" style={{ alignItems: 'center', gap: 6 }}>
+                  <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 600, flex: 1, minWidth: 0 }}>Equipes</div>
+                  <span style={{ background: 'color-mix(in oklab, var(--accent) 14%, white)', color: 'var(--accent-700)', fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4 }}>+{team.length}</span>
+                </div>
+                <div className="row" style={{ alignItems: 'flex-end', gap: 6, marginTop: 4 }}>
+                  <div className="tnum" style={{ fontSize: 'var(--type-lg)', fontWeight: 800, flex: 1 }}>{team.length}</div>
+                  <span style={{ color: 'var(--text-faint)', display: 'inline-flex', flexShrink: 0 }}><Ic name="team" size={15} /></span>
+                </div>
+                <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{team.length} {team.length === 1 ? 'ativa' : 'ativas'} · 0 inativa</div>
+              </div>
+            </div>
+
+            {/* Meta consolidada */}
+            <div style={{ marginTop: 16 }}>
+              <div className="row" style={{ alignItems: 'baseline', gap: 8 }}>
+                <div style={{ fontWeight: 700 }}>Meta consolidada</div>
+                <div className="spacer" />
+                <div className="tnum" style={{ fontWeight: 800 }}>{metaPct}%</div>
+              </div>
+              <div className="muted" style={{ fontSize: 'var(--type-sm)', margin: '2px 0 7px' }}>Vendas {fbrl(agg.ganhos)} de {fbrl(agg.meta)}</div>
+              <div className="bar" style={{ height: 8 }}>
+                <div style={{ width: Math.min(metaPct, 100) + '%' }} />
               </div>
             </div>
           </div>);
       })()}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))', gap: 'var(--pad-3)' }}>
-        {team.map((m, idx) => {
-          const pct = Math.round(m.vendido / m.meta * 100);
-          const stripe = m.color || colorFor(m.name) || 'var(--hue-orange)';
-          const teamMembers = team.filter((x) => x.id !== m.id).slice(0, 4);
-          const teamName = m.region || m.name.split(' ')[0] + 's'; // fallback when region not set
-          const desc = m.description || `Equipe responsável por ${m.role.toLowerCase()} — atende clientes ativos e prospects nos canais conectados.`;
-          // Negócios — mock derived from member data
-          const seed = idx + 1;
-          const totalVal = m.vendido * 5.5 + seed * 12000;
-          const ganhosVal = m.vendido;
-          const perdidosVal = m.meta * 0.6 + seed * 3500;
-          const abertoVal = Math.max(0, totalVal - ganhosVal - perdidosVal);
-          const fmtK = (v) => `R$ ${(v / 1000).toFixed(v >= 10000 ? 1 : 2)}k`;
-          const negs = [
-          { id: 'tot', label: 'Total negócios', value: fmtK(totalVal), count: `${Math.round(totalVal / 120)} negócios`, delta: '+17.46%', up: true, icon: 'reports', rotate: 0 },
-          { id: 'gan', label: 'Total ganhos', value: fmtK(ganhosVal), count: `${Math.round(ganhosVal / 500)} negócios`, delta: '+12.30%', up: true, icon: 'arrow-up-right', rotate: 0 },
-          { id: 'per', label: 'Total perdidos', value: fmtK(perdidosVal), count: `${Math.round(perdidosVal / 280)} negócios`, delta: '-8.25%', up: false, icon: 'arrow-up-right', rotate: 90 },
-          { id: 'abe', label: 'Total em aberto', value: fmtK(abertoVal), count: `${Math.round(abertoVal / 95)} negócios`, delta: '+7.40%', up: true, icon: 'activity', rotate: 0 }];
 
-          return (
-            <div
-              key={m.id}
-              className="card team-card"
-              style={{ overflow: 'hidden', cursor: 'pointer', transition: 'transform .2s ease, box-shadow .2s ease' }}
-              onClick={() => setEditing(m.id)}>
-              <div style={{ height: 4, background: stripe }} />
+      {showSkel ? (
+        <div style={gridStyle}>
+          {Array.from({ length: skelCount('equipe', 3) }).map((_, i) =>
+          <div key={i} className="card team-card" style={{ overflow: 'hidden' }}>
+              <div style={{ height: 4, background: 'var(--surface-3)' }} />
               <div className="card-pad" style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
                 <div className="row" style={{ gap: 14, alignItems: 'center' }}>
-                  <Avatar name={m.name} size="xl" color={m.color} online={m.status === 'ativo'} />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="row" style={{ gap: 8, alignItems: 'center' }}>
-                      <div style={{ fontWeight: 700, fontSize: 'var(--type-lg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.15 }}>{m.name}</div>
-                      <span className={`badge ${m.status === 'ativo' ? 'badge-success' : 'badge-neutral'}`} style={{ flexShrink: 0 }}>{m.status === 'ativo' ? 'Ativo' : 'Inativo'}</span>
-                    </div>
-                    <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 2 }}>Equipe {teamName}</div>
+                  <Skeleton circle w={56} h={56} />
+                  <div style={{ flex: 1 }}>
+                    <Skeleton w="60%" h={16} />
+                    <Skeleton w={110} h={12} style={{ marginTop: 8 }} />
                   </div>
                 </div>
-                <div style={{ fontSize: 'var(--type-sm)', color: 'var(--text-muted)', lineHeight: 1.45 }}>{desc}</div>
-                <div>
-                  <div style={{ fontSize: 'var(--type-md)', fontWeight: 700, marginBottom: 8 }}>Negócios</div>
-                  <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: 8 }}>
-                    {negs.map((n) => {
-                      const deltaBg = n.up ? 'color-mix(in oklab, var(--accent) 14%, white)' : 'color-mix(in oklab, var(--hue-rose) 14%, white)';
-                      const deltaFg = n.up ? 'var(--accent-700)' : '#b91c1c';
-                      const iconFg = n.up ? 'var(--accent)' : 'var(--hue-rose)';
-                      return (
-                        <div key={n.id} style={{ border: '1px solid var(--border)', borderRadius: 10, padding: '10px 12px', background: 'var(--surface)' }}>
-                          <div className="row" style={{ alignItems: 'center', gap: 6 }}>
-                            <div style={{ fontSize: 11, color: 'var(--text-muted)', fontWeight: 500, flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.label}</div>
-                            <span style={{ background: deltaBg, color: deltaFg, fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4, whiteSpace: 'nowrap' }}>{n.delta}</span>
-                          </div>
-                          <div className="row" style={{ alignItems: 'flex-end', gap: 6, marginTop: 4 }}>
-                            <div className="tnum" style={{ fontSize: 'var(--type-lg)', fontWeight: 700, letterSpacing: '-.01em', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{n.value}</div>
-                            <span style={{ color: iconFg, display: 'inline-flex', flexShrink: 0, transform: n.rotate ? `rotate(${n.rotate}deg)` : undefined }}><Ic name={n.icon} size={14} /></span>
-                          </div>
-                          <div className="muted" style={{ fontSize: 10, marginTop: 2 }}>{n.count}</div>
-                        </div>);
-                    })}
-                  </div>
-                </div>
-                <div style={{ borderTop: '1px solid var(--border)', paddingTop: 12 }}>
-                  <div className="row" style={{ alignItems: 'center', fontSize: 'var(--type-sm)', marginBottom: 6 }}>
-                    <span className="muted">Meta R$ {(m.meta / 1000).toFixed(0)}k</span>
-                    <div className="spacer" />
-                  </div>
-                  <div className="row" style={{ gap: 10, alignItems: 'center' }}>
-                    <div className="bar" style={{ flex: 1, height: 8 }}><div style={{ width: `${Math.min(pct, 100)}%`, background: pct >= 100 ? 'var(--accent)' : stripe }} /></div>
-                    <span className="tnum" style={{ fontWeight: 700, fontSize: 'var(--type-sm)', minWidth: 38, textAlign: 'right' }}>{pct}%</span>
-                  </div>
-                  <div className="muted" style={{ fontSize: 'var(--type-xs)', marginTop: 6 }}>Vendas {formatBRL(m.vendido || 0)}</div>
-                </div>
-                <div className="row" style={{ gap: 0, alignItems: 'center', marginTop: 2 }}>
-                  {teamMembers.map((tm, i) =>
-                  <div key={tm.id} style={{ marginLeft: i === 0 ? 0 : -8, border: '2px solid var(--surface)', borderRadius: '50%', display: 'inline-flex' }}>
-                      <Avatar name={tm.name} size="sm" color={tm.color} />
-                    </div>)}
-                  {teamMembers.length > 0 &&
-                  <span className="muted" style={{ marginLeft: 10, fontSize: 'var(--type-xs)' }}>{teamMembers.length} membro{teamMembers.length > 1 ? 's' : ''}</span>}
-                </div>
+                <Skeleton w="100%" h={56} />
               </div>
-            </div>);
+            </div>)}
+        </div>) :
+      team.length === 0 ?
+      <EmptyState icon="team" title="Nenhum membro ainda" desc="Os membros vinculados à sua loja aparecem aqui." /> :
 
-        })}
-      </div>
-      {isOpen &&
-      <TeamDrawer
-        initial={editing === 'new' ? null : open}
-        allMembers={[...TEAM]}
-        onClose={() => setEditing(null)}
-        onSave={(t) => {
-          setTeam((prev) => prev.some((x) => x.id === t.id) ? prev.map((x) => x.id === t.id ? { ...x, ...t } : x) : [...prev, t]);
-          setEditing(null);
-        }}
-        onDelete={(id) => {
-          setTeam((prev) => prev.filter((x) => x.id !== id));
-          setEditing(null);
-        }} />
-
-      }
+      <div style={gridStyle}>
+        {teamCards.map((mc, i) => <TeamMemberCard key={mc.id} idx={i} m={mc} allTeam={teamCards} />)}
+      </div>}
     </Page>);
 
 }

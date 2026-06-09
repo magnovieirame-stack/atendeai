@@ -24,6 +24,7 @@ import { notificacoesRouter } from './routes/notificacoes.routes.js';
 import { integracoesRouter } from './routes/integracoes.routes.js';
 import { webhooksRouter } from './routes/webhooks.routes.js';
 import { plataformaRouter } from './routes/plataforma.routes.js';
+import { equipeRouter } from './routes/equipe.routes.js';
 
 const app = express();
 
@@ -57,6 +58,7 @@ api.use('/vendas', vendasRouter);
 api.use('/notificacoes', notificacoesRouter);
 api.use('/integracoes', integracoesRouter);
 api.use('/plataforma', plataformaRouter); // super admin: clientes da plataforma
+api.use('/equipe', equipeRouter); // KPIs de venda por vendedor (tela Equipe)
 // (próximos módulos entram aqui)
 app.use('/api', api);
 app.use('/api', apiNotFound); // 404 JSON p/ rotas de API inexistentes

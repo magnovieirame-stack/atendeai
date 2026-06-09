@@ -180,10 +180,11 @@
     const [chatClient, setChatClient] = React.useState(null);
 
     // Carrega os clientes do backend (tabela clientes, por empresa).
+    // Só COMPRADORES (estagio='cliente'); leads ficam fora até a 1ª compra.
     const reload = React.useCallback(async () => {
       setLoading(true); setLoadErr('');
       try {
-        const r = await window.API.getClientes();
+        const r = await window.API.getClientes('', 'cliente');
         const rows = (r.clientes || []).map((d, i) => clienteDtoToRow(d, i));
         setAllClients(rows);
         if (rows.length) skelRemember('clientes', rows.length);

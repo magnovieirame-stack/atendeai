@@ -135,7 +135,6 @@ function TeamDrawer({ initial, allMembers, onClose, onSave, onDelete }) {
         {isEdit &&
           <ActionButton action="excluir" size="md" label="Excluir equipe" onClick={() => setConfirmDel(true)} />}
         <div style={{ flex: 1 }} />
-        <ActionButton action="voltar" size="md" onClick={() => close()} />
         <ActionButton action="salvar" size="md" label={isEdit ? 'Salvar alterações' : 'Criar equipe'} onClick={() => close(handleSave)} disabled={!valid} style={{ opacity: valid ? 1 : .5 }} />
       </>;
       }}>

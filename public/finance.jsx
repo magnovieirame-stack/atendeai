@@ -968,12 +968,10 @@
         footer={(close) => readOnly ?
         <>
           <div style={{ flex: 1 }} />
-          <ActionButton action="voltar" size="md" onClick={() => close()} />
           <ActionButton action="editar" size="md" onClick={() => setReadOnly(false)} />
         </> :
         <>
           <div style={{ flex: 1 }} />
-          <ActionButton action="voltar" size="md" onClick={() => close()} />
           <ActionButton action="salvar" size="md" disabled={!valid} onClick={() => close(handleSave)} />
         </>}>
         <fieldset disabled={readOnly} className={'fin-form-fieldset tpc-flat' + (readOnly ? ' is-view' : '')} style={{ border: 'none', margin: 0, padding: 0, minWidth: 0 }}>
@@ -1125,7 +1123,6 @@
         leftHead={null}
         footer={<>
           <div style={{ flex: 1 }} />
-          <ActionButton action="voltar" size="md" onClick={onClose} />
           <ActionButton action="salvar" size="md" icon="dollar" label={`${verbo} ${fmtBRL(total)}`} onClick={() => setConfirm(true)} />
         </>}>
         <div className="fin-drawer-code">

@@ -25,98 +25,9 @@
 
   const SELLERS = ['Karla Zambelly', 'Magno Vieira', 'Paulo Henrique', 'Francisco Junior', 'Larissa Souza', 'Daniel Costa', 'Agente IA'];
   const LOJAS = ['Ótica Scalloop – Iguatu', 'Loja Centro · Fortaleza', 'Filial Sobral', 'E-commerce', 'Quiosque Shopping Aldeota', 'Filial Crato'];
-  const CLIENTS = [
-  'Cícera Vanderlãnia da Silva Paz', 'Bruno Aragão', 'Patrícia Furtado', 'Carlos Endwer',
-  'Sara Pereira', 'Júlia Mendes', 'Roberto Lima', 'Fátima Coelho', 'Karla Cavalcante',
-  'Matheus Gestor', 'Thaís Aragão', 'Sueline Barros', 'Wilemson Pinto', 'Ricardo Daniel',
-  'Francisco Aguiar', 'Iany Maia', 'Alex Soares', 'Jefferson Castro', 'Letícia Maranhão',
-  'Pedro Mafra', 'Marcela Tavares', 'Cesar Veículos', 'Henrique Castro', 'Talita Souto',
-  'Eduardo Pacheco', 'Sandra Vieira', 'Cíntia Ramos', 'Mateus Fontenele', 'Carolina Bezerra',
-  'Otávio Lima', 'Beatriz Aragão', 'Renan Oliveira'];
-
-  const PRODUCTS = [
-  { name: 'Pacote Pré-Sal Premium', price: 3890.00 },
-  { name: 'Limpeza de Pele Profunda', price: 320.00 },
-  { name: 'Massagem Modeladora', price: 180.00 },
-  { name: 'Pacote Noiva', price: 2450.00 },
-  { name: 'Drenagem Linfática', price: 150.00 },
-  { name: 'Depilação a Laser', price: 480.00 },
-  { name: 'Combo Spa Day', price: 890.00 },
-  { name: 'Microagulhamento', price: 540.00 },
-  { name: 'Hidratação Facial', price: 280.00 },
-  { name: 'Peeling de Diamante', price: 420.00 }];
-
-  // Cidades dos clientes (cidade + UF)
-  const CITIES = [
-  'Fortaleza-CE', 'São Paulo-SP', 'Rio de Janeiro-RJ', 'Belo Horizonte-MG',
-  'Salvador-BA', 'Curitiba-PR', 'Recife-PE', 'Porto Alegre-RS',
-  'Brasília-DF', 'Goiânia-GO', 'Natal-RN', 'Florianópolis-SC',
-  'Manaus-AM', 'Belém-PA', 'Campinas-SP', 'Juazeiro do Norte-CE'];
-
-
-  // Deterministic pseudo-random based on index (so list is stable across renders)
-  const pick = (arr, seed) => arr[seed % arr.length];
-
-  // Código de venda: 3 letras + 6 dígitos (ex.: MJT-526586), determinístico por índice
-  function saleCode(i) {
-    const L = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
-    const r = (n) => Math.floor(Math.abs(Math.sin((i + 1) * (n + 3.7))) * 1e6);
-    const letters = L[r(1) % L.length] + L[r(2) % L.length] + L[r(3) % L.length];
-    const digits = String(r(4) % 1000000).padStart(6, '0');
-    return `${letters}-${digits}`;
-  }
-
-  function seedSales() {
-    const rows = [];
-    const methods = Object.keys(PAY_METHODS);
-    const today = new Date(2026, 4, 18);
-    for (let i = 0; i < 38; i++) {
-      const items = [];
-      const itemCount = (i * 7 + 1) % 3 + 1;
-      let subtotal = 0;
-      for (let j = 0; j < itemCount; j++) {
-        const p = pick(PRODUCTS, i * 3 + j);
-        const qty = (i + j) % 2 + 1;
-        items.push({ name: p.name, qty, price: p.price });
-        subtotal += p.price * qty;
-      }
-      const discount = i % 5 === 0 ? Math.round(subtotal * 0.05 * 100) / 100 : 0;
-      const value = subtotal - discount;
-      const d = new Date(today);
-      d.setDate(d.getDate() - i * 2 % 28);
-      d.setHours((6 + i * 3) % 22, i * 13 % 60);
-      const MESES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
-      const dd = String(d.getDate()).padStart(2, '0');
-      const mmm = MESES[d.getMonth()];
-      const yy = String(d.getFullYear()).slice(-2);
-      const hh = String(d.getHours()).padStart(2, '0');
-      const min = String(d.getMinutes()).padStart(2, '0');
-      const dateStr = `${dd}/${mmm}/${yy} - ${hh}h${min}`;
-      const status = i % 11 === 0 ? 'cancelada' : i % 17 === 0 ? 'pendente' : 'concluida';
-      rows.push({
-        id: 'sale-' + i,
-        code: saleCode(i),
-        client: pick(CLIENTS, i),
-        cidade: pick(CITIES, i * 3 + 1),
-        loja: pick(LOJAS, i),
-        seller: pick(SELLERS, i + 1),
-        dateStr,
-        dateObj: d,
-        method: pick(methods, i),
-        installments: methods[i % methods.length] === 'Cartão Crédito' ? i % 6 + 1 : 1,
-        items,
-        subtotal,
-        discount,
-        value,
-        status,
-        notes: i % 7 === 0 ? 'Venda com brinde · pacote promocional.' : ''
-      });
-    }
-    return rows;
-  }
 
   // ─── Floating row-action menu (3-dot popover) ───────────────────────────
-  function SaleRowMenu({ isCanc, onEdit, onPrint, onCancel, onDelete }) {
+  function SaleRowMenu({ isCanc, onPrint, onCancel }) {
     const [open, setOpen] = React.useState(false);
     const [pos, setPos] = React.useState(null);
     const btnRef = React.useRef(null);
@@ -150,15 +61,45 @@
         {open && pos && ReactDOM.createPortal(
           <div className="sale-menu" style={{ top: pos.top, left: pos.left }} onClick={(e) => e.stopPropagation()}>
             <button className="sale-menu-item" onClick={run(onPrint)}><Ic name="file-text" size={15} /> Imprimir</button>
-            <button className="sale-menu-item" onClick={run(onEdit, isCanc)} disabled={isCanc}><Ic name="edit" size={15} /> Editar</button>
             <button className="sale-menu-item warn" onClick={run(onCancel, isCanc)} disabled={isCanc}><Ic name="x" size={15} /> Cancelar</button>
-            <div className="sale-menu-sep" />
-            <button className="sale-menu-item danger" onClick={run(onDelete)}><Ic name="trash" size={15} /> Excluir</button>
           </div>,
           document.body)
         }
       </>);
 
+  }
+
+  // DTO da API (mapVenda) -> linha que a tela de Vendas renderiza.
+  // Campos que o banco ainda não tem (cidade/loja/notes) ficam vazios (degradação).
+  const _METODO_LABEL = { dinheiro: 'Dinheiro', pix: 'PIX', debito: 'Cartão Débito', credito: 'Cartão Crédito', boleto: 'Boleto', carne: 'Carnê', transferencia: 'Transferência' };
+  function vendaDtoToRow(v) {
+    const MESES = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+    const d = v.criadoEm ? new Date(v.criadoEm) : null;
+    let dateStr = '';
+    if (d && !isNaN(d)) {
+      const p = (n) => String(n).padStart(2, '0');
+      dateStr = `${p(d.getDate())}/${MESES[d.getMonth()]}/${String(d.getFullYear()).slice(-2)} - ${p(d.getHours())}h${p(d.getMinutes())}`;
+    }
+    const pags = Array.isArray(v.pagamentos) ? v.pagamentos : [];
+    const method = pags.length > 1 ? 'Múltiplas' : (_METODO_LABEL[(pags[0] && pags[0].metodo) || ''] || (pags[0] && pags[0].metodo) || '—');
+    return {
+      id: v.id,
+      code: v.codigo || '',
+      client: v.clienteNome || '',
+      cidade: '',
+      loja: '',
+      seller: v.vendedor || '',
+      dateStr,
+      dateObj: d || new Date(),
+      method,
+      installments: (pags[0] && pags[0].parcelas) || 1,
+      items: (v.itens || []).map((i) => ({ name: i.nome, qty: i.quantidade, price: i.preco })),
+      subtotal: Number(v.subtotal) || 0,
+      discount: Number(v.desconto) || 0,
+      value: Number(v.total) || 0,
+      status: v.status || 'concluida',
+      notes: '',
+    };
   }
 
   function SalesPage() {
@@ -168,15 +109,25 @@
     const [filterMethod, setFilterMethod] = React.useState(new Set());
     const [filterSeller, setFilterSeller] = React.useState(new Set());
     const [filterStore, setFilterStore] = React.useState(new Set());
-    const [sales, setSales] = React.useState(() => seedSales());
+    const [sales, setSales] = React.useState([]);
     const [loading, setLoading] = React.useState(true);
-    React.useEffect(() => { setLoading(false); }, []);
+    // Lista REAL por tenant via API.getVendas (alimentada pelo PDV).
+    const reload = React.useCallback(async () => {
+      setLoading(true);
+      try {
+        const r = await window.API.getVendas();
+        setSales((r.vendas || []).map(vendaDtoToRow));
+      } catch (e) {
+        setSales([]);
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao carregar vendas', descricao: (e && e.message) || 'Tente novamente.' });
+      } finally { setLoading(false); }
+    }, []);
+    React.useEffect(() => { reload(); }, [reload]);
     const [selected, setSelected] = React.useState(new Set());
     const [viewOf, setViewOf] = React.useState(null);
-    const [editOf, setEditOf] = React.useState(null);
     const [printOf, setPrintOf] = React.useState(null);
     const [cancelOf, setCancelOf] = React.useState(null);
-    const [confirmDel, setConfirmDel] = React.useState(null);
+    const [showPDV, setShowPDV] = React.useState(false);
 
     const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
     const filtered = React.useMemo(() => {
@@ -210,16 +161,15 @@
     const activeFilters = filterMethod.size + filterSeller.size + filterStore.size + (filterStatus !== 'all' ? 1 : 0);
     const clearFilters = () => {setFilterMethod(new Set());setFilterSeller(new Set());setFilterStore(new Set());setFilterStatus('all');};
 
-    const cancelSale = (id, reason) => {
+    const cancelSale = async (id, reason) => {
       const v = sales.find((s) => s.id === id);
-      setSales((p) => p.map((s) => s.id === id ? { ...s, status: 'cancelada', cancelReason: reason } : s));
-      window.showToast({ tipo: 'sucesso', titulo: 'Venda cancelada', descricao: v ? 'Nº ' + v.code : '' });
-    };
-    const deleteSale = (id) => {
-      const v = sales.find((s) => s.id === id);
-      setSales((p) => p.filter((s) => s.id !== id));
-      setConfirmDel(null);
-      window.showToast({ tipo: 'sucesso', titulo: 'Venda excluída', descricao: v ? 'Nº ' + v.code : '' });
+      try {
+        await window.API.cancelarVenda(id, reason);
+        window.showToast({ tipo: 'sucesso', titulo: 'Venda cancelada', descricao: v ? 'Nº ' + v.code : '' });
+        reload(); // recarrega do servidor (status, estoque e financeiro já estornados)
+      } catch (e) {
+        window.showToast({ tipo: 'erro', titulo: 'Erro ao cancelar', descricao: (e && e.message) || 'Tente novamente.' });
+      }
     };
 
     const toggleAll = () => selected.size === filtered.length ? setSelected(new Set()) : setSelected(new Set(filtered.map((s) => s.id)));
@@ -228,7 +178,7 @@
     return (
       <Page title="Vendas" subtitle="Histórico de vendas · faturamento, pagamento e desempenho da equipe"
       actions={
-      <FabNovo size="sm" label="Nova venda" />
+      <FabNovo size="sm" label="Nova venda" onClick={() => setShowPDV(true)} />
       }>
 
         <SalesStyles />
@@ -390,32 +340,18 @@
                     <div className="sale-cell sale-cell-actions" onClick={(e) => e.stopPropagation()}>
                       <SaleRowMenu
                       isCanc={isCanc}
-                      onEdit={() => setEditOf(s)}
                       onPrint={() => setPrintOf(s)}
-                      onCancel={() => setCancelOf(s)}
-                      onDelete={() => setConfirmDel(s)} />
+                      onCancel={() => setCancelOf(s)} />
                     </div>
                   </div>);
             })}
           </div>
         </div>
 
-        {viewOf && <SaleViewDrawer sale={viewOf} onClose={() => setViewOf(null)} onEdit={() => {setViewOf(null);setEditOf(viewOf);}} onPrint={() => {setViewOf(null);setPrintOf(viewOf);}} />}
-        {editOf && <SaleEditDrawer sale={editOf} onClose={() => setEditOf(null)} onSave={(upd) => {setSales((p) => p.map((s) => s.id === editOf.id ? { ...s, ...upd } : s));window.showToast({ tipo: 'sucesso', titulo: 'Venda atualizada', descricao: 'Nº ' + editOf.code });setEditOf(null);}} />}
+        {viewOf && <SaleViewDrawer sale={viewOf} onClose={() => setViewOf(null)} onPrint={() => {setViewOf(null);setPrintOf(viewOf);}} />}
         {printOf && <SalePrintDrawer sale={printOf} onClose={() => setPrintOf(null)} />}
+        {showPDV && window.PDVDrawer && <window.PDVDrawer cliente={{ name: '', clienteId: null, phone: '' }} onClose={() => { setShowPDV(false); reload(); }} />}
         {cancelOf && <SaleCancelModal sale={cancelOf} onClose={() => setCancelOf(null)} onConfirm={(reason) => {cancelSale(cancelOf.id, reason);setCancelOf(null);}} />}
-        {confirmDel &&
-        <Modal title="Excluir venda" onClose={() => setConfirmDel(null)} size="sm"
-        footer={<><div style={{ flex: 1 }} /><button className="btn fin-btn-back" onClick={() => setConfirmDel(null)}>Voltar</button>
-              <button className="btn" style={{ background: '#dc2626', borderColor: '#dc2626', color: 'white' }} onClick={() => deleteSale(confirmDel.id)}><Ic name="trash" size={13} /> Excluir</button></>}>
-            <div style={{ display: 'flex', gap: 12, padding: '6px 4px' }}>
-              <div style={{ width: 40, height: 40, borderRadius: '50%', background: 'color-mix(in oklab, #dc2626 12%, white)', color: '#dc2626', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name="trash" size={18} /></div>
-              <div>
-                <div style={{ fontWeight: 700 }}>Excluir a venda Nº {confirmDel.code}?</div>
-                <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 4 }}>Esta ação remove permanentemente o registro. Para preservar histórico, use "Cancelar venda".</div>
-              </div>
-            </div>
-          </Modal>}
       </Page>);
   }
 
@@ -512,14 +448,13 @@
   }
 
   // ─── View Drawer ────────────────────────────────────────────────────────
-  function SaleViewDrawer({ sale, onClose, onEdit, onPrint }) {
+  function SaleViewDrawer({ sale, onClose, onPrint }) {
     const pay = PAY_METHODS[sale.method] || { color: '#64748b', icon: 'wallet' };
     const initials = sale.client.split(' ').filter(Boolean).slice(0, 2).map((p) => p[0]).join('').toUpperCase();
     return (
       <Drawer title={`Venda Nº ${sale.code}`} subtitle={`${sale.dateStr} · ${sale.loja}`} onClose={onClose} width={560}
       footer={<><div style={{ flex: 1 }} />
-          <ActionButton action="salvar" size="md" label="Imprimir" icon="file-text" onClick={onPrint} />
-          <ActionButton action="editar" size="md" label="Editar venda" onClick={onEdit} disabled={sale.status === 'cancelada'} />
+          <ActionButton action="salvar" size="md" label="Imprimir" icon="file-text" efeito={false} onClick={onPrint} />
         </>}>
         <div className="col" style={{ gap: 14 }}>
           {/* Client header */}
@@ -596,67 +531,13 @@
   }
 
   // ─── Edit Drawer ────────────────────────────────────────────────────────
-  function SaleEditDrawer({ sale, onClose, onSave }) {
-    const [client, setClient] = React.useState(sale.client);
-    const [seller, setSeller] = React.useState(sale.seller);
-    const [loja, setLoja] = React.useState(sale.loja);
-    const [method, setMethod] = React.useState(sale.method);
-    const [discount, setDiscount] = React.useState(sale.discount);
-    const [notes, setNotes] = React.useState(sale.notes || '');
-    const [items, setItems] = React.useState(sale.items.map((i) => ({ ...i })));
-    const subtotal = items.reduce((s, i) => s + i.price * i.qty, 0);
-    const value = Math.max(0, subtotal - (Number(discount) || 0));
-    const updItem = (idx, k, v) => setItems((p) => p.map((it, i) => i === idx ? { ...it, [k]: v } : it));
-    const rmItem = (idx) => setItems((p) => p.filter((_, i) => i !== idx));
-    const addItem = () => setItems((p) => [...p, { name: 'Novo item', qty: 1, price: 0 }]);
-    return (
-      <Drawer title={`Editar venda Nº ${sale.code}`} subtitle={`${sale.dateStr} · cliente ${sale.client}`} onClose={onClose} width={580}
-      footer={(close) => <><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={() => close()} />
-          <ActionButton action="salvar" size="md" label="Salvar alterações" onClick={() => close(() => onSave({ client, seller, loja, method, discount: Number(discount) || 0, notes, items, subtotal, value }))} />
-        </>}>
-        <div className="col" style={{ gap: 12 }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label className="label">Cliente</label><input className="input" value={client} onChange={(e) => setClient(e.target.value)} /></div>
-            <div><label className="label">Loja</label><select className="input" value={loja} onChange={(e) => setLoja(e.target.value)}>{LOJAS.map((l) => <option key={l}>{l}</option>)}</select></div>
-          </div>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label className="label">Vendedor</label><select className="input" value={seller} onChange={(e) => setSeller(e.target.value)}>{SELLERS.map((s) => <option key={s}>{s}</option>)}</select></div>
-            <div><label className="label">Forma de pagamento</label><select className="input" value={method} onChange={(e) => setMethod(e.target.value)}>{Object.keys(PAY_METHODS).map((m) => <option key={m}>{m}</option>)}</select></div>
-          </div>
-
-          <div>
-            <div className="row" style={{ alignItems: 'center', marginBottom: 6 }}>
-              <span className="label" style={{ margin: 0 }}>Itens</span>
-              <div className="spacer" />
-              <button className="btn btn-sm" onClick={addItem}><Ic name="plus" size={11} /> Adicionar</button>
-            </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-              {items.map((it, i) =>
-              <div key={i} className="sale-edit-row">
-                  <input className="input" value={it.name} onChange={(e) => updItem(i, 'name', e.target.value)} placeholder="Nome do item" />
-                  <input className="input" type="number" min="1" value={it.qty} onChange={(e) => updItem(i, 'qty', Number(e.target.value) || 1)} style={{ width: 70, textAlign: 'center' }} />
-                  <input className="input tnum" type="text" inputMode="numeric" value={(Number(it.price) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onFocus={(e) => e.target.select()} onChange={(e) => { const d = e.target.value.replace(/\D/g, ''); updItem(i, 'price', d ? parseInt(d, 10) / 100 : 0); }} style={{ width: 110, textAlign: 'right' }} />
-                  <button className="prod-iconbtn prod-iconbtn-danger" onClick={() => rmItem(i)} title="Remover"><Ic name="trash" size={13} /></button>
-                </div>)}
-            </div>
-          </div>
-
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-            <div><label className="label">Desconto (R$)</label><input className="input tnum" type="text" inputMode="numeric" value={(Number(discount) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })} onFocus={(e) => e.target.select()} onChange={(e) => { const d = e.target.value.replace(/\D/g, ''); setDiscount(d ? parseInt(d, 10) / 100 : 0); }} style={{ textAlign: 'right' }} /></div>
-            <div style={{ alignSelf: 'flex-end' }} className="sale-tot-line big"><span>Total</span><span>{fmtBRL(value)}</span></div>
-          </div>
-          <div><label className="label">Observações</label><textarea className="input" rows={3} value={notes} onChange={(e) => setNotes(e.target.value)} /></div>
-        </div>
-      </Drawer>);
-  }
-
   // ─── Print Drawer ───────────────────────────────────────────────────────
   function SalePrintDrawer({ sale, onClose }) {
     const pay = PAY_METHODS[sale.method] || { color: '#64748b', icon: 'wallet' };
     const handlePrint = () => {window.print && window.print();};
     return (
       <Drawer title={`Impressão · Nº ${sale.code}`} subtitle="Pré-visualização do comprovante" onClose={onClose} width={480}
-      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} />
+      footer={<><div style={{ flex: 1 }} />
           <ActionButton action="salvar" size="md" label="Imprimir" icon="file-text" onClick={handlePrint} /></>}>
         <div className="sale-print-paper">
           <div className="sale-print-hd">

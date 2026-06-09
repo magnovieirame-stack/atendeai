@@ -48,12 +48,13 @@ function AppInner() {
   React.useEffect(() => { if (!isMobile) setNavOpen(false); }, [isMobile]);
 
   // Auth/onboarding routes — full-screen, no shell
-  const fullscreen = ['login','forgot','onboarding'];
+  const fullscreen = ['login','forgot','onboarding','set-password'];
   if (fullscreen.includes(route)) {
     return (<>
       {route==='login' && <Login/>}
       {route==='forgot' && <Forgot/>}
       {route==='onboarding' && <Onboarding/>}
+      {route==='set-password' && <SetPassword/>}
       <TweaksUI/>
     </>);
   }
@@ -83,7 +84,8 @@ function AppInner() {
     case 'bo-hr':           screen = window.BackofficeHR ? React.createElement(window.BackofficeHR) : null; break;
     case 'bo-fiscal':       screen = window.BackofficeFiscal ? React.createElement(window.BackofficeFiscal) : null; break;
     case 'bo-accounting':   screen = window.BackofficeAccounting ? React.createElement(window.BackofficeAccounting) : null; break;
-    case 'settings':        screen = <AdminSettings/>; break;
+    case 'settings':        screen = <UsersPage/>; break;   // "Configurações"/Usuários -> página de Usuários
+    case 'users':           screen = <UsersPage/>; break;
     case 'user-profile':    screen = <UserProfile/>; break;
     case 'leads':           screen = <AdminLeads/>; break;
     case 'com-clients':     screen = <AdminClients/>; break;

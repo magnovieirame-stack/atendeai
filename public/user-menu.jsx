@@ -41,12 +41,12 @@ function UserMenu() {
 
   // Menu items per spec, with atendente exclusions
   const items = [
-  { id: 'profile', label: 'Perfil Usuário', icon: 'user', onClick: () => go('user-profile') },
   { id: 'integ', label: 'Integrações', icon: 'link', onClick: () => go('integrations'), hidden: isAtendente },
   { id: 'plans', label: 'Planos', icon: 'wallet', onClick: () => go('finance'), hidden: isAtendente },
   { id: 'help', label: 'Receba Ajuda', icon: 'help', onClick: openHelp },
   { id: 'dark', label: 'Dark Mode', icon: tweaks.theme === 'dark' ? 'moon' : 'sun', onClick: toggleDark, kind: 'toggle' },
-  { id: 'settings', label: 'Configurações', icon: 'settings', onClick: () => go('settings'), hidden: isAtendente },
+  { id: 'settings', label: 'Usuários', icon: 'user', onClick: () => go('users'), hidden: isAtendente },
+  { id: 'profile', label: 'Configuração', icon: 'settings', onClick: () => go('user-profile') },
   { id: 'logout', label: 'Sair', icon: 'logout', onClick: () => go('login'), danger: true, sep: true }].
   filter((i) => !i.hidden);
 
@@ -340,12 +340,12 @@ function SidebarUserMenu({ collapsed = false }) {
   const toggleDark = () => setTweak('theme', tweaks.theme === 'dark' ? 'light' : 'dark');
 
   const items = [
-  { id: 'profile', label: 'Perfil Usuário', icon: 'user', onClick: () => go('user-profile') },
   { id: 'integ', label: 'Integrações', icon: 'link', onClick: () => go('integrations'), hidden: isAtendente },
   { id: 'plans', label: 'Planos', icon: 'wallet', onClick: () => go('finance'), hidden: isAtendente },
   { id: 'help', label: 'Receba Ajuda', icon: 'help', onClick: openHelp },
   { id: 'dark', label: 'Dark Mode', icon: tweaks.theme === 'dark' ? 'moon' : 'sun', onClick: toggleDark, kind: 'toggle' },
-  { id: 'settings', label: 'Configurações', icon: 'settings', onClick: () => go('settings'), hidden: isAtendente },
+  { id: 'settings', label: 'Usuários', icon: 'user', onClick: () => go('users'), hidden: isAtendente },
+  { id: 'profile', label: 'Configuração', icon: 'settings', onClick: () => go('user-profile') },
   { id: 'logout', label: 'Sair', icon: 'logout', onClick: () => go('login'), danger: true, sep: true }].
   filter((i) => !i.hidden);
 

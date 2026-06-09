@@ -19,6 +19,8 @@ const db = () => adminClient();
 
 async function getEmpresaId(req) {
   if (req._empresaId !== undefined) return req._empresaId;
+  // Reusa o empresaId já carregado pela autorização (req._auth) — evita ida redundante ao banco.
+  if (req._auth && req._auth.empresaId != null) { req._empresaId = req._auth.empresaId; return req._empresaId; }
   const { data } = await req.supabase.from('empresa_membros').select('empresa_id').limit(1);
   req._empresaId = data && data[0] ? data[0].empresa_id : null;
   return req._empresaId;
@@ -47,6 +49,29 @@ function mapLead(r) {
     tags: Array.isArray(r.tags) ? r.tags : [],
     obs: r.observacoes && r.observacoes !== 'null' ? r.observacoes : '',
     date: fmtDataBR(r.created_at),
+  };
+}
+
+// Rótulo amigável do canal de origem do contato do chatbot.
+const CANAL_LABEL = { whatsapp: 'WhatsApp', instagram: 'Instagram', facebook: 'Facebook', messenger: 'Messenger', webchat: 'Webchat' };
+
+// Ficha unificada (tabela "clientes" com estagio='lead') -> DTO de lead. É o lead
+// que entrou pelo chatbot; vira cliente sozinho na 1ª compra (sai desta lista).
+function mapClienteLead(c, canal) {
+  return {
+    id: c.id,
+    name: c.nome || '',
+    company: c.empresa || '',
+    phone: c.telefone || '',
+    email: c.email || '',
+    value: c.valordonegocio || c.valor || 0,
+    source: c.origemlead || CANAL_LABEL[canal] || (canal || 'Chatbot'),
+    stage: 'novo',
+    attendant: c.atendente || '',
+    tags: [],
+    obs: c.observacoes && c.observacoes !== 'null' ? c.observacoes : '',
+    date: fmtDataBR(c.created_at),
+    fonte: 'chatbot',
   };
 }
 
@@ -83,10 +108,29 @@ function leadToDb(b, empresaId) {
 leadsRouter.get('/', async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
+
+    // 1) Leads "manuais" (tabela leads — CRM/comercial).
     const { data, error } = await db().from('leads').select('*').eq('empresa_id', empresaId)
       .order('created_at', { ascending: false });
     if (error) throw error;
-    res.json({ leads: (data || []).map(mapLead) });
+    const nativos = (data || []).map((r) => ({ ...mapLead(r), fonte: 'manual', _ts: r.created_at || '' }));
+
+    // 2) Leads do chatbot: ficha unificada (clientes, estagio='lead'). Fonte única —
+    // NÃO duplica dado; quando o lead compra (estagio='cliente') ele some daqui sozinho.
+    const { data: cli } = await db().from('clientes').select('*')
+      .eq('empresa_id', empresaId).eq('estagio', 'lead');
+    const ids = (cli || []).map((c) => c.id);
+    const canalPorCliente = {};
+    if (ids.length) {
+      const { data: cts } = await db().from('chatbot-contatos').select('cliente_id,origemcontato').in('cliente_id', ids);
+      (cts || []).forEach((t) => { if (t.cliente_id && !canalPorCliente[t.cliente_id]) canalPorCliente[t.cliente_id] = t.origemcontato; });
+    }
+    const doChatbot = (cli || []).map((c) => ({ ...mapClienteLead(c, canalPorCliente[c.id]), _ts: c.created_at || '' }));
+
+    // 3) Junta os dois (mais recentes primeiro — ISO ordena cronologicamente) e limpa o _ts.
+    const todos = [...nativos, ...doChatbot].sort((a, b) => (b._ts || '').localeCompare(a._ts || ''));
+    todos.forEach((l) => { delete l._ts; });
+    res.json({ leads: todos });
   } catch (err) { next(err); }
 });
 

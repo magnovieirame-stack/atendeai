@@ -1821,7 +1821,6 @@ function NewContractDrawer({ card, onClose }) {
       onClose={onClose} width={620}
       rightHead={<div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 2, marginRight: 6 }}><span style={{ fontSize: 10, fontWeight: 600, color: 'var(--text-muted)', letterSpacing: '.06em' }}>NÚMERO</span><strong className="tnum" style={{ fontSize: 12, color: 'var(--text)' }}>{num}</strong></div>}
       footer={(close) => <>
-        <ActionButton action="voltar" size="md" onClick={() => close()} />
         <div style={{ flex: 1 }} />
         <ActionButton action="salvar" size="md" label="Salvar contrato" disabled={!valid} style={{ opacity: valid ? 1 : .55 }} onClick={() => close()} />
       </>}>

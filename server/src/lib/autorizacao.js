@@ -8,43 +8,39 @@ import { adminClient } from './supabase.js';
 export async function carregarAutorizacao(req) {
   if (req._auth) return req._auth;
 
-  // 1) Vínculo do usuário (RLS garante que ele só enxerga os próprios).
-  //    Multi-empresa: usa a primeira (mesma regra do getEmpresaId existente).
-  const { data: membros } = await req.supabase
+  // ⚠️ SEGURANÇA — FILTRO LOAD-BEARING (NUNCA REMOVER NEM AFROUXAR):
+  //    Esta query usa adminClient() (service_role), que IGNORA o RLS. O isolamento
+  //    por usuário/tenant depende 100% do .eq('user_id', req.user.id) abaixo.
+  //    O req.user vem do JWT JÁ VALIDADO no requireAuth — NUNCA aceite user_id do
+  //    front. Tirar/quebrar esse filtro vaza dados entre usuários.
+  // Tudo numa ÚNICA ida (joins por FK): vínculo + nome da empresa + papel + permissões.
+  // Multi-empresa: pega 1 vínculo (o MAIS ANTIGO por created_at — determinístico).
+  //   - Single-empresa (caso de hoje): é a única linha → resultado idêntico ao anterior.
+  //   - Multi-empresa: antes era .limit(1) SEM order (arbitrário); agora é estável e
+  //     bate com o getEmpresaId (que passa a reusar este empresaId).
+  const { data: row } = await adminClient()
     .from('empresa_membros')
-    .select('empresa_id, papel, papel_id')
-    .limit(1);
-  const m = membros && membros[0];
-  if (!m) {
+    .select('empresa_id, papel, papel_id, empresa_user(nome), papeis(codigo, nome, papel_permissoes(permissoes(codigo)))')
+    .eq('user_id', req.user.id)
+    .order('created_at', { ascending: true })
+    .limit(1)
+    .maybeSingle();
+
+  if (!row) {
     req._auth = { empresaId: null, empresaNome: null, papel: null, papelNome: null, permissoes: new Set() };
     return req._auth;
   }
 
-  let papelCodigo = m.papel || null;
-  let papelNome = null;
-  let empresaNome = null;
-  const permissoes = new Set();
+  const empresaNome = (row.empresa_user && row.empresa_user.nome) || null;
+  const papelCodigo = (row.papeis && row.papeis.codigo) || row.papel || null;
+  const papelNome = (row.papeis && row.papeis.nome) || null;
+  const permissoes = new Set(
+    ((row.papeis && row.papeis.papel_permissoes) || [])
+      .map((pp) => pp.permissoes && pp.permissoes.codigo)
+      .filter(Boolean),
+  );
 
-  // Nome da empresa — via service_role (o empresaId vem do próprio vínculo do
-  // usuário, m.empresa_id; não é escalada de acesso). Garante o nome sem depender de policy.
-  const { data: emp } = await adminClient().from('empresa_user').select('nome').eq('id', m.empresa_id).single();
-  if (emp) empresaNome = emp.nome || null;
-
-  // 2) Papel + permissões (catálogo global — lido via service_role).
-  if (m.papel_id) {
-    const db = adminClient();
-    const { data: papel } = await db.from('papeis').select('codigo, nome').eq('id', m.papel_id).single();
-    if (papel) { papelCodigo = papel.codigo; papelNome = papel.nome; }
-
-    const { data: pp } = await db.from('papel_permissoes').select('permissao_id').eq('papel_id', m.papel_id);
-    const ids = (pp || []).map((r) => r.permissao_id);
-    if (ids.length) {
-      const { data: perms } = await db.from('permissoes').select('codigo').in('id', ids);
-      (perms || []).forEach((p) => { if (p.codigo) permissoes.add(p.codigo); });
-    }
-  }
-
-  req._auth = { empresaId: m.empresa_id, empresaNome, papel: papelCodigo, papelNome, permissoes };
+  req._auth = { empresaId: row.empresa_id, empresaNome, papel: papelCodigo, papelNome, permissoes };
   return req._auth;
 }
 

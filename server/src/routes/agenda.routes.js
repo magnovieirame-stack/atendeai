@@ -44,6 +44,8 @@ async function sincronizarGoogle(empresaId, acao, row) {
 // empresa do usuário logado (via empresa_membros, que tem RLS própria).
 async function getEmpresaId(req) {
   if (req._empresaId !== undefined) return req._empresaId;
+  // Reusa o empresaId já carregado pela autorização (req._auth) — evita ida redundante ao banco.
+  if (req._auth && req._auth.empresaId != null) { req._empresaId = req._auth.empresaId; return req._empresaId; }
   const { data } = await req.supabase.from('empresa_membros').select('empresa_id').limit(1);
   req._empresaId = data && data[0] ? data[0].empresa_id : null;
   return req._empresaId;
@@ -139,15 +141,48 @@ agendaRouter.get('/', async (req, res, next) => {
 });
 
 // ---- GET /api/agenda/usuarios — usuários da empresa (do Supabase Auth) ----
+// Devolve id/nome/email e TAMBÉM o papel real (codigo + nome de exibição), lido de
+// empresa_membros -> papeis (mesma fonte do /auth/me). Aditivo: id/nome/email seguem
+// iguais; papel/papelNome são extras (consumidores antigos só leem id/nome, sem quebra).
+const PAPEL_LABEL = { admin: 'Admin da Loja', admin_loja: 'Admin da Loja', atendente: 'Atendente', super_admin: 'Super Admin' };
 agendaRouter.get('/usuarios', async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
-    const { data: membros } = await db().from('empresa_membros').select('user_id').eq('empresa_id', empresaId);
-    const ids = new Set((membros || []).map((m) => m.user_id).filter(Boolean));
+    const { data: membros } = await db().from('empresa_membros').select('user_id, papel, papel_id').eq('empresa_id', empresaId);
+    const lista = (membros || []).filter((m) => m.user_id);
+    const byUser = {};
+    lista.forEach((m) => { byUser[m.user_id] = m; });
+    // Catálogo dos papéis usados (id -> { codigo, nome }) — leitura via service_role, igual ao /auth/me.
+    const papelIds = [...new Set(lista.map((m) => m.papel_id).filter(Boolean))];
+    const papeisById = {};
+    if (papelIds.length) {
+      const { data: papeis } = await db().from('papeis').select('id, codigo, nome').in('id', papelIds);
+      (papeis || []).forEach((p) => { papeisById[p.id] = p; });
+    }
+    const ids = new Set(lista.map((m) => m.user_id));
     const { data: list } = await db().auth.admin.listUsers({ page: 1, perPage: 200 });
     const usuarios = (list?.users || [])
       .filter((u) => ids.has(u.id))
-      .map((u) => ({ id: u.id, nome: (u.user_metadata && u.user_metadata.name) || u.email, email: u.email }));
+      .map((u) => {
+        const m = byUser[u.id] || {};
+        const p = m.papel_id ? papeisById[m.papel_id] : null;
+        const codigo = (p && p.codigo) || m.papel || null;          // ex.: 'admin_loja' | 'atendente'
+        const md = u.user_metadata || {};
+        return {
+          id: u.id,
+          nome: md.name || u.email,
+          email: u.email,
+          papel: codigo,
+          papelNome: (p && p.nome) || PAPEL_LABEL[codigo] || codigo || null, // ex.: 'Admin da Loja'
+          // Extras (aditivos) — alimentam a lista e o preenchimento da edição.
+          nomeCompleto: md.nomeCompleto || '',
+          telefone: md.telefone || '',
+          cpf: md.cpf || '',
+          cargo: md.cargo || '',
+          cidade: md.cidade || '',
+          uf: md.uf || '',
+        };
+      });
     res.json({ usuarios });
   } catch (err) { next(err); }
 });

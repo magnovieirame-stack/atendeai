@@ -731,7 +731,6 @@
               <Ic name="sparkles" size={12} /> Você pode salvar como rascunho a qualquer momento.
             </div>
             <div className="spacer" />
-            <ActionButton action="voltar" size="md" onClick={onClose} />
             <ActionButton action="anterior" size="md" disabled={step === 0} onClick={() => setStep((s) => Math.max(0, s - 1))} />
             {step < steps.length - 1 ?
               <ActionButton action="proximo" size="md" onClick={() => setStep((s) => Math.min(steps.length - 1, s + 1))} /> :

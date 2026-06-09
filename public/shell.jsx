@@ -96,7 +96,7 @@ function filtrarNav(items, can, loaded) {
 const AVAILABLE_ROUTES = new Set([
 'dashboard', 'inbox', 'queue', 'notifs', 'agent', 'agent-config', 'crm', 'crm-board', 'agenda',
 'leads', 'team', 'catalog', 'finance', 'reports', 'history', 'rules', 'replies', 'integrations',
-'settings', 'atendente-dashboard', 'client-profile', 'user-profile', 'com-clients', 'com-dashboard', 'com-sales',
+'settings', 'users', 'atendente-dashboard', 'client-profile', 'user-profile', 'com-clients', 'com-dashboard', 'com-sales',
 'mkt-agent', 'mkt-campaigns', 'mkt-flow-ai',
 'bo-pendencias', 'bo-legal', 'bo-hr', 'bo-fiscal', 'bo-accounting',
 'fin-receivables', 'fin-payables', 'fin-accounts', 'fin-dre', 'fin-commissions',
@@ -417,7 +417,7 @@ function Drawer({ title, subtitle, onClose, children, footer, width = 720, leftH
             {subtitle && <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 2 }}>{subtitle}</div>}
           </div>
           {rightHead}
-          <div className="btn btn-ghost btn-icon" onClick={close}><Ic name="x" size={16} /></div>
+          <div className="btn btn-ghost btn-icon drawer-x" onClick={close}><Ic name="x" size={16} /></div>
         </div>
         {belowHead}
         <div className="drawer-bd" style={{ flex: 1, minHeight: 0 }}>{children}</div>
@@ -472,9 +472,13 @@ function DesignerAba01({ title, subtitle, width = '60vw', blocos = [], onClose, 
   };
   const setVal = (key, val) => setVals((s) => ({ ...s, [key]: val }));
   const salvar = () => { setEditing(false); onSalvar && onSalvar(vals); };
+  // Fechar é só pelo (X) do cabeçalho — sem "Voltar" no rodapé ([[botao-fecha-aba]]).
+  // No modo edição, "Cancelar" CANCELA a edição (não fecha) -> permanece.
   const footer = editing
     ? <><div style={{ flex: 1 }} /><ActionButton action="cancelar" size="md" onClick={() => setEditing(false)} /><ActionButton action="salvar" size="md" onClick={salvar} /></>
-    : <><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} />{(onSalvar || onEditar) && <ActionButton action="editar" size="md" label={editarLabel} onClick={onSalvar ? startEdit : onEditar} />}</>;
+    : ((onSalvar || onEditar)
+        ? <><div style={{ flex: 1 }} /><ActionButton action="editar" size="md" label={editarLabel} onClick={onSalvar ? startEdit : onEditar} /></>
+        : null);
   return (
     <Drawer title={title} subtitle={subtitle} onClose={onClose} width={width} footer={footer}>
       <div className="tpc-flat da01">

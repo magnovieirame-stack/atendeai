@@ -35,6 +35,8 @@ const stateCookieOpts = {
 
 // Empresa do usuário logado (mesma lógica do módulo chatbot).
 async function getEmpresaId(req) {
+  // Reusa o empresaId já carregado pela autorização (req._auth) — evita ida redundante ao banco.
+  if (req._auth && req._auth.empresaId != null) return req._auth.empresaId;
   const { data } = await req.supabase.from('empresa_membros').select('empresa_id').limit(1);
   return data && data[0] ? data[0].empresa_id : null;
 }

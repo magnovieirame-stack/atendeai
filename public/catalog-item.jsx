@@ -69,6 +69,8 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
     images: [],
     tags: [],
     variants: [],
+    link: '', // link externo (loja, vídeo, landing) — salvo em extras
+
     // AI training
     aiSummary: '',
     aiTone: 'Amigável',
@@ -87,6 +89,7 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
   const [newCatOpen, setNewCatOpen] = React.useState(false);
   const [unidades, setUnidades] = React.useState(DEFAULT_UNIDADES); // padrão + personalizadas
   const [newUnitOpen, setNewUnitOpen] = React.useState(false);
+  const [tried, setTried] = React.useState(false); // marca se já tentou salvar (mostra erros)
 
   const set = (k, v) => setF(p => ({ ...p, [k]: v }));
   const isService = f.kind === 'servico';
@@ -185,10 +188,25 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
     { id: 'ai',       label: 'Treinamento da IA',   icon: 'sparkles' },
   ];
 
-  const save = () => {
-    if (!f.name.trim()) { setTab('basico'); return; }
-    onSave({ ...f, name: f.name.trim() });
+  // Obrigatórios: Nome, Categoria e Valor (preço de venda). Marca em vermelho
+  // (sem trocar de aba) e avisa por toast; só fecha/salva quando válido.
+  const RED = { borderColor: '#FF452A', background: '#FFEBEC' };
+  const errName = tried && !f.name.trim();
+  const errCat = tried && !f.cat;
+  const errPrice = tried && !(Number(f.price) > 0);
+  const validate = () => {
+    const miss = [];
+    if (!f.name.trim()) miss.push('Nome');
+    if (!f.cat) miss.push('Categoria');
+    if (!(Number(f.price) > 0)) miss.push('Valor');
+    if (miss.length) {
+      setTried(true);
+      window.showToast && window.showToast({ tipo: 'erro', titulo: 'Campos obrigatórios', descricao: 'Preencha: ' + miss.join(', ') + '.' });
+      return false;
+    }
+    return true;
   };
+  const commitSave = () => onSave({ ...f, name: f.name.trim() });
 
   return (
     <Drawer
@@ -203,8 +221,7 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
             Quanto mais detalhado, melhor o agente vende e tira dúvidas.
           </span>
         </div>
-        <ActionButton action="voltar" size="md" onClick={() => close()} />
-        <ActionButton action="salvar" size="md" label={isEdit ? 'Salvar alterações' : 'Salvar item'} onClick={() => close(save)} />
+        <ActionButton action="salvar" size="md" efeito={false} label={isEdit ? 'Salvar alterações' : 'Salvar item'} onClick={() => { if (validate()) close(commitSave); }} />
       </>}
     >
       {/* Kind switch — Product vs Service */}
@@ -249,7 +266,8 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
           <div style={{ display: 'grid', gridTemplateColumns: '2fr 1fr', gap: 10 }}>
             <div>
               <label className="label">Nome {isService ? 'do serviço' : 'do produto'} *</label>
-              <input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder={isService ? 'Ex: Limpeza de pele profunda' : 'Ex: Sérum facial vitamina C'} />
+              <input className="input" value={f.name} onChange={e => set('name', e.target.value)} placeholder={isService ? 'Ex: Limpeza de pele profunda' : 'Ex: Sérum facial vitamina C'} style={errName ? RED : undefined} />
+              {errName && <div className="row" style={{ gap: 4, color: '#FF452A', fontSize: 11, fontWeight: 600, marginTop: 4 }}><Ic name="alert" size={11} /> Informe o nome.</div>}
             </div>
             <div>
               <label className="label">{isService ? 'Código interno' : 'SKU / código'}</label>
@@ -259,15 +277,16 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
 
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div>
-              <label className="label">Categoria</label>
+              <label className="label">Categoria *</label>
               <div className="row" style={{ gap: 6 }}>
-                <select className="input" value={f.cat || ''} onChange={e => set('cat', e.target.value)} style={{ flex: 1 }}>
+                <select className="input" value={f.cat || ''} onChange={e => set('cat', e.target.value)} style={{ flex: 1, ...(errCat ? RED : {}) }}>
                   <option value="">Selecione uma categoria…</option>
                   {f.cat && !catOptions.some(c => c.nome === f.cat) && <option value={f.cat}>{f.cat}</option>}
                   {catOptions.map(c => <option key={c.id} value={c.nome}>{c.nome}</option>)}
                 </select>
                 <button className="btn" type="button" onClick={() => setNewCatOpen(true)} title="Cadastrar categoria"><Ic name="plus" size={13} /></button>
               </div>
+              {errCat && <div className="row" style={{ gap: 4, color: '#FF452A', fontSize: 11, fontWeight: 600, marginTop: 4 }}><Ic name="alert" size={11} /> Selecione uma categoria.</div>}
             </div>
             <div>
               <label className="label">Etiquetas</label>
@@ -339,7 +358,8 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 10 }}>
             <div>
               <label className="label">Preço de venda *</label>
-              <window.MoneyInput value={f.price} onChange={(v, n) => set('price', n)} />
+              <window.MoneyInput value={f.price} onChange={(v, n) => set('price', n)} style={errPrice ? RED : undefined} />
+              {errPrice && <div className="row" style={{ gap: 4, color: '#FF452A', fontSize: 11, fontWeight: 600, marginTop: 4 }}><Ic name="alert" size={11} /> Informe o valor.</div>}
             </div>
             <div>
               <label className="label">Preço promocional</label>
@@ -449,7 +469,7 @@ function CatalogItemDrawer({ initial, onClose, onSave }) {
 
           <div>
             <label className="label">Link externo (loja, vídeo, landing page)</label>
-            <input className="input" placeholder="https://..." />
+            <input className="input" value={f.link} onChange={e => set('link', e.target.value)} placeholder="https://..." />
           </div>
         </div>
       )}
@@ -570,26 +590,34 @@ function CatalogMediaUploader({ media = [], onChange }) {
   const inputRef = React.useRef(null);
   const [dragOver, setDragOver] = React.useState(false);
   const [dragIdx, setDragIdx] = React.useState(null);
+  const [busy, setBusy] = React.useState(false);
 
   const fmtSize = (b) => {
     if (b > 1024 * 1024) return (b / 1024 / 1024).toFixed(1) + ' MB';
     return Math.max(1, Math.round(b / 1024)) + ' KB';
   };
 
-  const ingest = (fileList) => {
-    const arr = [];
-    for (const f of fileList) {
-      if (!f.type.startsWith('image/') && !f.type.startsWith('video/')) continue;
-      const url = URL.createObjectURL(f);
-      arr.push({
-        id: 'm' + Date.now() + '-' + Math.random().toString(36).slice(2, 7),
-        url,
-        name: f.name,
-        size: f.size,
-        type: f.type.startsWith('video/') ? 'video' : 'image',
-      });
+  // Sobe cada arquivo pro Storage (via API) e guarda a URL real. Em falha real,
+  // avisa e cai pra preview local (blob); no demo, idem (não persiste).
+  const ingest = async (fileList) => {
+    const files = Array.from(fileList || []).filter((f) => f.type.startsWith('image/') || f.type.startsWith('video/'));
+    if (!files.length) return;
+    setBusy(true);
+    const out = [];
+    for (const f of files) {
+      const base = { id: 'm' + Date.now() + '-' + Math.random().toString(36).slice(2, 7), name: f.name, size: f.size, type: f.type.startsWith('video/') ? 'video' : 'image' };
+      try {
+        const r = await window.API.uploadCatalogoMidia(f);
+        if (r && r.midia && r.midia.url) { base.url = r.midia.url; base.path = r.midia.path; }
+        else { base.url = URL.createObjectURL(f); base._local = true; } // demo / sem URL
+      } catch (e) {
+        base.url = URL.createObjectURL(f); base._local = true;
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Falha ao enviar mídia', descricao: (e && e.message) || f.name });
+      }
+      out.push(base);
     }
-    if (arr.length) onChange([...media, ...arr]);
+    onChange([...media, ...out]);
+    setBusy(false);
   };
 
   const onPick = () => inputRef.current?.click();
@@ -662,9 +690,9 @@ function CatalogMediaUploader({ media = [], onChange }) {
             </button>
           </div>
         ))}
-        <button type="button" className="cat-media-slot cat-media-add" onClick={onPick}>
-          <Ic name="plus" size={18} />
-          <span>{media.length ? 'Adicionar' : 'Carregar mídia'}</span>
+        <button type="button" className="cat-media-slot cat-media-add" onClick={onPick} disabled={busy} style={busy ? { opacity: .7, cursor: 'wait' } : null}>
+          <Ic name={busy ? 'history' : 'plus'} size={18} />
+          <span>{busy ? 'Enviando…' : (media.length ? 'Adicionar' : 'Carregar mídia')}</span>
           <span className="cat-media-hint muted">ou arraste aqui</span>
         </button>
       </div>
@@ -682,18 +710,26 @@ function CatalogMediaUploader({ media = [], onChange }) {
 // ============================================================
 function CatalogDocUploader({ docs = [], onChange }) {
   const inputRef = React.useRef(null);
+  const [busy, setBusy] = React.useState(false);
   const fmtSize = (b) => b > 1024 * 1024 ? (b / 1024 / 1024).toFixed(1) + ' MB' : Math.max(1, Math.round(b / 1024)) + ' KB';
-  const onFiles = (e) => {
+  const onFiles = async (e) => {
     const list = Array.from(e.target.files || []);
-    if (!list.length) return;
-    const arr = list.map(f => ({
-      id: 'd' + Date.now() + '-' + Math.random().toString(36).slice(2, 6),
-      name: f.name,
-      size: f.size,
-      kind: (f.name.split('.').pop() || '').toUpperCase(),
-    }));
-    onChange([...docs, ...arr]);
     e.target.value = '';
+    if (!list.length) return;
+    setBusy(true);
+    const out = [];
+    for (const f of list) {
+      const base = { id: 'd' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), name: f.name, size: f.size, kind: (f.name.split('.').pop() || '').toUpperCase() };
+      try {
+        const r = await window.API.uploadCatalogoMidia(f);
+        if (r && r.midia && r.midia.url) { base.url = r.midia.url; base.path = r.midia.path; }
+      } catch (err) {
+        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Falha ao enviar documento', descricao: (err && err.message) || f.name });
+      }
+      out.push(base);
+    }
+    onChange([...docs, ...out]);
+    setBusy(false);
   };
   const remove = (id) => onChange(docs.filter(x => x.id !== id));
   return (
@@ -706,8 +742,8 @@ function CatalogDocUploader({ docs = [], onChange }) {
         style={{ display: 'none' }}
         onChange={onFiles}
       />
-      <button type="button" className="btn" style={{ marginTop: 10 }} onClick={() => inputRef.current?.click()}>
-        <Ic name="upload" size={13} /> Carregar arquivo (PDF, DOC)
+      <button type="button" className="btn" style={{ marginTop: 10 }} onClick={() => inputRef.current?.click()} disabled={busy}>
+        <Ic name={busy ? 'history' : 'upload'} size={13} /> {busy ? 'Enviando…' : 'Carregar arquivo (PDF, DOC)'}
       </button>
       {docs.length > 0 && (
         <div className="col" style={{ gap: 6, marginTop: 10 }}>

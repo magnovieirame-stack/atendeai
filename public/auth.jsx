@@ -23,7 +23,7 @@ function AuthShell({ children }) {
 }
 
 function Login() {
-  const { setRoute, setTweak, tweaks, reloadAuth } = useStore();
+  const { setRoute, reloadAuth, enterDemo } = useStore();
   const [showPw, setShowPw] = React.useState(false);
   const [email, setEmail] = React.useState('teste@minhaempresa.com');
   const [senha, setSenha] = React.useState('Teste@Atende2026');
@@ -65,11 +65,13 @@ function Login() {
         </div>
         {erro && <div style={{padding:'8px 12px', borderRadius:8, background:'color-mix(in oklab, #ef4444 10%, var(--surface))', border:'1px solid color-mix(in oklab, #ef4444 30%, var(--border))', color:'#dc2626', fontSize:'var(--type-sm)'}}>{erro}</div>}
         <button className="btn btn-primary" style={{height:42, opacity: carregando?0.6:1}} disabled={carregando} onClick={entrar}>{carregando ? 'Entrando…' : 'Entrar'}</button>
-        <div className="row" style={{gap:6, justifyContent:'center', fontSize:'var(--type-sm)', color:'var(--text-faint)', marginTop:6}}>
-          Entrar como:
-          {[['admin','Admin'],['atendente','Atendente'],['super','Super Admin']].map(([id,l])=>(
-            <span key={id} onClick={()=>setTweak('profile', id)} style={{padding:'2px 8px', borderRadius:6, background: tweaks.profile===id?'var(--accent-soft)':'transparent', color: tweaks.profile===id?'var(--accent-700)':'var(--text-muted)', fontWeight:500, cursor:'default'}}>{l}</span>
-          ))}
+        <div className="col" style={{gap:6, alignItems:'center', marginTop:6}}>
+          <div className="muted" style={{fontSize:'var(--type-xs)', color:'var(--text-faint)'}}>ou explore com dados simulados (demo):</div>
+          <div className="row" style={{gap:6, justifyContent:'center', fontSize:'var(--type-sm)'}}>
+            {[['admin','Admin'],['atendente','Atendente'],['super','Super Admin']].map(([id,l])=>(
+              <span key={id} onClick={()=>enterDemo(id)} style={{padding:'4px 10px', borderRadius:6, background:'var(--surface-3)', color:'var(--text-muted)', fontWeight:500, cursor:'default'}}>{l}</span>
+            ))}
+          </div>
         </div>
       </div>
     </AuthShell>
@@ -161,4 +163,54 @@ function Onboarding() {
   );
 }
 
-Object.assign(window, { Login, Forgot, Onboarding });
+// Página de DEFINIR SENHA — onde o convidado cai ao clicar no link do e-mail.
+// Layout no mesmo padrão do Login (AuthShell). Por enquanto é visual (será ligada
+// ao token de convite real depois). Inclui a ACEITAÇÃO/confirmação do vínculo.
+function SetPassword() {
+  const { setRoute } = useStore();
+  const [pw, setPw] = React.useState('');
+  const [conf, setConf] = React.useState('');
+  const [showPw, setShowPw] = React.useState(false);
+  const [aceite, setAceite] = React.useState(false);
+  const [erro, setErro] = React.useState('');
+  const email = 'novo.usuario@empresa.com'; // virá do token do convite
+  const loja = 'sua loja';
+  const forte = pw.length >= 8;
+  const confere = pw.length > 0 && pw === conf;
+  const podeCriar = forte && confere && aceite;
+  const criar = () => {
+    setErro('');
+    if (!forte) return setErro('A senha precisa de ao menos 8 caracteres.');
+    if (!confere) return setErro('As senhas não conferem.');
+    if (!aceite) return setErro('Você precisa aceitar para continuar.');
+    window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Senha criada', descricao: 'Tela visual — será ligada ao convite real na integração.' });
+    setRoute('login');
+  };
+  return (
+    <AuthShell>
+      <img src="assets/simbolo.png" alt="Pk360" style={{ width: 48, height: 48, objectFit: 'contain', marginBottom: 24 }} />
+      <div className="h1">Criar sua senha</div>
+      <div className="muted" style={{ marginTop: 6 }}>Você foi convidado para acessar <strong>{loja}</strong>. Defina sua senha para entrar.</div>
+      <div className="col" style={{ gap: 14, marginTop: 28 }}>
+        <div><label className="label">E-mail</label><input className="input" value={email} disabled readOnly style={{ opacity: .7, cursor: 'not-allowed' }} /></div>
+        <div>
+          <label className="label">Nova senha</label>
+          <div style={{ position: 'relative' }}>
+            <input className="input" type={showPw ? 'text' : 'password'} value={pw} onChange={e => setPw(e.target.value)} placeholder="Mínimo 8 caracteres" autoComplete="new-password" />
+            <span onClick={() => setShowPw(!showPw)} style={{ position: 'absolute', right: 10, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', cursor: 'default' }}><Ic name={showPw ? 'eye-off' : 'eye'} size={16} /></span>
+          </div>
+        </div>
+        <div><label className="label">Confirmar senha</label><input className="input" type={showPw ? 'text' : 'password'} value={conf} onChange={e => setConf(e.target.value)} onKeyDown={e => { if (e.key === 'Enter') criar(); }} placeholder="Repita a senha" autoComplete="new-password" /></div>
+        <label className="row" style={{ gap: 8, fontSize: 'var(--type-sm)', alignItems: 'flex-start' }}>
+          <input type="checkbox" checked={aceite} onChange={e => setAceite(e.target.checked)} style={{ marginTop: 3 }} />
+          <span>Li e aceito os <strong>Termos de Uso</strong> e confirmo o vínculo da minha conta a <strong>{loja}</strong>.</span>
+        </label>
+        {erro && <div style={{ padding: '8px 12px', borderRadius: 8, background: 'color-mix(in oklab, #ef4444 10%, var(--surface))', border: '1px solid color-mix(in oklab, #ef4444 30%, var(--border))', color: '#dc2626', fontSize: 'var(--type-sm)' }}>{erro}</div>}
+        <button className="btn btn-primary" style={{ height: 42, opacity: podeCriar ? 1 : .6 }} disabled={!podeCriar} onClick={criar}>Criar senha e acessar</button>
+        <div className="muted" style={{ fontSize: 'var(--type-xs)', textAlign: 'center', color: 'var(--text-faint)' }}>O link do convite expira em 24 horas.</div>
+      </div>
+    </AuthShell>
+  );
+}
+
+Object.assign(window, { Login, Forgot, Onboarding, SetPassword });

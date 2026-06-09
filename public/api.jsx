@@ -8,6 +8,15 @@ const DEV_AUTOLOGIN = { email: 'teste@minhaempresa.com', senha: 'Teste@Atende202
 
 const API = {
   async _req(path, opts = {}, _retried = false) {
+    // MODO DEMO (botões "Entrar como"): separação 100%. A UI lê SÓ dos mocks
+    // locais; NENHUMA chamada de rede acontece (zero dado real). Fora do demo,
+    // segue o fluxo normal (zero mock). A flag window.__DEMO__ é ligada pelo store.
+    if (window.__DEMO__ && window.DEMO_MOCK) {
+      const method = (opts.method || 'GET').toUpperCase();
+      let body = null;
+      try { body = opts.body && typeof opts.body === 'string' ? JSON.parse(opts.body) : null; } catch (e) {}
+      return window.DEMO_MOCK.resolve(path, method, body);
+    }
     const res = await fetch('/api' + path, {
       credentials: 'include', // envia o cookie httpOnly de sessão
       ...opts,
@@ -34,6 +43,16 @@ const API = {
   login(email, senha) { return this._json('/auth/login', 'POST', { email, senha }); },
   logout() { return this._req('/auth/logout', { method: 'POST' }); },
   me() { return this._req('/auth/me'); },
+  updatePerfil(dto) { return this._json('/auth/perfil', 'PATCH', dto); },
+  uploadFotoPerfil(file) {
+    const fd = new FormData();
+    fd.append('foto', file, (file && file.name) || 'foto');
+    return this._req('/auth/perfil/foto', { method: 'POST', body: fd });
+  },
+  removeFotoPerfil() { return this._req('/auth/perfil/foto', { method: 'DELETE' }); },
+  atualizarSenha(senhaAtual, novaSenha) { return this._json('/auth/senha', 'POST', { senhaAtual, novaSenha }); },
+  getSessoes() { return this._req('/auth/sessoes'); },
+  sairDeTodos() { return this._req('/auth/sessoes/sair-todos', { method: 'POST' }); },
 
   // --- Chatbot ---
   getContatos() { return this._req('/chatbot/contatos'); },
@@ -126,9 +145,15 @@ const API = {
   updateProduto(id, dto) { return this._json('/catalogo/produtos/' + id, 'PATCH', dto); },
   deleteProduto(id) { return this._req('/catalogo/produtos/' + id, { method: 'DELETE' }); },
   getMovimentacoes(produtoId) { return this._req('/catalogo/produtos/' + produtoId + '/movimentacoes'); },
+  uploadCatalogoMidia(file) {
+    const fd = new FormData();
+    fd.append('arquivo', file, (file && file.name) || 'arquivo');
+    return this._req('/catalogo/produtos/midia', { method: 'POST', body: fd });
+  },
   // --- Vendas (PDV) ---
   createVenda(dto) { return this._json('/vendas', 'POST', dto); },
   getVendas() { return this._req('/vendas'); },
+  cancelarVenda(id, motivo) { return this._json('/vendas/' + id + '/cancelar', 'PATCH', { motivo: motivo || null }); },
   // Unidades de medida personalizadas
   getUnidades() { return this._req('/catalogo/unidades'); },
   createUnidade(dto) { return this._json('/catalogo/unidades', 'POST', dto); },
@@ -137,6 +162,11 @@ const API = {
   // --- Agenda: compromissos ---
   getAgenda() { return this._req('/agenda'); },
   getUsuarios() { return this._req('/agenda/usuarios'); },
+  getEquipeKpis() { return this._req('/equipe/kpis'); },
+  criarUsuario(dto) { return this._json('/equipe/usuarios', 'POST', dto); },
+  editarUsuario(id, dto) { return this._json('/equipe/usuarios/' + id, 'PATCH', dto); },
+  excluirUsuario(id) { return this._req('/equipe/usuarios/' + id, { method: 'DELETE' }); },
+  resetSenhaUsuario(id) { return this._json('/equipe/usuarios/' + id + '/reset-senha', 'POST', {}); },
   getCategorias() { return this._req('/agenda/categorias'); },
   createCategoria(dto) { return this._json('/agenda/categorias', 'POST', dto); },
   updateCategoria(id, dto) { return this._json('/agenda/categorias/' + id, 'PATCH', dto); },
@@ -158,7 +188,12 @@ const API = {
   deleteTarefa(id) { return this._req('/agenda/tarefas/' + id, { method: 'DELETE' }); },
 
   // --- Contatos / nova conversa ---
-  getClientes(q) { return this._req('/chatbot/clientes' + (q ? ('?q=' + encodeURIComponent(q)) : '')); },
+  getClientes(q, estagio) {
+    const p = [];
+    if (q) p.push('q=' + encodeURIComponent(q));
+    if (estagio) p.push('estagio=' + encodeURIComponent(estagio));
+    return this._req('/chatbot/clientes' + (p.length ? ('?' + p.join('&')) : ''));
+  },
   openContato(clienteId) { return this._json('/chatbot/contatos', 'POST', { clienteId }); },
   setContatoStatus(id, statuschat) { return this._json('/chatbot/contatos/' + id, 'PATCH', { statuschat }); },
   fixarContato(id, fixado) { return this._json('/chatbot/contatos/' + id + '/fixar', 'PATCH', { fixado }); },
@@ -379,9 +414,10 @@ function produtoDtoToForm(p) {
     location: p.local || 'No salão',
     requiresBooking: p.requerAgendamento !== false,
     tags: Array.isArray(p.tags) ? p.tags : [],
+    link: ex.link || '',
     // campos ainda não modelados: vêm de extras para não perder o que foi digitado
     variants: Array.isArray(ex.variants) ? ex.variants : [],
-    images: [],
+    images: Array.isArray(ex.images) ? ex.images : [],
     aiSummary: ex.aiSummary || '',
     aiTone: ex.aiTone || 'Amigável',
     aiKeywords: Array.isArray(ex.aiKeywords) ? ex.aiKeywords : [],
@@ -389,7 +425,7 @@ function produtoDtoToForm(p) {
     aiUpsell: ex.aiUpsell || '',
     aiContraindications: ex.aiContraindications || '',
     aiNotShare: ex.aiNotShare || '',
-    aiAttachments: [],
+    aiAttachments: Array.isArray(ex.docs) ? ex.docs : [],
   };
 }
 
@@ -420,6 +456,10 @@ function produtoFormToDto(f) {
     tags: Array.isArray(f.tags) ? f.tags : [],
     extras: {
       variants: Array.isArray(f.variants) ? f.variants : [],
+      link: f.link || '',
+      // Mídia/docs: só persiste o que já tem URL real do Storage (descarta blobs locais).
+      images: Array.isArray(f.images) ? f.images.filter((m) => m && m.url && !String(m.url).startsWith('blob:')).map((m) => ({ url: m.url, path: m.path || '', name: m.name || '', size: m.size || 0, type: m.type || 'image' })) : [],
+      docs: Array.isArray(f.aiAttachments) ? f.aiAttachments.filter((d) => d && d.url && !String(d.url).startsWith('blob:')).map((d) => ({ url: d.url, path: d.path || '', name: d.name || '', size: d.size || 0, kind: d.kind || '' })) : [],
       aiSummary: f.aiSummary || '',
       aiTone: f.aiTone || '',
       aiKeywords: Array.isArray(f.aiKeywords) ? f.aiKeywords : [],

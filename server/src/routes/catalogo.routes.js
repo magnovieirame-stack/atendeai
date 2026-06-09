@@ -7,6 +7,8 @@ import { requireAuth } from '../middleware/auth.js';
 import { requirePermissao } from '../lib/autorizacao.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
+import { matrizId } from '../lib/filiais.js';
+import multer from 'multer';
 
 export const catalogoRouter = Router();
 catalogoRouter.use(requireAuth);
@@ -19,8 +21,14 @@ catalogoRouter.use((req, res, next) => {
 const uuid = z.string().uuid('id inválido');
 const db = () => adminClient();
 
+// Mídia do catálogo: reaproveita o bucket público "arquivos" (mesmo da foto/chat). Sem bucket novo.
+const BUCKET = 'arquivos';
+const midiaUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } }); // 25MB
+
 async function getEmpresaId(req) {
   if (req._empresaId !== undefined) return req._empresaId;
+  // Reusa o empresaId já carregado pela autorização (req._auth) — evita ida redundante ao banco.
+  if (req._auth && req._auth.empresaId != null) { req._empresaId = req._auth.empresaId; return req._empresaId; }
   const { data } = await req.supabase.from('empresa_membros').select('empresa_id').limit(1);
   req._empresaId = data && data[0] ? data[0].empresa_id : null;
   return req._empresaId;
@@ -135,7 +143,7 @@ function produtoToDb(b, empresaId) {
     preco_promo: b.precoPromo != null ? b.precoPromo : null,
     custo: b.custo != null ? b.custo : null,
     unidade: b.unidade || 'un',
-    estoque: b.estoque || 0,
+    // estoque (quantidade) NÃO vive mais na ficha — vai pra estoque-filial (Etapa 2).
     estoque_min: b.estoqueMin || 0,
     ativo: b.ativo !== false,
     aparece_catalogo: b.apareceCatalogo !== false,
@@ -162,7 +170,14 @@ catalogoRouter.get('/produtos', async (req, res, next) => {
     const vendido = {};
     const { data: vi } = await db().from('venda-itens').select('produto_id,quantidade').eq('empresa_id', empresaId);
     (vi || []).forEach((r) => { if (r.produto_id) vendido[r.produto_id] = (vendido[r.produto_id] || 0) + (Number(r.quantidade) || 0); });
-    res.json({ produtos: (data || []).map((p) => ({ ...mapProduto(p), vendas: vendido[p.id] || 0 })) });
+    // Estoque = saldo da MATRIZ (estoque-filial), em UMA query (sem N+1). Sem linha = 0.
+    const mId = await matrizId(empresaId);
+    const estoquePorProd = {};
+    if (mId) {
+      const { data: ef } = await db().from('estoque-filial').select('produto_id,estoque').eq('empresa_id', empresaId).eq('filial_id', mId);
+      (ef || []).forEach((r) => { estoquePorProd[r.produto_id] = Number(r.estoque) || 0; });
+    }
+    res.json({ produtos: (data || []).map((p) => ({ ...mapProduto(p), estoque: estoquePorProd[p.id] || 0, vendas: vendido[p.id] || 0 })) });
   } catch (err) { next(err); }
 });
 
@@ -174,7 +189,31 @@ catalogoRouter.post('/produtos', validateBody(produtoSchema), async (req, res, n
       .insert(produtoToDb(req.body, empresaId)).select('*').single();
     if (error) throw error;
     await registrarMov(empresaId, data.id, { tipo: 'cadastro', descricao: 'Item cadastrado no catálogo', autor: autorDe(req) });
-    res.status(201).json({ produto: mapProduto(data) });
+    // Estoque inicial vive em estoque-filial (Matriz) — a ficha não guarda mais saldo.
+    const estoqueIni = Number(req.body.estoque) || 0;
+    const mId = await matrizId(empresaId);
+    if (mId) {
+      try { await db().from('estoque-filial').upsert({ empresa_id: empresaId, produto_id: data.id, filial_id: mId, estoque: estoqueIni }, { onConflict: 'produto_id,filial_id' }); } catch (e) { /* best-effort */ }
+    }
+    res.status(201).json({ produto: { ...mapProduto(data), estoque: estoqueIni } });
+  } catch (err) { next(err); }
+});
+
+// POST /api/catalogo/produtos/midia — sobe foto/vídeo/documento do item pro Storage.
+// Devolve a URL pública; o front guarda a lista em `extras` (sem coluna/migration nova).
+catalogoRouter.post('/produtos/midia', midiaUpload.single('arquivo'), async (req, res, next) => {
+  try {
+    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    const empresaId = await getEmpresaId(req);
+    const safe = (req.file.originalname || 'arquivo').replace(/[^\w.\-]+/g, '_').slice(-80);
+    const path = `catalogo/${empresaId || 'sem-empresa'}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}-${safe}`;
+    const storage = adminClient().storage.from(BUCKET);
+    const up = await storage.upload(path, req.file.buffer, { contentType: req.file.mimetype, upsert: false });
+    if (up.error) throw up.error;
+    const url = storage.getPublicUrl(path).data.publicUrl;
+    const mt = req.file.mimetype || '';
+    const type = mt.startsWith('video/') ? 'video' : mt.startsWith('image/') ? 'image' : 'doc';
+    res.status(201).json({ midia: { url, path, name: req.file.originalname, size: req.file.size, type, kind: ((req.file.originalname || '').split('.').pop() || '').toUpperCase() } });
   } catch (err) { next(err); }
 });
 
@@ -189,7 +228,7 @@ catalogoRouter.patch('/produtos/:id', validateBody(produtoSchema.partial()), asy
       tipo: 'tipo', nome: 'nome', sku: 'sku', categoria: 'categoria',
       descricaoCurta: 'descricao_curta', descricao: 'descricao',
       preco: 'preco', precoPromo: 'preco_promo', custo: 'custo',
-      unidade: 'unidade', estoque: 'estoque', estoqueMin: 'estoque_min',
+      unidade: 'unidade', estoqueMin: 'estoque_min',
       ativo: 'ativo', apareceCatalogo: 'aparece_catalogo', controlaEstoque: 'controla_estoque',
       duracao: 'duracao', local: 'local', requerAgendamento: 'requer_agendamento',
       tags: 'tags', extras: 'extras',
@@ -199,8 +238,21 @@ catalogoRouter.patch('/produtos/:id', validateBody(produtoSchema.partial()), asy
     // Estado atual (para o diff do histórico).
     const { data: old } = await db().from('catalogo-produtos').select('*')
       .eq('id', id).eq('empresa_id', empresaId).single();
+
+    // Ajuste de estoque -> grava na estoque-filial da MATRIZ (não na ficha/legado).
+    const mId = await matrizId(empresaId);
+    if (Object.prototype.hasOwnProperty.call(req.body, 'estoque') && mId) {
+      const novoEstoque = Number(req.body.estoque) || 0;
+      try { await db().from('estoque-filial').upsert({ empresa_id: empresaId, produto_id: id, filial_id: mId, estoque: novoEstoque }, { onConflict: 'produto_id,filial_id' }); } catch (e) { /* best-effort */ }
+    }
+    const estoqueMatriz = async () => {
+      if (!mId) return 0;
+      const { data: ef } = await db().from('estoque-filial').select('estoque').eq('empresa_id', empresaId).eq('produto_id', id).eq('filial_id', mId).maybeSingle();
+      return ef ? Number(ef.estoque) || 0 : 0;
+    };
+
     if (Object.keys(patch).length === 0) {
-      return res.json({ produto: old ? mapProduto(old) : null });
+      return res.json({ produto: old ? { ...mapProduto(old), estoque: await estoqueMatriz() } : null });
     }
     const { data, error } = await db().from('catalogo-produtos').update(patch)
       .eq('id', id).eq('empresa_id', empresaId).select('*').single();
@@ -210,7 +262,7 @@ catalogoRouter.patch('/produtos/:id', validateBody(produtoSchema.partial()), asy
       const desc = descreverMudancas(old, data);
       if (desc) await registrarMov(empresaId, id, { tipo: 'edicao', descricao: desc, autor: autorDe(req) });
     }
-    res.json({ produto: mapProduto(data) });
+    res.json({ produto: { ...mapProduto(data), estoque: await estoqueMatriz() } });
   } catch (err) { next(err); }
 });
 

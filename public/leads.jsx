@@ -362,7 +362,13 @@
                       <div className="lead-cell lead-cell-name">
                         <div style={{ width: 30, height: 30, borderRadius: '50%', background: l.avatarBg, display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 700, fontSize: 'var(--type-sm)', color: 'var(--text)', flexShrink: 0 }}>{l.initial}</div>
                         <div style={{ minWidth: 0, flex: 1 }}>
-                          <div className="lead-name">{l.name}</div>
+                          <div className="lead-name" style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                            <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.name}</span>
+                            {l.fonte === 'chatbot' &&
+                              <span title={`Lead do chatbot · ${l.source || 'Chatbot'}`} style={{ flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 3, padding: '1px 7px', borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent-700)', fontSize: 10, fontWeight: 700 }}>
+                                <Ic name="chat" size={9} />{l.source || 'Chatbot'}
+                              </span>}
+                          </div>
                           <div className="lead-sub" style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.company || '—'}</div>
                         </div>
                       </div>}
@@ -429,7 +435,9 @@
                         onPdv={() => setPdvFor(l)}
                         onPin={() => togglePin(l.id)}
                         onAppointment={() => setApptFor(l)}
-                        onDelete={() => setConfirmDelete(l)} />
+                        onDelete={() => l.fonte === 'chatbot'
+                          ? (window.showToast && window.showToast({ tipo: 'info', titulo: 'Lead do chatbot', descricao: 'Veio de uma conversa — gerencie pelo Chatbot/Inbox.' }))
+                          : setConfirmDelete(l)} />
                     </div>
                   </div>);
               })}
@@ -540,7 +548,6 @@
       <Drawer title="Novo Lead" subtitle="Cadastre uma nova oportunidade no funil" onClose={onClose} width="50vw"
       footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <ActionButton action="voltar" size="md" onClick={() => close()} />
           <ActionButton action="salvar" size="md" label="Criar lead" disabled={!valid} style={{ opacity: valid ? 1 : .5 }} onClick={() => close(() => onSave(f))} />
         </>}>
         <div className="tpc-flat">
@@ -588,7 +595,7 @@
   function ImportLeadsDrawer({ onClose }) {
     return (
       <Drawer title="Importar Leads" subtitle="Importe leads de uma planilha (CSV/XLSX)" onClose={onClose} width="40vw"
-      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" label="Importar" icon="upload" onClick={() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Leads importados' }); onClose(); }} /></>}>
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Importar" icon="upload" onClick={() => { window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Leads importados' }); onClose(); }} /></>}>
         <div className="col" style={{ gap: 14 }}>
           <div style={{ padding: 24, border: '2px dashed var(--border-strong)', borderRadius: 12, textAlign: 'center', background: 'var(--surface-2)' }}>
             <Ic name="upload" size={28} style={{ color: 'var(--text-faint)' }} />

@@ -396,7 +396,6 @@
         width={820}
         footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <ActionButton action="voltar" size="md" onClick={() => close()} />
           <ActionButton action="salvar" size="md" disabled={!valid} onClick={() => close(handleSave)} />
         </>}>
 
@@ -632,7 +631,6 @@
         width={560}
         footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <ActionButton action="voltar" size="md" onClick={() => close()} disabled={saving} />
           <ActionButton action="salvar" size="md" disabled={!valid || saving} label={saving ? 'Salvando…' : meta.verb} onClick={() => submit(close)} />
         </>}>
 
@@ -744,7 +742,6 @@
         width={560}
         footer={(close) => <>
           <div style={{ flex: 1 }} />
-          <ActionButton action="voltar" size="md" onClick={() => close()} />
           <ActionButton action="excluir" size="md" label="Encerrar" disabled={!valid} onClick={() => setConfirmOpen(true)} />
         </>}>
 

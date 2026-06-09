@@ -160,17 +160,26 @@ plataformaRouter.patch('/clientes/:id', validateBody(clienteSchema.partial()), a
     const id = uuid.parse(req.params.id);
     const falta = obrigatoriosFaltando(req.body);
     if (falta) return res.status(422).json({ error: falta });
+    // Estado ANTERIOR (p/ detectar se a identidade de exibição realmente mudou).
+    const { data: antes } = await db().from('plataforma_clientes').select('*').eq('id', id).single();
     const patch = { ...toDb(req.body), updated_at: new Date().toISOString() };
     const { data, error } = await db().from('plataforma_clientes').update(patch).eq('id', id).select('*, plano:planos(id, nome, preco)').single();
     if (error) throw error;
-    // Re-sync best-effort do nome social + cargo no Auth do dono — SÓ se provisionado.
+    // Re-sync best-effort do nome social + cargo no Auth do dono — SÓ se provisionado
+    // E SÓ se a identidade de exibição MUDOU (compara o valor ANTERIOR guardado vs o novo).
+    // Como o form manda o body CHEIO, comparar "está no req.body" não serve — comparar
+    // vs o valor guardado evita clobberar a escolha que o usuário fez no próprio Perfil.
     // O cadastro é a fonte da verdade; se o Auth falhar, loga e segue (NÃO bloqueia o salvar).
     if (data && data.empresa_id) {
       try {
-        const { name, cargo } = donoIdentidade(data);
-        const { data: ms } = await db().from('empresa_membros').select('user_id').eq('empresa_id', data.empresa_id).eq('papel', 'admin').limit(1);
-        const donoUserId = ms && ms[0] && ms[0].user_id;
-        if (donoUserId) await db().auth.admin.updateUserById(donoUserId, { user_metadata: { name, cargo: cargo || null } });
+        const novo = donoIdentidade(data);
+        const velho = antes ? donoIdentidade(antes) : { name: null, cargo: null };
+        const mudou = novo.name !== velho.name || (novo.cargo || null) !== (velho.cargo || null);
+        if (mudou) {
+          const { data: ms } = await db().from('empresa_membros').select('user_id').eq('empresa_id', data.empresa_id).eq('papel', 'admin').limit(1);
+          const donoUserId = ms && ms[0] && ms[0].user_id;
+          if (donoUserId) await db().auth.admin.updateUserById(donoUserId, { user_metadata: { name: novo.name, cargo: novo.cargo || null } });
+        }
       } catch (e) {
         console.error('[plataforma] re-sync nome/cargo do Auth (best-effort) falhou:', (e && e.message) || e);
       }
@@ -435,6 +444,10 @@ plataformaRouter.post('/clientes/:id/provisionar', validateBody(provisionarSchem
     }).select('id').single();
     if (empIns.error) throw empIns.error;
     const empresaId = empIns.data.id;
+
+    // Matriz automática da nova empresa (multi-filial transparente p/ loja única).
+    const filIns = await sb.from('filiais').insert({ empresa_id: empresaId, nome: 'Matriz', is_matriz: true, ativo: true });
+    if (filIns.error) { await sb.from('empresa_user').delete().eq('id', empresaId); throw filIns.error; }
 
     // 8) Vincula o dono como admin_loja (RLS passa a isolar automaticamente).
     const lnk = await sb.from('empresa_membros').upsert(

@@ -123,7 +123,7 @@
         title={<span className="row" style={{ gap: 10 }}><span className="fin-drawer-ic" style={{ background: 'color-mix(in oklab, #8b5cf6 16%, white)', color: '#6d28d9' }}><Ic name="contracts" size={16} /></span><span>{isEdit ? 'Editar contrato' : 'Novo contrato'}</span></span>}
         onClose={onClose} width={780}
         rightHead={<div className="fin-drawer-code fin-drawer-code-head"><span style={{ fontWeight: 500 }}>NÚMERO</span><strong className="tnum fin-code-pill">{num}</strong></div>}
-        footer={(close) => (<><ActionButton action="voltar" size="md" onClick={() => close()} /><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" disabled={!valid} onClick={() => close(handleSave)} /></>)}>
+        footer={(close) => (<><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" disabled={!valid} onClick={() => close(handleSave)} /></>)}>
         <LegalFormStyles />
 
         {/* Bloco 1 — Cliente */}
@@ -237,7 +237,6 @@
         rightHead={<StatusChip status={c.status} solid />}
         footer={(close) => (
           <>
-            <ActionButton action="voltar" size="md" onClick={() => close()} />
             <div style={{ flex: 1 }} />
             {(c.status === 'rascunho' || c.status === 'negociacao' || c.status === 'enviado') && <ActionButton action="salvar" size="md" label="Enviar p/ assinatura" icon="send" onClick={() => window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Enviado para assinatura', descricao: c.cliente + ' receberá o contrato.' })} />}
             <ActionButton action="editar" size="md" onClick={() => close(() => onEdit(c))} />

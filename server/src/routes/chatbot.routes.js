@@ -596,12 +596,18 @@ chatbotRouter.get('/clientes', async (req, res, next) => {
   try {
     // sanitiza q: remove caracteres com significado na sintaxe de filtro do PostgREST
     const q = (req.query.q || '').toString().replace(/[,()*\\%]/g, '').trim().slice(0, 60);
+    // Filtro por estágio (lead|cliente). A tela de Clientes pede só 'cliente'
+    // (compradores) — leads ficam de fora até a 1ª compra. Sem o parâmetro, devolve
+    // todos (pickers do Inbox/Agenda continuam enxergando leads e clientes).
+    const estagio = ['lead', 'cliente'].includes((req.query.estagio || '').toString()) ? req.query.estagio.toString() : null;
     let query = req.supabase.from('clientes').select('*').order('nome', { ascending: true }).limit(500);
+    if (estagio) query = query.eq('estagio', estagio);
     if (q) query = query.or(`nome.ilike.%${q}%,telefone.ilike.%${q}%`);
-    const { data, error } = await query;
+    const empresaId = await getEmpresaId(req); // grátis: vem do req._auth (1b)
+    // clientes e vendas são independentes -> em PARALELO (1 ida em vez de 2 em série).
+    const [clientesRes, kpis] = await Promise.all([query, vendasKpiPorCliente(empresaId)]);
+    const { data, error } = clientesRes;
     if (error) throw error;
-    const empresaId = await getEmpresaId(req);
-    const kpis = await vendasKpiPorCliente(empresaId);
     res.json({ clientes: (data || []).map((c) => { const k = kpis[c.id] || {}; return { ...mapCliente(c), orders: k.orders || 0, ltv: k.ltv || 0, ultimaCompra: k.ultima || null }; }) });
   } catch (err) { next(err); }
 });
@@ -657,6 +663,11 @@ chatbotRouter.post('/clientes-contato', validateBody(novaConversaSchema), async 
 // gravam a coluna de empresa (a policy with_check exige que seja a do usuário).
 async function getEmpresaId(req) {
   if (req._empresaId !== undefined) return req._empresaId;
+  // Reusa o empresaId que a autorização (requirePermissao→carregarAutorizacao) já
+  // carregou em req._auth — evita uma ida REDUNDANTE ao banco e garante que rota e
+  // autorização usem a MESMA empresa. (Aplicado só aqui por enquanto; valida antes
+  // de replicar pros outros routers.)
+  if (req._auth && req._auth.empresaId != null) { req._empresaId = req._auth.empresaId; return req._empresaId; }
   const { data } = await req.supabase.from('empresa_membros').select('empresa_id').limit(1);
   req._empresaId = data && data[0] ? data[0].empresa_id : null;
   return req._empresaId;
