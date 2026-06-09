@@ -71,11 +71,12 @@ async function entregarNoCanal(req, contatoId, { texto, midiaUrl, tipo, titulo }
     const { data: ct } = await req.supabase
       .from('chatbot-contatos').select('origemcontato,external_id').eq('id', contatoId).single();
     const canal = ct && ct.origemcontato;
-    if (!ct || !CANAIS_EXTERNOS.has(canal) || !ct.external_id) return { tentou: false, entregue: true };
+    console.log(`[envio] contato=${contatoId} canal=${canal} external_id=${ct && ct.external_id}`);
+    if (!ct || !CANAIS_EXTERNOS.has(canal) || !ct.external_id) { console.log('[envio] pulado (canal interno ou sem external_id)'); return { tentou: false, entregue: true }; }
 
     const empresaId = await getEmpresaId(req);
     const tok = await integ.getActiveToken(empresaId, canal);
-    if (!tok) return { tentou: true, entregue: false, erro: NOME_CANAL[canal] + ' não está conectado.' };
+    if (!tok) { console.log('[envio] sem token ativo p/', canal); return { tentou: true, entregue: false, erro: NOME_CANAL[canal] + ' não está conectado.' }; }
 
     if (canal === 'instagram') {
       if (midiaUrl) await ig.sendMedia({ token: tok.token, recipientId: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'file' })[tipo] || 'file', url: midiaUrl });
@@ -88,8 +89,10 @@ async function entregarNoCanal(req, contatoId, { texto, midiaUrl, tipo, titulo }
       if (midiaUrl) await wa.sendMedia({ token: tok.token, phoneNumberId: tok.externalId, to: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'document' })[tipo] || 'document', link: midiaUrl, filename: titulo });
       else await wa.sendText({ token: tok.token, phoneNumberId: tok.externalId, to: ct.external_id, text: texto });
     }
+    console.log('[envio] OK ->', canal);
     return { tentou: true, entregue: true };
   } catch (e) {
+    console.error('[envio] FALHOU ->', e?.metaError ? JSON.stringify(e.metaError) : (e?.message || e));
     return { tentou: true, entregue: false, erro: e?.message || 'Falha ao enviar pelo canal.' };
   }
 }
