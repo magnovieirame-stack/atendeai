@@ -316,16 +316,21 @@ integracoesRouter.get('/google/callback', async (req, res) => {
     }
     const empresaId = payload.empresaId;
 
+    console.log('[google cb] trocando code... empresaId=', empresaId);
     const { accessToken, refreshToken } = await gcal.exchangeCode(code);
+    console.log('[google cb] tokens recebidos | refresh?', !!refreshToken);
     if (!refreshToken) {
       // Sem refresh token não conseguimos agir depois -> peça para reconectar.
       return popupClose(res, false, 'O Google não devolveu autorização offline. Remova o acesso do app na sua Conta Google e tente novamente.', 'google');
     }
     const email = await gcal.getUserEmail(accessToken);
     await store.conectarGoogle(empresaId, { refreshToken, email, calendarId: 'primary' });
+    console.log('[google cb] conectado:', email);
     return popupClose(res, true, (email ? email + ' ' : '') + 'conectado com sucesso.', 'google');
   } catch (err) {
-    return popupClose(res, false, config.isProd ? 'Erro ao conectar.' : (err?.message || 'Erro ao conectar.'), 'google');
+    console.error('[google cb] FALHOU ->', err?.message || err);
+    // Mostra o motivo real no popup (temporário, p/ diagnóstico).
+    return popupClose(res, false, 'Erro ao conectar: ' + (err?.message || 'desconhecido'), 'google');
   }
 });
 
