@@ -102,6 +102,23 @@ authRouter.post('/auth/logout', async (req, res, next) => {
   }
 });
 
+// ---- POST /api/auth/definir-senha — onboarding por CONVITE (SEM sessão/cookie) ----
+// O convidado define a senha usando o access_token do link do e-mail. O BACKEND é o
+// gate: valida o token (auth.getUser) e troca a senha (admin.updateUserById).
+authRouter.post('/auth/definir-senha', authLimiter, ensureSupabase, async (req, res, next) => {
+  try {
+    const access_token = req.body && req.body.access_token;
+    const password = req.body && req.body.password;
+    if (!access_token) return res.status(400).json({ error: 'Link inválido ou expirado.' });
+    if (!password || String(password).length < 8) return res.status(422).json({ error: 'A senha precisa de ao menos 8 caracteres.' });
+    const { data, error } = await adminClient().auth.getUser(access_token);
+    if (error || !data || !data.user) return res.status(400).json({ error: 'Link inválido ou expirado.' });
+    const upd = await adminClient().auth.admin.updateUserById(data.user.id, { password: String(password) });
+    if (upd.error) throw upd.error;
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
 authRouter.get('/auth/me', requireAuth, async (req, res, next) => {
   try {
     // Papel e permissões REAIS (de empresa_membros), não mais de metadados vazios.

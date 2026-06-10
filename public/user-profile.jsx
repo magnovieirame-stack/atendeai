@@ -105,6 +105,7 @@ function UserProfile() {
       const r = await API.uploadFotoPerfil(file);
       set('fotoUrl', r.fotoUrl);
       await reloadAuth();
+      window.carregarFotosUsuarios && window.carregarFotosUsuarios(true); // reflete em todos os avatares
       window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Foto atualizada' });
     } catch (e) {
       window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao enviar foto', descricao: (e && e.message) || 'Tente novamente.' });
@@ -115,6 +116,7 @@ function UserProfile() {
       await API.removeFotoPerfil();
       set('fotoUrl', '');
       await reloadAuth();
+      window.carregarFotosUsuarios && window.carregarFotosUsuarios(true);
       window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Foto removida' });
     } catch (e) {
       window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao remover foto' });

@@ -1,11 +1,62 @@
 // shell.jsx — Sidebar, Topbar, Avatar, common shells
 
-const Avatar = ({ name, size, src, color, online }) => {
+// ── Registro global de fotos de USUÁRIOS internos ────────────────────────────
+// Uma foto por pessoa, usada em QUALQUER Avatar (chat, equipe, fila, etc.).
+// Carrega 1x de /agenda/usuarios; pode ser semeado/recarregado sob demanda.
+const UserFotos = { byId: {}, byName: {}, v: 0, subs: new Set(), loaded: false, loading: false, _lastTry: 0 };
+function _bumpFotos() { UserFotos.v++; UserFotos.subs.forEach((fn) => { try { fn(); } catch (e) {} }); }
+function fotoDeUsuario(idOrName) {
+  if (!idOrName) return '';
+  return UserFotos.byId[idOrName] || UserFotos.byName[String(idOrName).trim().toLowerCase()] || '';
+}
+function setUserFoto(id, name, url) {
+  const key = name ? String(name).trim().toLowerCase() : null;
+  if (url) { if (id) UserFotos.byId[id] = url; if (key) UserFotos.byName[key] = url; }
+  else { if (id) delete UserFotos.byId[id]; if (key) delete UserFotos.byName[key]; }
+  _bumpFotos();
+}
+function semearFotosUsuarios(list) {
+  (list || []).forEach((u) => {
+    const key = u.nome ? String(u.nome).trim().toLowerCase() : null;
+    if (u.fotoUrl) { if (u.id) UserFotos.byId[u.id] = u.fotoUrl; if (key) UserFotos.byName[key] = u.fotoUrl; }
+    else { if (u.id) delete UserFotos.byId[u.id]; if (key) delete UserFotos.byName[key]; }
+  });
+  UserFotos.loaded = true; _bumpFotos();
+}
+async function carregarFotosUsuarios(force) {
+  if (UserFotos.loading) return;
+  if (UserFotos.loaded && !force) return;
+  const now = (window.performance && performance.now) ? performance.now() : 0;
+  if (!force && UserFotos._lastTry && (now - UserFotos._lastTry) < 15000) return; // anti-spam
+  UserFotos._lastTry = now; UserFotos.loading = true;
+  try {
+    const r = await window.API.getUsuarios();
+    semearFotosUsuarios(r.usuarios || []);
+  } catch (e) { /* silencioso (ex.: sem sessão / sem permissão) */ } finally { UserFotos.loading = false; }
+}
+window.fotoDeUsuario = fotoDeUsuario;
+window.setUserFoto = setUserFoto;
+window.semearFotosUsuarios = semearFotosUsuarios;
+window.carregarFotosUsuarios = carregarFotosUsuarios;
+
+function useUserFotos() {
+  const [, force] = React.useReducer((x) => x + 1, 0);
+  React.useEffect(() => {
+    UserFotos.subs.add(force);
+    carregarFotosUsuarios();
+    return () => { UserFotos.subs.delete(force); };
+  }, []);
+}
+
+const Avatar = ({ name, size, src, color, online, uid }) => {
+  useUserFotos(); // assina o registro: re-renderiza quando as fotos carregam/mudam
+  const [erro, setErro] = React.useState(false);
   const cls = size === 'sm' ? 'avatar avatar-sm' : size === 'lg' ? 'avatar avatar-lg' : size === 'xl' ? 'avatar avatar-xl' : 'avatar';
+  const url = (!erro && (src || fotoDeUsuario(uid) || fotoDeUsuario(name))) || '';
   return (
     <div style={{ position: 'relative', display: 'inline-flex' }}>
       <div className={cls} style={{ background: color || colorFor(name) }}>
-        {src ? <img src={src} alt={name} style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }} /> : initials(name)}
+        {url ? <img src={url} alt={name} onError={() => setErro(true)} style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }} /> : initials(name)}
       </div>
       {online && <span className="dot dot-online" style={{ position: 'absolute', right: 0, bottom: 0, width: 9, height: 9, border: '2px solid var(--surface)' }} />}
     </div>);
@@ -96,7 +147,7 @@ function filtrarNav(items, can, loaded) {
 const AVAILABLE_ROUTES = new Set([
 'dashboard', 'inbox', 'queue', 'notifs', 'agent', 'agent-config', 'crm', 'crm-board', 'agenda',
 'leads', 'team', 'catalog', 'finance', 'reports', 'history', 'rules', 'replies', 'integrations',
-'settings', 'users', 'atendente-dashboard', 'client-profile', 'user-profile', 'com-clients', 'com-dashboard', 'com-sales',
+'settings', 'users', 'cadastros', 'cad-departamentos', 'atendente-dashboard', 'client-profile', 'user-profile', 'com-clients', 'com-dashboard', 'com-sales',
 'mkt-agent', 'mkt-campaigns', 'mkt-flow-ai',
 'bo-pendencias', 'bo-legal', 'bo-hr', 'bo-fiscal', 'bo-accounting',
 'fin-receivables', 'fin-payables', 'fin-accounts', 'fin-dre', 'fin-commissions',

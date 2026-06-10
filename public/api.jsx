@@ -51,6 +51,7 @@ const API = {
   },
   removeFotoPerfil() { return this._req('/auth/perfil/foto', { method: 'DELETE' }); },
   atualizarSenha(senhaAtual, novaSenha) { return this._json('/auth/senha', 'POST', { senhaAtual, novaSenha }); },
+  definirSenha(access_token, password) { return this._json('/auth/definir-senha', 'POST', { access_token, password }); },
   getSessoes() { return this._req('/auth/sessoes'); },
   sairDeTodos() { return this._req('/auth/sessoes/sair-todos', { method: 'POST' }); },
 
@@ -167,6 +168,12 @@ const API = {
   editarUsuario(id, dto) { return this._json('/equipe/usuarios/' + id, 'PATCH', dto); },
   excluirUsuario(id) { return this._req('/equipe/usuarios/' + id, { method: 'DELETE' }); },
   resetSenhaUsuario(id) { return this._json('/equipe/usuarios/' + id + '/reset-senha', 'POST', {}); },
+  uploadFotoUsuario(id, file) { const fd = new FormData(); fd.append('foto', file); return this._req('/equipe/usuarios/' + id + '/foto', { method: 'POST', body: fd }); },
+  // --- Cadastros (Departamentos, etc.) ---
+  getDepartamentos() { return this._req('/cadastros/departamentos'); },
+  criarDepartamento(dto) { return this._json('/cadastros/departamentos', 'POST', dto); },
+  editarDepartamento(id, dto) { return this._json('/cadastros/departamentos/' + id, 'PATCH', dto); },
+  excluirDepartamento(id) { return this._req('/cadastros/departamentos/' + id, { method: 'DELETE' }); },
   getCategorias() { return this._req('/agenda/categorias'); },
   createCategoria(dto) { return this._json('/agenda/categorias', 'POST', dto); },
   updateCategoria(id, dto) { return this._json('/agenda/categorias/' + id, 'PATCH', dto); },

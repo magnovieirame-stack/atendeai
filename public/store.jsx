@@ -95,7 +95,7 @@ function Provider({ children }) {
 
   // when profile changes via tweaks, switch to a default route — mas NUNCA tira o
   // usuário das telas de auth (login/forgot/onboarding); o login navega sozinho.
-  const AUTH_ROUTES = ['login', 'forgot', 'onboarding'];
+  const AUTH_ROUTES = ['login', 'forgot', 'onboarding', 'set-password'];
   const prevProfile = React.useRef(tweaks.profile);
   React.useEffect(() => {
     if (prevProfile.current !== tweaks.profile) {

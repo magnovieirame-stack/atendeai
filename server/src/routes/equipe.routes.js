@@ -2,10 +2,14 @@
 //   Agrega vendas por vendedor_id (= id do usuário logado no Auth = empresa_membros.user_id).
 //   Período = mês atual. SÓ status='concluida' (cancelada NÃO conta). Isolamento por empresa_id.
 import crypto from 'crypto';
+import multer from 'multer';
 import { Router } from 'express';
 import { requireAuth } from '../middleware/auth.js';
 import { requirePermissao, carregarAutorizacao } from '../lib/autorizacao.js';
 import { adminClient } from '../lib/supabase.js';
+
+const BUCKET = 'arquivos'; // bucket público reaproveitado (mesmo do perfil/chat)
+const fotoUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 2 * 1024 * 1024 } }); // 2MB
 
 export const equipeRouter = Router();
 equipeRouter.use(requireAuth);
@@ -31,6 +35,14 @@ const PAPEIS_PERMITIDOS = { atendente: 'atendente', vendedor: 'atendente', admin
 const MEMBRO_PAPEL = { atendente: 'atendente', admin_loja: 'admin' };
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+// Para onde o link do convite volta: a tela "Criar sua senha" (SPA). Base via env
+// (APP_URL/APP_BASE_URL) ou Origin da requisição; fallback = produção (Vercel).
+// /ATENDE.IA.html funciona local e na Vercel; o Supabase anexa #access_token=...&type=invite.
+function inviteRedirect(req) {
+  const base = (process.env.APP_URL || process.env.APP_BASE_URL || req.headers.origin || 'https://atendeai-cyan.vercel.app').replace(/\/+$/, '');
+  return base + '/ATENDE.IA.html';
+}
 const MESES = ['janeiro', 'fevereiro', 'março', 'abril', 'maio', 'junho', 'julho', 'agosto', 'setembro', 'outubro', 'novembro', 'dezembro'];
 
 async function getEmpresaId(req) {
@@ -89,6 +101,12 @@ equipeRouter.post('/usuarios', requirePermissao('config.gerenciar'), async (req,
     const telefone = String(b.telefone || '').trim();
     const cpf = String(b.cpf || '').trim();
     const cargo = String(b.cargo || '').trim();
+    const departamento = String(b.departamento || '').trim();
+    const nascimento = String(b.nascimento || '').trim();
+    const endereco = String(b.endereco || '').trim();
+    const bio = String(b.bio || '').trim();
+    const cidade = String(b.cidade || '').trim();
+    const uf = String(b.uf || '').trim().toUpperCase().slice(0, 2);
 
     // Validação (espelha os obrigatórios do front).
     if (!nomeCompleto) return res.status(422).json({ error: 'Informe o nome completo.' });
@@ -104,25 +122,23 @@ equipeRouter.post('/usuarios', requirePermissao('config.gerenciar'), async (req,
     const { data: papelRow, error: ep } = await db().from('papeis').select('id, codigo').eq('codigo', papelCodigo).single();
     if (ep || !papelRow) return res.status(500).json({ error: `Papel "${papelCodigo}" não encontrado (rodou a migration 0020?).` });
 
-    // Senha: usa a digitada (>=8) ou gera uma provisória.
-    const senhaDigitada = (typeof b.senha === 'string' && b.senha.length >= 8) ? b.senha : null;
-    const senha = senhaDigitada || gerarSenhaProvisoria();
-
-    // 1) Cria (ou reaproveita) o usuário no Auth. email_confirm -> loga direto.
-    const meta = { name: apelido, nomeCompleto, telefone, cpf, cargo: cargo || null };
-    let userId, reusou = false, senhaRetorno = senha;
-    const created = await db().auth.admin.createUser({ email, password: senha, email_confirm: true, user_metadata: meta });
-    if (created.error) {
-      if (/already.*(registered|exists)|email.*exists|duplicate/i.test(created.error.message)) {
-        // E-mail já é usuário (de outra loja, p.ex.) -> reaproveita SEM trocar a senha dele.
-        const list = await db().auth.admin.listUsers({ page: 1, perPage: 200 });
-        const u = ((list.data && list.data.users) || []).find((x) => (x.email || '').toLowerCase() === email);
-        if (!u) throw created.error;
-        userId = u.id; reusou = true; senhaRetorno = null;
-      } else throw created.error;
-    } else {
-      userId = created.data.user.id;
+    // 1) CONVITE por e-mail: cria o usuário SEM senha e dispara o e-mail (SMTP).
+    //    Quem define a senha é o próprio convidado, na tela "Criar sua senha".
+    const meta = { name: apelido, nomeCompleto, telefone, cpf, cargo: cargo || null, departamento, nascimento, endereco, bio, cidade, uf };
+    const redirectTo = inviteRedirect(req);
+    const invited = await db().auth.admin.inviteUserByEmail(email, { data: meta, redirectTo });
+    if (invited.error) {
+      // E-mail já cadastrado -> não quebra; 409 (reenvio de convite fica pra polish).
+      if (/already.*(registered|exists)|email.*exists|duplicate/i.test(invited.error.message)) {
+        return res.status(409).json({ error: 'Usuário já cadastrado.' });
+      }
+      // Falha de ENVIO do e-mail (endereço inválido/SMTP) -> mensagem clara, não 500 genérico.
+      if (/sending.*(invite|email)|smtp|e-?mail/i.test(invited.error.message)) {
+        return res.status(502).json({ error: 'Não foi possível enviar o convite por e-mail. Confira o endereço e tente de novo.' });
+      }
+      throw invited.error;
     }
+    const userId = invited.data.user.id;
 
     // 2) Vincula à empresa DO ADMIN (isolamento). upsert -> idempotente por (user,empresa).
     const lnk = await db().from('empresa_membros').upsert(
@@ -135,7 +151,7 @@ equipeRouter.post('/usuarios', requirePermissao('config.gerenciar'), async (req,
       throw lnk.error;
     }
 
-    res.status(201).json({ ok: true, email, papel: papelCodigo, senhaProvisoria: senhaRetorno, reusou });
+    res.status(201).json({ ok: true, userId, email, papel: papelCodigo, convidado: true });
   } catch (err) { next(err); }
 });
 
@@ -167,8 +183,17 @@ equipeRouter.patch('/usuarios/:id', requirePermissao('config.gerenciar'), async 
     if (b.telefone !== undefined) meta.telefone = String(b.telefone).trim();
     if (b.cpf !== undefined) meta.cpf = String(b.cpf).trim();
     if (b.cargo !== undefined) meta.cargo = String(b.cargo).trim();
+    if (b.departamento !== undefined) meta.departamento = String(b.departamento).trim();
+    if (b.nascimento !== undefined) meta.nascimento = String(b.nascimento).trim();
+    if (b.endereco !== undefined) meta.endereco = String(b.endereco).trim();
+    if (b.bio !== undefined) meta.bio = String(b.bio).trim();
+    if (b.cidade !== undefined) meta.cidade = String(b.cidade).trim();
+    if (b.uf !== undefined) meta.uf = String(b.uf).trim().toUpperCase().slice(0, 2);
+    if (b.ativo !== undefined) meta.ativo = !!b.ativo;
+    if (b.removerFoto === true) meta.foto_url = '';
     const upd = await db().auth.admin.updateUserById(id, { user_metadata: meta });
     if (upd.error) throw upd.error;
+    if (b.removerFoto === true) { try { await db().storage.from(BUCKET).remove(['avatares/' + id]); } catch (e) {} }
 
     // Papel (opcional) — sempre pela ALLOW-LIST (nunca super_admin).
     if (b.papel !== undefined) {
@@ -213,5 +238,29 @@ equipeRouter.post('/usuarios/:id/reset-senha', requirePermissao('config.gerencia
     let email = null;
     try { const g = await db().auth.admin.getUserById(id); email = g && g.data && g.data.user && g.data.user.email; } catch (e) {}
     res.json({ ok: true, email, senhaProvisoria: senha, reset: true });
+  } catch (err) { next(err); }
+});
+
+// POST /api/equipe/usuarios/:id/foto — admin sobe a foto do membro (bucket "arquivos"). Isolado.
+equipeRouter.post('/usuarios/:id/foto', requirePermissao('config.gerenciar'), fotoUpload.single('foto'), async (req, res, next) => {
+  try {
+    const auth = await carregarAutorizacao(req);
+    const empresaId = auth && auth.empresaId;
+    if (!empresaId) return res.status(400).json({ error: 'Sua conta não está vinculada a nenhuma empresa.' });
+    const id = String(req.params.id || '');
+    const mem = await membroDaEmpresa(id, empresaId);
+    if (!mem) return res.status(404).json({ error: 'Usuário não encontrado nesta empresa.' });
+    if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });
+    if (!/^image\/(png|jpe?g|webp)$/i.test(req.file.mimetype)) return res.status(400).json({ error: 'Envie uma imagem PNG, JPG ou WebP.' });
+    const path = `avatares/${id}`;
+    const storage = db().storage.from(BUCKET);
+    const up = await storage.upload(path, req.file.buffer, { contentType: req.file.mimetype, upsert: true });
+    if (up.error) throw up.error;
+    const publicUrl = storage.getPublicUrl(path).data.publicUrl + '?v=' + req.file.size; // cache-bust
+    const cur = await db().auth.admin.getUserById(id);
+    const meta = { ...((cur && cur.data && cur.data.user && cur.data.user.user_metadata) || {}), foto_url: publicUrl };
+    const { error } = await db().auth.admin.updateUserById(id, { user_metadata: meta });
+    if (error) throw error;
+    res.status(201).json({ ok: true, fotoUrl: publicUrl });
   } catch (err) { next(err); }
 });

@@ -179,8 +179,14 @@ agendaRouter.get('/usuarios', async (req, res, next) => {
           telefone: md.telefone || '',
           cpf: md.cpf || '',
           cargo: md.cargo || '',
+          departamento: md.departamento || '',
+          nascimento: md.nascimento || '',
+          endereco: md.endereco || '',
+          bio: md.bio || '',
           cidade: md.cidade || '',
           uf: md.uf || '',
+          fotoUrl: md.foto_url || '',
+          status: md.ativo === false ? 'inativo' : 'ativo',
         };
       });
     res.json({ usuarios });

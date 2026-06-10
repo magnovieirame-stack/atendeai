@@ -37,10 +37,27 @@ function App() {
 }
 
 function AppInner() {
-  const { route, tweaks } = useStore();
+  const { route, tweaks, setRoute } = useStore();
   const [collapsed, setCollapsed] = React.useState(false);
   const isMobile = useIsMobile();              // true em telas de celular (<= 768px)
   const [navOpen, setNavOpen] = React.useState(false); // drawer mobile aberto?
+
+  // Convite por e-mail: o link do Supabase volta com #access_token=...&type=invite|recovery.
+  // Detecta uma vez no load, guarda o token e abre a tela "Criar sua senha".
+  React.useEffect(() => {
+    try {
+      const h = window.location.hash || '';
+      if (h.includes('access_token') && /type=(invite|recovery)/.test(h)) {
+        const p = new URLSearchParams(h.replace(/^#/, ''));
+        const tok = p.get('access_token');
+        if (tok) {
+          window.__inviteToken = tok;
+          setRoute('set-password');
+          try { history.replaceState(null, '', window.location.pathname + window.location.search); } catch (e) {}
+        }
+      }
+    } catch (e) { /* hash malformado — ignora */ }
+  }, []);
 
   // Fecha o drawer ao navegar para outra tela.
   React.useEffect(() => { setNavOpen(false); }, [route]);
@@ -86,6 +103,8 @@ function AppInner() {
     case 'bo-accounting':   screen = window.BackofficeAccounting ? React.createElement(window.BackofficeAccounting) : null; break;
     case 'settings':        screen = <UsersPage/>; break;   // "Configurações"/Usuários -> página de Usuários
     case 'users':           screen = <UsersPage/>; break;
+    case 'cadastros':       screen = <CadastrosPage/>; break;
+    case 'cad-departamentos': screen = <DepartamentosPage/>; break;
     case 'user-profile':    screen = <UserProfile/>; break;
     case 'leads':           screen = <AdminLeads/>; break;
     case 'com-clients':     screen = <AdminClients/>; break;

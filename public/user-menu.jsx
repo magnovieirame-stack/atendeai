@@ -45,7 +45,7 @@ function UserMenu() {
   { id: 'plans', label: 'Planos', icon: 'wallet', onClick: () => go('finance'), hidden: isAtendente },
   { id: 'help', label: 'Receba Ajuda', icon: 'help', onClick: openHelp },
   { id: 'dark', label: 'Dark Mode', icon: tweaks.theme === 'dark' ? 'moon' : 'sun', onClick: toggleDark, kind: 'toggle' },
-  { id: 'settings', label: 'Usuários', icon: 'user', onClick: () => go('users'), hidden: isAtendente },
+  { id: 'cadastros', label: 'Cadastros', icon: 'database', onClick: () => go('cadastros'), hidden: isAtendente },
   { id: 'profile', label: 'Configuração', icon: 'settings', onClick: () => go('user-profile') },
   { id: 'logout', label: 'Sair', icon: 'logout', onClick: () => go('login'), danger: true, sep: true }].
   filter((i) => !i.hidden);
@@ -344,7 +344,7 @@ function SidebarUserMenu({ collapsed = false }) {
   { id: 'plans', label: 'Planos', icon: 'wallet', onClick: () => go('finance'), hidden: isAtendente },
   { id: 'help', label: 'Receba Ajuda', icon: 'help', onClick: openHelp },
   { id: 'dark', label: 'Dark Mode', icon: tweaks.theme === 'dark' ? 'moon' : 'sun', onClick: toggleDark, kind: 'toggle' },
-  { id: 'settings', label: 'Usuários', icon: 'user', onClick: () => go('users'), hidden: isAtendente },
+  { id: 'cadastros', label: 'Cadastros', icon: 'database', onClick: () => go('cadastros'), hidden: isAtendente },
   { id: 'profile', label: 'Configuração', icon: 'settings', onClick: () => go('user-profile') },
   { id: 'logout', label: 'Sair', icon: 'logout', onClick: () => go('login'), danger: true, sep: true }].
   filter((i) => !i.hidden);

@@ -44,6 +44,7 @@ function UsersStyles() {
 }
 
 function UsersPage() {
+  const { back } = useStore();
   const [users, setUsers] = React.useState([]);
   const [loaded, setLoaded] = React.useState(false);
   const [drawer, setDrawer] = React.useState(null);   // { modo, inicial }
@@ -62,11 +63,13 @@ function UsersPage() {
         id: u.id,
         code: userCode(u.id, u.uf),
         name: u.nome || '—', nomeCompleto: u.nomeCompleto || '', email: u.email || '', telefone: u.telefone || '',
-        cpf: u.cpf || '', cargo: u.cargo || '', cidade: u.cidade || '', uf: u.uf || '',
+        cpf: u.cpf || '', cargo: u.cargo || '', departamento: u.departamento || '', nascimento: u.nascimento || '',
+        endereco: u.endereco || '', bio: u.bio || '', cidade: u.cidade || '', uf: u.uf || '', fotoUrl: u.fotoUrl || '',
         tipo: u.papelNome || u.papel || '—', papelCodigo: u.papel || 'atendente',
         status: u.status || 'ativo',
       }));
       setUsers(list);
+      if (window.semearFotosUsuarios) window.semearFotosUsuarios(r.usuarios); // foto única em todo Avatar
       if (list.length) skelRemember('usuarios', list.length);
     } catch (e) { setUsers([]); }
     finally { setLoaded(true); }
@@ -85,13 +88,17 @@ function UsersPage() {
   }, [users, query, filterTipo, filterStatus]);
 
   const cidadeUF = (u) => [u.cidade, u.uf].filter(Boolean).join(' - ') || '—';
+  const setAtivoUsuario = async (u, v) => {
+    try { await window.API.editarUsuario(u.id, { ativo: v }); reload(); }
+    catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Não foi possível alterar', descricao: (e && e.message) || 'Tente novamente.' }); }
+  };
   const activeFilters = (filterTipo !== 'all' ? 1 : 0) + (filterStatus !== 'all' ? 1 : 0);
   const clearFilters = () => { setFilterTipo('all'); setFilterStatus('all'); };
   const showSkel = !loaded;
 
   return (
     <Page title="Usuários" subtitle="Membros com acesso à sua loja"
-      actions={<FabNovo size="sm" label="Novo usuário" onClick={() => setDrawer({ modo: 'novo' })} />}>
+      actions={<div className="row" style={{ gap: 8 }}><ActionButton action="voltar" size="sm" onClick={back} /><FabNovo size="sm" label="Novo usuário" onClick={() => setDrawer({ modo: 'novo' })} /></div>}>
 
       <UsersStyles />
 
@@ -177,7 +184,9 @@ function UsersPage() {
 
                 {/* Avatar + Nome + Cidade-UF */}
                 <div className="row" style={{ gap: 10, minWidth: 0 }}>
-                  <Avatar name={u.name} size="lg" color={cor} online={u.status === 'ativo'} />
+                  {u.fotoUrl
+                    ? <img src={u.fotoUrl} alt="" style={{ width: 40, height: 40, borderRadius: '50%', objectFit: 'cover', flexShrink: 0 }} />
+                    : <Avatar name={u.name} size="lg" color={cor} online={u.status === 'ativo'} />}
                   <div style={{ minWidth: 0 }}>
                     <div className="usr-name">{u.name}</div>
                     <div className="usr-sub"><Ic name="building" size={11} /><span>{cidadeUF(u)}</span></div>
@@ -193,8 +202,11 @@ function UsersPage() {
                 {/* Tipo */}
                 <div><span className="badge badge-neutral">{u.tipo}</span></div>
 
-                {/* Status */}
-                <div><span className={'badge ' + (u.status === 'ativo' ? 'badge-success' : 'badge-neutral')}>{u.status === 'ativo' ? 'Ativo' : 'Inativo'}</span></div>
+                {/* Status + ativar/desativar */}
+                <div className="row" style={{ gap: 8, alignItems: 'center' }} onClick={(e) => e.stopPropagation()}>
+                  <Toggle on={u.status === 'ativo'} compact onChange={(v) => setAtivoUsuario(u, v)} />
+                  <span style={{ fontSize: 11, fontWeight: 700, color: u.status === 'ativo' ? '#3DA767' : '#FF452A' }}>{u.status === 'ativo' ? 'Ativo' : 'Inativo'}</span>
+                </div>
 
                 {/* Ações */}
                 <div className="usr-acts" style={{ justifyContent: 'flex-end' }}>
@@ -248,12 +260,12 @@ function ResultadoUsuario({ info, onClose }) {
     try { navigator.clipboard.writeText(txt); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Copiado' }); } catch (e) {}
   };
   return (
-    <Modal title={info.reset ? 'Senha redefinida' : 'Usuário criado'} size="sm" onClose={onClose}
+    <Modal title={info.convidado ? 'Convite enviado' : info.reset ? 'Senha redefinida' : 'Usuário criado'} size="sm" onClose={onClose}
       footer={(close) => <><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Concluir" efeito={false} onClick={() => close()} /></>}>
-      {info.reusou ? (
+      {info.convidado ? (
         <div className="col" style={{ gap: 10 }}>
-          <div className="row" style={{ gap: 8, alignItems: 'center' }}><Ic name="info" size={16} style={{ color: 'var(--accent-700)' }} /><strong>E-mail já existente — vinculado à sua loja.</strong></div>
-          <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>O usuário <strong>{info.email}</strong> já tinha conta. Vinculamos à sua empresa <strong>sem alterar a senha dele</strong> — ele entra com a senha que já usa.</div>
+          <div className="row" style={{ gap: 8, alignItems: 'center' }}><Ic name="mail" size={16} style={{ color: 'var(--accent-700)' }} /><strong>Convite enviado para {info.email}</strong></div>
+          <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>O usuário vai receber um e-mail com um link para <strong>criar a senha</strong> e acessar. O link expira em 24 horas.</div>
         </div>
       ) : (
         <div className="col" style={{ gap: 12 }}>
@@ -283,7 +295,12 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
     cpf: (inicial && inicial.cpf) || '',
     papel: 'atendente',
     cargo: (inicial && inicial.cargo) || '',
-    departamento: '', nascimento: '', endereco: '', bio: '',
+    departamento: (inicial && inicial.departamento) || '',
+    nascimento: (inicial && inicial.nascimento) || '',
+    endereco: (inicial && inicial.endereco) || '',
+    bio: (inicial && inicial.bio) || '',
+    cidade: (inicial && inicial.cidade) || '',
+    uf: (inicial && inicial.uf) || '',
   }));
   const [pw, setPw] = React.useState({ nova: '', conf: '' });
   const [salvando, setSalvando] = React.useState(false);
@@ -293,11 +310,13 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
   const setPref = (k, v) => { if (ro) return; setPrefs((p) => ({ ...p, [k]: v })); };
   const maskData = (v) => { const n = (v || '').replace(/\D/g, '').slice(0, 8); if (n.length <= 2) return n; if (n.length <= 4) return `${n.slice(0, 2)}/${n.slice(2)}`; return `${n.slice(0, 2)}/${n.slice(2, 4)}/${n.slice(4)}`; };
   const initials = (n) => (n || '?').split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase() || 'NU';
-  const [foto, setFoto] = React.useState('');            // pré-visualização local (ainda não persiste)
+  const [foto, setFoto] = React.useState(() => (inicial && inicial.fotoUrl) || ''); // preview (URL salva ou data URL local)
+  const [fotoFile, setFotoFile] = React.useState(null);   // arquivo a subir (se trocou)
+  const [fotoRemovida, setFotoRemovida] = React.useState(false);
   const fileRef = React.useRef(null);
   const escolherFoto = () => { if (!ro) fileRef.current && fileRef.current.click(); };
-  const enviarFoto = (file) => { if (!file) return; const r = new FileReader(); r.onload = () => setFoto(r.result); r.readAsDataURL(file); };
-  const removerFoto = () => setFoto('');
+  const enviarFoto = (file) => { if (!file) return; setFotoFile(file); setFotoRemovida(false); const r = new FileReader(); r.onload = () => setFoto(r.result); r.readAsDataURL(file); };
+  const removerFoto = () => { setFoto(''); setFotoFile(null); setFotoRemovida(true); };
 
   const EmailInput = window.EmailInput || ((p) => <input className="input" {...p} />);
   const PhoneInput = window.PhoneInput || ((p) => <input className="input" value={p.value} disabled={p.disabled} onChange={(e) => p.onChange && p.onChange(e.target.value)} />);
@@ -329,9 +348,11 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
     try {
       const r = await window.API.criarUsuario({
         nomeCompleto: f.nomeCompleto, name: f.name, email: f.email, telefone: f.telefone,
-        cpf: f.cpf, cargo: f.cargo, papel: f.papel, senha: (pw.nova && pw.nova.length >= 8) ? pw.nova : undefined,
+        cpf: f.cpf, cargo: f.cargo, papel: f.papel,
+        departamento: f.departamento, nascimento: f.nascimento, endereco: f.endereco, bio: f.bio, cidade: f.cidade, uf: f.uf,
       });
-      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Usuário criado', descricao: r.reusou ? 'E-mail já existia — vinculado à sua loja.' : 'Senha provisória gerada.' });
+      if (fotoFile && r.userId) { try { await window.API.uploadFotoUsuario(r.userId, fotoFile); } catch (e) {} }
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Convite enviado', descricao: 'O usuário vai receber um e-mail para criar a senha e acessar.' });
       onResultado && onResultado(r);
       if (close) close(); else onClose && onClose();
     } catch (e) {
@@ -342,7 +363,12 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
     if (!validar()) return;
     setSalvando(true);
     try {
-      await window.API.editarUsuario(inicial.id, { nomeCompleto: f.nomeCompleto, name: f.name, telefone: f.telefone, cpf: f.cpf, cargo: f.cargo });
+      await window.API.editarUsuario(inicial.id, {
+        nomeCompleto: f.nomeCompleto, name: f.name, telefone: f.telefone, cpf: f.cpf, cargo: f.cargo,
+        departamento: f.departamento, nascimento: f.nascimento, endereco: f.endereco, bio: f.bio, cidade: f.cidade, uf: f.uf,
+        removerFoto: fotoRemovida,
+      });
+      if (fotoFile) { try { await window.API.uploadFotoUsuario(inicial.id, fotoFile); } catch (e) {} }
       window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Usuário atualizado', descricao: 'Alterações salvas.' });
       onChanged && onChanged();
       if (close) close(); else onClose && onClose();
@@ -444,6 +470,10 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
             <div><label className="label">Data de nascimento</label><input className="input" value={f.nascimento} disabled={ro} onChange={(e) => set('nascimento', maskData(e.target.value))} inputMode="numeric" maxLength={10} placeholder="dd/mm/aaaa" /></div>
             <div><label className="label">Endereço</label><input className="input" value={f.endereco} disabled={ro} onChange={(e) => set('endereco', e.target.value)} /></div>
           </div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 90px', gap: 10 }}>
+            <div><label className="label">Cidade</label><input className="input" value={f.cidade} disabled={ro} onChange={(e) => set('cidade', e.target.value)} placeholder="Ex: Fortaleza" /></div>
+            <div><label className="label">UF</label><input className="input" value={f.uf} disabled={ro} maxLength={2} onChange={(e) => set('uf', e.target.value.toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2))} placeholder="CE" /></div>
+          </div>
           <div><label className="label">Bio / observações</label><textarea className="input" rows={3} value={f.bio} disabled={ro} onChange={(e) => set('bio', e.target.value)} /></div>
         </div>
       )}
@@ -453,8 +483,7 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
           <div className="card card-pad col" style={{ gap: 10 }}>
             <div className="row" style={{ gap: 8, alignItems: 'center' }}><Ic name="lock" size={16} style={{ color: 'var(--accent-700)' }} /><div className="h3" style={{ margin: 0 }}>Senha de acesso</div></div>
             {novo ? (<>
-              <div><label className="label">Senha provisória (opcional)</label><input className="input" type="text" placeholder="Deixe em branco para gerar automaticamente" value={pw.nova} onChange={(e) => setPwK('nova', e.target.value)} /></div>
-              <div className="muted" style={{ fontSize: 'var(--type-xs)', lineHeight: 1.5 }}>Se vazio, o sistema gera uma senha forte. Você verá a senha ao criar para <strong>entregar ao usuário</strong> — ele poderá trocá-la depois.</div>
+              <div className="muted" style={{ fontSize: 'var(--type-sm)', lineHeight: 1.5 }}>O acesso é por <strong>convite por e-mail</strong>. Ao criar, enviamos um link para <strong>{f.email || 'o e-mail informado'}</strong> e o próprio usuário <strong>define a senha</strong> (link válido por 24h).</div>
             </>) : (<>
               <div className="muted" style={{ fontSize: 'var(--type-sm)', lineHeight: 1.5 }}>Gere uma <strong>nova senha provisória</strong> para este usuário. A senha aparece uma vez para você entregar; ele pode trocá-la depois.</div>
               {!ro && <button className="btn" style={{ alignSelf: 'flex-start' }} disabled={salvando} onClick={resetar}><Ic name="lock" size={13} /> {salvando ? 'Gerando…' : 'Resetar senha'}</button>}
