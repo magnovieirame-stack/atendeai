@@ -224,6 +224,12 @@ const API = {
   getDepartamentosAtendimento() { return this._req('/chatbot/departamentos'); },
   // listas completas p/ o popup de transferir (atendentes, colegas do meu setor, departamentos)
   getTransferenciaListas() { return this._req('/chatbot/transferencia'); },
+  // CRM do contato (painel do chat): posicao no funil/fase + funis disponiveis
+  getCrmDoContato(clienteId) { return this._req('/chatbot/crm/' + clienteId); },
+  setCrmDoContato(clienteId, faseId) { return this._json('/chatbot/crm/' + clienteId, 'PUT', { faseId }); },
+  addCrmCard(clienteId, faseId) { return this._json('/chatbot/crm/' + clienteId + '/cards', 'POST', { faseId }); },
+  moveCrmCard(cardId, faseId) { return this._json('/chatbot/crm/cards/' + cardId, 'PATCH', { faseId }); },
+  removeCrmCard(cardId) { return this._req('/chatbot/crm/cards/' + cardId, { method: 'DELETE' }); },
   limparContato(id) { return this._req('/chatbot/contatos/' + id + '/mensagens', { method: 'DELETE' }); },
   apagarContato(id) { return this._req('/chatbot/contatos/' + id, { method: 'DELETE' }); },
   createClienteContato(nome, telefone, canal) { return this._json('/chatbot/clientes-contato', 'POST', { nome, telefone, canal }); },

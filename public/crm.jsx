@@ -1224,7 +1224,7 @@ function LeadHistoryTab({ card }) {
         <button className="btn btn-sm"><Ic name="filter" size={12} /> Todos</button>
         <button className="btn btn-sm" style={{ color: '#0EA5E9' }}><Ic name="plus" size={12} /> Comentário</button>
       </div>
-      <LeadHistoryItem icon="dollar" color="#10B981" title="Total do negócio" parts={[{ text: '#50', link: true }, { text: ' alterado ' }, { text: 'R$ 0,00', link: true }, { text: ' para ' }, { text: `R$ ${card.value.toLocaleString('pt-BR')}`, link: true }]} source="Automação" date="14/10/2024 20:27" />
+      <LeadHistoryItem icon="dollar" color="#10B981" title="Total do negócio" parts={[{ text: '#50', link: true }, { text: ' alterado ' }, { text: 'R$ 0,00', link: true }, { text: ' para ' }, { text: `R$ ${(Number(card.value) || 0).toLocaleString('pt-BR')}`, link: true }]} source="Automação" date="14/10/2024 20:27" />
       <LeadHistoryItem icon="users" color="#0EA5E9" title="" parts={[{ text: 'Tag ' }, { text: 'VIP', link: true }, { text: ' adicionada ao lead' }]} source="Automação" date="14/10/2024 20:27" />
       <LeadHistoryItem icon="users" color="#0EA5E9" title="" parts={[{ text: 'Tag ' }, { text: 'GTM', link: true }, { text: ' removida do lead' }]} source="Automação" date="14/10/2024 20:25" />
       <LeadHistoryItem icon="dollar" color="#10B981" title="" parts={[{ text: 'Negócio ' }, { text: '#50', link: true }, { text: ' criado ' }, { text: 'R$ 0,00', link: true }]} source="Automação" date="14/10/2024 20:23" />
@@ -1704,7 +1704,137 @@ function clienteDraftToPatch(d) {
   return patch;
 }
 
-function CRMCardDetail({ card, onClose, phases, onMovePhase, onSaved }) {
+// Tira IDÊNTICA à ficha do super admin: "Funil" + select de funis + PhasePickerStrip.
+// funis = [{id,nome,cor,fases:[{id,nome,cor,pos}]}]; card = {funilId,faseId}|null;
+// onSelectFase(faseId) salva (atribui/move o contato no CRM).
+function CrmFunilSelectStrip({ funis, card, onSelectFase }) {
+  const safe = funis || [];
+  const init = (card && card.funilId != null) ? String(card.funilId) : (safe[0] ? String(safe[0].id) : '');
+  const [funilId, setFunilId] = React.useState(init);
+  const funil = safe.find((f) => String(f.id) === String(funilId)) || safe[0] || null;
+  const [faseId, setFaseId] = React.useState(() => {
+    if (card && card.faseId != null) return card.faseId;
+    return funil && funil.fases[0] ? funil.fases[0].id : null;
+  });
+  const trocarFunil = (id) => {
+    setFunilId(id);
+    const f = safe.find((x) => String(x.id) === String(id));
+    setFaseId(f && f.fases[0] ? f.fases[0].id : null);
+  };
+  const selecionar = (fid) => { setFaseId(fid); onSelectFase && onSelectFase(fid); };
+  const phases = funil ? funil.fases.map((fa) => ({ id: fa.id, label: fa.nome, color: fa.cor })) : [];
+  return (
+    <div className="lf-funilrow">
+      <span className="lf-funillabel">Funil</span>
+      {safe.length === 0 ?
+        <span className="muted" style={{ fontSize: 12 }}>Nenhum funil cadastrado no CRM.</span> :
+        <>
+          <select className="input lf-funilsel" value={funilId} onChange={(e) => trocarFunil(e.target.value)}>
+            {safe.map((f) => <option key={f.id} value={f.id}>{f.nome}</option>)}
+          </select>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            {phases.length ? <PhasePickerStrip phases={phases} currentPhaseId={faseId} onSelect={selecionar} /> :
+              <span className="muted" style={{ fontSize: 12 }}>Funil sem fases.</span>}
+          </div>
+        </>}
+      <style>{`
+        .lf-funilrow { display: flex; align-items: center; gap: 10px; padding: 8px 22px 2px; background: var(--surface); }
+        .lf-funillabel { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--text-muted); flex-shrink: 0; }
+        .lf-funilsel { height: 30px; width: 200px; font-size: 12px; flex-shrink: 0; }
+      `}</style>
+    </div>);
+}
+
+// Lista horizontal dos FUNIS em que o contato está (multi-funil), + "Atribuir CRM".
+// crmMulti = { cards:[{cardId,funilId,funilNome,funilCor,faseId,faseNome,faseCor}], funis, onAdd, onMove, onRemove }
+function CrmFunisRow({ crmMulti }) {
+  const { cards = [], funis = [] } = crmMulti || {};
+  const [picker, setPicker] = React.useState(null); // {mode:'add'} | {mode:'move', card}
+  const wrapRef = React.useRef(null);
+  React.useEffect(() => {
+    if (!picker) return;
+    const onDoc = (e) => { if (wrapRef.current && !wrapRef.current.contains(e.target)) setPicker(null); };
+    const t = setTimeout(() => document.addEventListener('mousedown', onDoc), 0);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', onDoc); };
+  }, [picker]);
+  return (
+    <div ref={wrapRef} className="crmd-funis-row" style={{ position: 'relative', display: 'flex', gap: 8, alignItems: 'center', padding: '10px 22px', background: 'var(--surface)', borderBottom: '1px solid var(--border)', overflowX: 'auto' }}>
+      <button onClick={() => setPicker((p) => p && p.mode === 'add' ? null : { mode: 'add' })}
+        style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '7px 12px', borderRadius: 999, border: '1.5px dashed var(--accent)', background: 'var(--accent-soft)', color: 'var(--accent-700)', fontWeight: 700, fontSize: 'var(--type-xs)', cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap' }}>
+        <Ic name="plus" size={13} /> Atribuir CRM
+      </button>
+      {cards.length === 0 ?
+        <span className="muted" style={{ fontSize: 'var(--type-sm)' }}>Contato não está em nenhum funil.</span> :
+        cards.map((c) => (
+          <div key={c.cardId} onClick={() => setPicker({ mode: 'move', card: c })} title="Trocar fase / remover"
+            style={{ display: 'inline-flex', alignItems: 'center', gap: 7, padding: '7px 12px', borderRadius: 999, cursor: 'pointer', flexShrink: 0, whiteSpace: 'nowrap', background: `color-mix(in oklab, ${c.faseCor || '#94a3b8'} 12%, var(--surface))`, border: `1px solid color-mix(in oklab, ${c.faseCor || '#94a3b8'} 38%, transparent)`, fontSize: 'var(--type-sm)' }}>
+            <span style={{ width: 8, height: 8, borderRadius: 2, background: c.funilCor || '#22C55E', flexShrink: 0 }} />
+            <strong>{c.funilNome || 'Funil'}</strong>
+            <span style={{ color: c.faseCor || 'var(--text-muted)', fontWeight: 600 }}>· {c.faseNome || '—'}</span>
+          </div>
+        ))}
+      {picker && <CrmFunilPicker mode={picker.mode} card={picker.card} funis={funis} crmMulti={crmMulti} onClose={() => setPicker(null)} />}
+    </div>);
+}
+
+// Popup do CrmFunisRow: 'add' (escolhe funil -> fase -> Adicionar) ou 'move' (fases do
+// funil do card -> Mover / Remover). Efeito de nascer + fases crescendo.
+function CrmFunilPicker({ mode, card, funis, crmMulti, onClose }) {
+  const isMove = mode === 'move';
+  const moveFunil = isMove ? (funis || []).find((f) => String(f.id) === String(card.funilId)) : null;
+  const [selFunilId, setSelFunilId] = React.useState(isMove ? (card.funilId != null ? card.funilId : null) : null);
+  const [selFaseId, setSelFaseId] = React.useState(isMove ? (card.faseId != null ? card.faseId : null) : null);
+  // 'move' já abre nas fases; 'add' começa nos funis e entra nas fases ao escolher.
+  const [step, setStep] = React.useState(isMove ? 'fases' : 'funis');
+  const selFunil = isMove ? moveFunil : (funis || []).find((f) => String(f.id) === String(selFunilId)) || null;
+  const pickFunil = (fu) => { setSelFunilId(fu.id); setSelFaseId(fu.fases[0] ? fu.fases[0].id : null); setStep('fases'); };
+  const salvar = () => {
+    if (!selFaseId) return;
+    if (isMove) crmMulti.onMove && crmMulti.onMove(card.cardId, selFaseId);
+    else crmMulti.onAdd && crmMulti.onAdd(selFaseId);
+    onClose();
+  };
+  return (
+    <div className="funnel-pop" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 22, width: 270, zIndex: 60, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 34px rgba(0,0,0,.18)', overflow: 'hidden' }}>
+      {step === 'funis' ?
+        <>
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 'var(--type-sm)' }}>Atribuir a um funil</div>
+          <div className="scroll" style={{ maxHeight: 300, overflow: 'auto', padding: 6 }}>
+            {(funis || []).length === 0 ? <div className="muted" style={{ padding: 16, textAlign: 'center', fontSize: 'var(--type-sm)' }}>Nenhum funil.</div> :
+             funis.map((fu) => (
+               <div key={fu.id} className="crm-pop-item" onClick={() => pickFunil(fu)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 'var(--type-sm)' }}>
+                 <span style={{ width: 10, height: 10, borderRadius: 3, background: fu.cor || '#22C55E', flexShrink: 0 }} />
+                 <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fu.nome}</span>
+                 <Ic name="chevron-down" size={14} style={{ color: 'var(--text-faint)', transform: 'rotate(-90deg)' }} />
+               </div>))}
+          </div>
+        </> :
+        <>
+          <div className="row" style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8, alignItems: 'center' }}>
+            {!isMove && <button onClick={() => setStep('funis')} title="Voltar aos funis" style={{ background: 'transparent', border: 0, cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><Ic name="arrow-left" size={16} /></button>}
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: (selFunil && selFunil.cor) || '#22C55E', flexShrink: 0 }} />
+            <span style={{ fontWeight: 700, fontSize: 'var(--type-sm)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selFunil ? selFunil.nome : (card && card.funilNome) || 'Funil'}</span>
+            {isMove && <button onClick={() => { crmMulti.onRemove && crmMulti.onRemove(card.cardId); onClose(); }} title="Remover deste funil" style={{ background: 'transparent', border: 0, color: '#FF452A', cursor: 'pointer', display: 'inline-flex' }}><Ic name="trash" size={15} /></button>}
+          </div>
+          <div className="funnel-fases scroll" style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: 6, maxHeight: 280, overflow: 'auto' }}>
+            {(selFunil && selFunil.fases.length) ? selFunil.fases.map((fa) => {
+              const fon = String(fa.id) === String(selFaseId);
+              return (
+                <div key={fa.id} className="crm-pop-fase" onClick={() => setSelFaseId(fa.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 'var(--type-sm)', border: `1px solid ${fon ? (fa.cor || 'var(--accent)') : 'var(--border)'}`, background: fon ? `color-mix(in oklab, ${fa.cor || 'var(--accent)'} 12%, var(--surface))` : 'var(--surface)' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: fa.cor || '#94a3b8', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: fon ? 700 : 500 }}>{fa.nome}</span>
+                  {fon && <Ic name="check" size={14} style={{ color: fa.cor || 'var(--accent)' }} />}
+                </div>);
+            }) : <div className="muted" style={{ fontSize: 'var(--type-xs)', padding: '8px 10px' }}>Sem fases.</div>}
+          </div>
+          <div style={{ padding: 8, borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+            <ActionButton action="salvar" size="md" label={isMove ? 'Mover' : 'Adicionar'} efeito={false} disabled={!selFaseId} onClick={salvar} style={{ width: '100%', justifyContent: 'center', opacity: selFaseId ? 1 : .5 }} />
+          </div>
+        </>}
+    </div>);
+}
+
+function CRMCardDetail({ card, onClose, phases, onMovePhase, onSaved, crmMulti, crmStrip }) {
   const [subtab, setSubtab] = React.useState('perfil');
   const [tab, setTab] = React.useState('historico');
   const clienteId = card.clienteId || card.id || null;
@@ -1728,9 +1858,18 @@ function CRMCardDetail({ card, onClose, phases, onMovePhase, onSaved }) {
     return () => { alive = false; };
   }, [clienteId]);
 
-  // Dados exibidos: cliente real (DTO) ou fallback do card (CRM sem id ainda).
-  const base = cliente || {
-    nome: card.name, empresa: (card.company && card.company !== '—') ? card.company : '',
+  // Dados exibidos: cliente real (DTO) mesclado com o card. O NOME segue o do card
+  // (= nome que aparece na lista de conversas) e empresa/email/telefone caem no dado
+  // da conversa quando o cliente estiver vazio. Sem cliente: usa só o card.
+  const cardEmpresa = (card.company && card.company !== '—') ? card.company : '';
+  const base = cliente ? {
+    ...cliente,
+    nome: card.name || cliente.nome,
+    empresa: cliente.empresa || cardEmpresa,
+    email: cliente.email || card.email || '',
+    telefone: cliente.telefone || card.phone || '',
+  } : {
+    nome: card.name, empresa: cardEmpresa,
     email: card.email, telefone: card.phone, valor: card.value, tipoPessoa: 'pf', estagio: 'lead',
   };
   const view = (editing && draft) ? draft : base;
@@ -1757,7 +1896,11 @@ function CRMCardDetail({ card, onClose, phases, onMovePhase, onSaved }) {
       subtitle={view.empresa || card.company}
       onClose={onClose}
       width="70vw"
-      belowHead={phases && phases.length > 0 ?
+      belowHead={crmStrip ?
+      <CrmFunilSelectStrip funis={crmStrip.funis} card={crmStrip.card} onSelectFase={crmStrip.onSelectFase} /> :
+      crmMulti ?
+      <CrmFunisRow crmMulti={crmMulti} /> :
+      phases && phases.length > 0 ?
       <PhasePickerStrip
         phases={phases}
         currentPhaseId={card.phase}

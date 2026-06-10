@@ -35,6 +35,8 @@ function permChatbot(method, p) {
     if (method === 'PATCH') return 'clientes.editar';
     if (method === 'DELETE') return 'clientes.excluir';
   }
+  // CRM do contato pelo chat: ler = atendimento.ver; criar/mover/remover card = atendimento.responder.
+  if (/\/crm(\/|$)/.test(p)) return method === 'GET' ? 'atendimento.ver' : 'atendimento.responder';
   if (method === 'GET') return 'atendimento.ver';
   if (method === 'DELETE') {
     if (/\/contatos\/[^/]+\/tags\/[^/]+$/.test(p)) return 'atendimento.responder'; // tirar tag do contato (reversível)
@@ -330,6 +332,97 @@ chatbotRouter.get('/departamentos', async (req, res, next) => {
       departamentos: (data || []).filter((d) => d.ativo !== false).map((d) => ({ id: d.id, nome: d.nome })),
       meusDepartamentos: meus,
     });
+  } catch (err) { next(err); }
+});
+
+// ====================== CRM do contato (painel do chatbot) ======================
+// Lê/atribui a posição do contato no CRM (funil/fase) DIRETO do chat, sem exigir
+// permissão de CRM (gate de atendimento). Casa por clienteId = crm-clientesfunil.cliente.
+// Tabelas têm RLS por empresa (0003), então req.supabase já isola por loja.
+const crmAtribuirSchema = z.object({ faseId: z.coerce.number().int() }).strip();
+
+// GET /api/chatbot/crm/:clienteId -> { card | null, funis: [{id,nome,cor,fases:[...]}] }
+chatbotRouter.get('/crm/:clienteId', async (req, res, next) => {
+  try {
+    const clienteId = uuid.parse(req.params.clienteId);
+    const [funisRes, fasesRes] = await Promise.all([
+      req.supabase.from('crm-funil').select('id,nome,cor_funil,created_at').order('created_at', { ascending: true }),
+      req.supabase.from('crm-fasefunil').select('id,nome,cor_funil,pos,funil').order('pos', { ascending: true }),
+    ]);
+    const funisRaw = funisRes.data || [];
+    const fasesRaw = fasesRes.data || [];
+    const fasesByFunil = {};
+    fasesRaw.forEach((f) => { (fasesByFunil[f.funil] = fasesByFunil[f.funil] || []).push({ id: f.id, nome: f.nome, cor: f.cor_funil || '#94a3b8', pos: f.pos }); });
+    const funis = funisRaw.map((fu) => ({ id: fu.id, nome: fu.nome, cor: fu.cor_funil || '#22C55E', fases: fasesByFunil[fu.id] || [] }));
+    // TODOS os cards do cliente (pode estar em vários funis); o 1º (mais recente) é o "card".
+    const { data: rels } = await req.supabase
+      .from('crm-clientesfunil').select('id,cliente,fase,tipo,created_at')
+      .eq('cliente', clienteId).order('created_at', { ascending: false });
+    const toCard = (rel) => {
+      const fase = fasesRaw.find((f) => String(f.id) === String(rel.fase));
+      const funil = fase ? funisRaw.find((fu) => String(fu.id) === String(fase.funil)) : null;
+      return {
+        cardId: rel.id,
+        funilId: funil ? funil.id : null, funilNome: funil ? funil.nome : null, funilCor: funil ? (funil.cor_funil || '#22C55E') : '#22C55E',
+        faseId: rel.fase, faseNome: fase ? fase.nome : null, faseCor: fase ? (fase.cor || fase.cor_funil || '#94a3b8') : '#94a3b8',
+        tipo: rel.tipo === 'lead' ? 'lead' : 'cliente',
+      };
+    };
+    const cards = (rels || []).map(toCard);
+    res.json({ card: cards[0] || null, cards, funis });
+  } catch (err) { next(err); }
+});
+
+// POST /api/chatbot/crm/:clienteId/cards { faseId } -> ADICIONA o contato a OUTRO funil.
+chatbotRouter.post('/crm/:clienteId/cards', validateBody(crmAtribuirSchema), async (req, res, next) => {
+  try {
+    const clienteId = uuid.parse(req.params.clienteId);
+    const empresaId = await getEmpresaId(req);
+    const { data, error } = await req.supabase.from('crm-clientesfunil')
+      .insert({ cliente: clienteId, fase: req.body.faseId, empresa_id: empresaId }).select('id').single();
+    if (error) throw error;
+    res.status(201).json({ ok: true, cardId: data.id, faseId: req.body.faseId });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/chatbot/crm/cards/:cardId { faseId } -> MOVE um card específico de fase.
+chatbotRouter.patch('/crm/cards/:cardId', validateBody(crmAtribuirSchema), async (req, res, next) => {
+  try {
+    const cardId = Number(req.params.cardId);
+    const { error } = await req.supabase.from('crm-clientesfunil').update({ fase: req.body.faseId }).eq('id', cardId);
+    if (error) throw error;
+    res.json({ ok: true, cardId, faseId: req.body.faseId });
+  } catch (err) { next(err); }
+});
+
+// DELETE /api/chatbot/crm/cards/:cardId -> remove o contato daquele funil.
+chatbotRouter.delete('/crm/cards/:cardId', async (req, res, next) => {
+  try {
+    const cardId = Number(req.params.cardId);
+    const { error } = await req.supabase.from('crm-clientesfunil').delete().eq('id', cardId);
+    if (error) throw error;
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/chatbot/crm/:clienteId { faseId } -> atribui (cria) ou move o card p/ a fase.
+chatbotRouter.put('/crm/:clienteId', validateBody(crmAtribuirSchema), async (req, res, next) => {
+  try {
+    const clienteId = uuid.parse(req.params.clienteId);
+    const faseId = req.body.faseId;
+    const { data: rels } = await req.supabase
+      .from('crm-clientesfunil').select('id,created_at').eq('cliente', clienteId).order('created_at', { ascending: false });
+    const rel = (rels || [])[0];
+    if (rel) {
+      const { error } = await req.supabase.from('crm-clientesfunil').update({ fase: faseId }).eq('id', rel.id);
+      if (error) throw error;
+      return res.json({ ok: true, cardId: rel.id, faseId });
+    }
+    const empresaId = await getEmpresaId(req);
+    const { data, error } = await req.supabase.from('crm-clientesfunil')
+      .insert({ cliente: clienteId, fase: faseId, empresa_id: empresaId }).select('id').single();
+    if (error) throw error;
+    res.status(201).json({ ok: true, cardId: data.id, faseId });
   } catch (err) { next(err); }
 });
 

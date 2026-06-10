@@ -1056,6 +1056,16 @@ textarea.da01-area.is-edit { border-color: var(--accent); box-shadow: 0 0 0 2px 
 @keyframes pop { from { transform: translateY(16px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
 /* "Conversa Recebida" pulando para dentro do histórico ao clicar em Atender */
 @keyframes recebidaIn { from { opacity: 0; transform: translateY(48px) scale(.94); } 60% { opacity: 1; } to { opacity: 1; transform: translateY(0) scale(1); } }
+/* Popup do CRM (faixa verde) nascendo + fases crescendo */
+/* Abre descendo verticalmente a partir do elemento clicado (origem no topo). */
+.funnel-pop { animation: funnelPopIn .2s ease; transform-origin: top center; }
+@keyframes funnelPopIn { from { opacity: 0; transform: scaleY(.55) translateY(-4px); } to { opacity: 1; transform: scaleY(1) translateY(0); } }
+/* Itens do popup do CRM: hover leve + estado selecionado */
+.crm-pop-item, .crm-pop-fase { transition: background .12s ease, border-color .12s ease; }
+.crm-pop-item:hover { background: var(--surface-2); }
+.crm-pop-fase:hover { background: var(--surface-2); }
+.funnel-fases { animation: fasesGrow .24s ease; transform-origin: top; }
+@keyframes fasesGrow { from { opacity: 0; transform: scaleY(.55); } to { opacity: 1; transform: scaleY(1); } }
 @keyframes pop-out { from { transform: none; opacity: 1; } to { transform: translateY(12px) scale(.97); opacity: 0; } }
 @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: none; } }
 @keyframes slide-out-right { from { transform: none; } to { transform: translateX(100%); } }

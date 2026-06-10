@@ -1690,13 +1690,87 @@ const TABS = [
 { id: 'historico', label: 'Story', icon: 'history' }];
 
 
-function FunnelBar() {
+// Faixa verde (topo do painel): mostra o funil/fase REAL do contato no CRM e abre o
+// popup pra atribuir/trocar. crm = { card|null, funis:[...] } (null = carregando).
+function FunnelBar({ crm, onSave }) {
+  const [open, setOpen] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => {
+    if (!open) return;
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const t = setTimeout(() => document.addEventListener('mousedown', onDoc), 0);
+    return () => { clearTimeout(t); document.removeEventListener('mousedown', onDoc); };
+  }, [open]);
+  const loading = crm == null;
+  const card = crm && crm.card;
+  const incluso = !!card;
   return (
-    <div style={{ padding: '10px 14px', background: FUNNEL.color, color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 700, letterSpacing: '.04em', fontSize: 'var(--type-sm)' }}>
-      <span>{FUNNEL.name}</span>
-      <span style={{ opacity: .85, fontWeight: 500 }}>({FUNNEL.phase})</span>
+    <div ref={ref} style={{ position: 'relative' }}>
+      <div
+        onClick={() => !loading && setOpen((o) => !o)}
+        title={loading ? '' : (incluso ? 'Trocar fase/funil no CRM' : 'Atribuir ao CRM')}
+        style={{ height: 40, minHeight: 40, boxSizing: 'border-box', padding: incluso ? '0 30px 0 14px' : '0 14px', background: incluso ? (card.faseCor || '#16a34a') : '#16a34a', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 8, fontWeight: 700, letterSpacing: '.04em', fontSize: 'var(--type-sm)', cursor: loading ? 'default' : 'pointer', position: 'relative', transition: 'background .2s ease' }}>
+        {loading ? <span style={{ opacity: .8 }}>Carregando CRM…</span> :
+         incluso ? <><span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: '60%' }}>{card.funilNome || 'Funil'}</span><span style={{ opacity: .9, fontWeight: 500, whiteSpace: 'nowrap' }}>({card.faseNome || '—'})</span></> :
+         <><span>NÃO INCLUSO NO CRM</span><Ic name="plus" size={15} style={{ marginLeft: 2 }} /></>}
+        {!loading && incluso && <Ic name="chevron-down" size={14} style={{ position: 'absolute', right: 12, opacity: .9, transform: open ? 'rotate(180deg)' : 'none', transition: 'transform .2s ease' }} />}
+      </div>
+      {open && crm && <FunnelPopup crm={crm} onSave={(fid) => { setOpen(false); onSave(fid); }} />}
     </div>);
+}
 
+// Popup (passo-a-passo): lista de funis -> escolhe um -> abre as colunas (fases) com
+// "Voltar" no topo. Justificado à direita; sempre na 1ª fase (ou na atual).
+function FunnelPopup({ crm, onSave }) {
+  const funis = crm.funis || [];
+  const card = crm.card;
+  const [selFunilId, setSelFunilId] = React.useState(card && card.funilId != null ? card.funilId : null);
+  const [selFaseId, setSelFaseId] = React.useState(card && card.faseId != null ? card.faseId : null);
+  const [step, setStep] = React.useState(card && card.funilId != null ? 'fases' : 'funis');
+  const selFunil = funis.find((f) => String(f.id) === String(selFunilId)) || null;
+  const pickFunil = (fu) => {
+    setSelFunilId(fu.id);
+    const faseAtualAqui = (card && String(card.funilId) === String(fu.id)) ? card.faseId : null;
+    setSelFaseId(faseAtualAqui != null ? faseAtualAqui : (fu.fases[0] ? fu.fases[0].id : null));
+    setStep('fases');
+  };
+  return (
+    <div className="funnel-pop" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 8, width: 270, zIndex: 60, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 34px rgba(0,0,0,.18)', overflow: 'hidden' }}>
+      {step === 'funis' ?
+        <>
+          <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 'var(--type-sm)' }}>{card ? 'Mover no CRM' : 'Atribuir ao CRM'}</div>
+          <div className="scroll" style={{ maxHeight: 320, overflow: 'auto', padding: 6 }}>
+            {funis.length === 0 ? <div className="muted" style={{ padding: 18, textAlign: 'center', fontSize: 'var(--type-sm)' }}>Nenhum funil cadastrado no CRM.</div> :
+             funis.map((fu) => (
+               <div key={fu.id} className="crm-pop-item" onClick={() => pickFunil(fu)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '10px', borderRadius: 8, cursor: 'pointer', fontWeight: 600, fontSize: 'var(--type-sm)' }}>
+                 <span style={{ width: 10, height: 10, borderRadius: 3, background: fu.cor || '#22C55E', flexShrink: 0 }} />
+                 <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{fu.nome}</span>
+                 <Ic name="chevron-down" size={14} style={{ color: 'var(--text-faint)', transform: 'rotate(-90deg)' }} />
+               </div>))}
+          </div>
+        </> :
+        <>
+          <div className="row" style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8, alignItems: 'center' }}>
+            <button onClick={() => setStep('funis')} title="Voltar aos funis" style={{ background: 'transparent', border: 0, cursor: 'pointer', color: 'var(--text-muted)', display: 'inline-flex', padding: 2 }}><Ic name="arrow-left" size={16} /></button>
+            <span style={{ width: 9, height: 9, borderRadius: 3, background: (selFunil && selFunil.cor) || '#22C55E', flexShrink: 0 }} />
+            <span style={{ fontWeight: 700, fontSize: 'var(--type-sm)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{selFunil ? selFunil.nome : 'Funil'}</span>
+          </div>
+          <div className="funnel-fases scroll" style={{ display: 'flex', flexDirection: 'column', gap: 3, padding: 6, maxHeight: 300, overflow: 'auto' }}>
+            {(selFunil && selFunil.fases.length) ? selFunil.fases.map((fa) => {
+              const fon = String(fa.id) === String(selFaseId);
+              return (
+                <div key={fa.id} className="crm-pop-fase" onClick={() => setSelFaseId(fa.id)} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '8px 10px', borderRadius: 7, cursor: 'pointer', fontSize: 'var(--type-sm)', border: `1px solid ${fon ? (fa.cor || 'var(--accent)') : 'var(--border)'}`, background: fon ? `color-mix(in oklab, ${fa.cor || 'var(--accent)'} 12%, var(--surface))` : 'var(--surface)' }}>
+                  <span style={{ width: 8, height: 8, borderRadius: '50%', background: fa.cor || '#94a3b8', flexShrink: 0 }} />
+                  <span style={{ flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', fontWeight: fon ? 700 : 500 }}>{fa.nome}</span>
+                  {fon && <Ic name="check" size={14} style={{ color: fa.cor || 'var(--accent)' }} />}
+                </div>);
+            }) : <div className="muted" style={{ fontSize: 'var(--type-xs)', padding: '8px 10px' }}>Sem fases.</div>}
+          </div>
+          <div style={{ padding: 8, borderTop: '1px solid var(--border)', background: 'var(--surface-2)' }}>
+            <ActionButton action="salvar" size="md" label="Salvar" efeito={false} disabled={!selFaseId} onClick={() => selFaseId && onSave(selFaseId)} style={{ width: '100%', justifyContent: 'center', opacity: selFaseId ? 1 : .5 }} />
+          </div>
+        </>}
+    </div>);
 }
 
 function AvatarHero({ conv, onUpload, onAddCard }) {
@@ -2256,22 +2330,37 @@ function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChang
   const [showUpload, setShowUpload] = React.useState(false);
   const [showCard, setShowCard] = React.useState(false);
 
-  const leadCard = {
-    name: conv.client,
-    company: conv.tag === 'PROSPECT' ? 'Lead — primeira conversa' : conv.tag === 'CLIENTE' ? 'Cliente ativo' : conv.tag || '—',
-    email: conv.email || `${conv.client.split(' ')[0].toLowerCase()}@email.com`,
-    phone: conv.phone || '+55 (85) 9 9840-4185',
-    value: 28000,
-    tags: [
-    { label: 'VIP', color: '#F59E0B' },
-    { label: 'Demonstração agendada', color: '#0EA5E9' }]
-
+  // CRM REAL do contato (funil/fase) — casa por clienteId. null = carregando.
+  const [crm, setCrm] = React.useState(null);
+  const reloadCrm = React.useCallback(() => {
+    if (!conv.clienteId) { setCrm({ card: null, cards: [], funis: [] }); return; }
+    API.getCrmDoContato(conv.clienteId)
+      .then((r) => setCrm({ card: r.card || null, cards: r.cards || [], funis: r.funis || [] }))
+      .catch(() => setCrm({ card: null, cards: [], funis: [] }));
+  }, [conv.clienteId]);
+  React.useEffect(() => { setCrm(null); reloadCrm(); }, [reloadCrm]);
+  const salvarCrm = (faseId) => {
+    if (!conv.clienteId) { window.showToast({ tipo: 'aviso', titulo: 'Contato sem cadastro', descricao: 'Este contato ainda não tem ficha de cliente.' }); return; }
+    API.setCrmDoContato(conv.clienteId, faseId)
+      .then(() => { reloadCrm(); window.showToast({ tipo: 'sucesso', titulo: crm && crm.card ? 'Movido no CRM' : 'Atribuído ao CRM' }); })
+      .catch((e) => window.showToast({ tipo: 'erro', titulo: 'Erro no CRM', descricao: e.message || 'Não foi possível salvar.' }));
   };
+  const fichaCard = {
+    clienteId: conv.clienteId, _id: crm && crm.card ? crm.card.cardId : null,
+    name: conv.client, company: '—', email: conv.email || '', phone: conv.phone || '',
+    phase: crm && crm.card ? crm.card.faseId : null, value: 0, tags: [],
+  };
+  // Tira de funil/fases na ficha (+): modelo idêntico ao da ficha do super admin.
+  const crmStrip = crm ? {
+    funis: crm.funis || [],
+    card: crm.card ? { funilId: crm.card.funilId, faseId: crm.card.faseId } : null,
+    onSelectFase: (faseId) => salvarCrm(faseId),
+  } : null;
 
   return (
     <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
       {onBack && <div className="row" style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8, flexShrink: 0 }}><button className="btn btn-ghost btn-icon" onClick={onBack} title="Voltar" style={{ width: "30px", height: "30px" }}><Ic name="arrow-left" size={18} /></button><span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>Contexto do cliente</span></div>}
-      <FunnelBar />
+      <FunnelBar crm={crm} onSave={salvarCrm} />
       <AvatarHero conv={conv} onUpload={() => setShowUpload(true)} onAddCard={() => setShowCard(true)} />
       <ActionButtons conv={conv} currentUser={currentUser} inline={inline} onAppointmentRequest={onAppointmentRequest} />
       <TabBar active={tab} onChange={setTab} />
@@ -2285,7 +2374,7 @@ function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChang
       </div>
       {showQR && !inline && <NewQuickReplyModal onClose={() => setShowQR(false)} />}
       {showTags && !inline && <TagsManagerModal onClose={() => setShowTags(false)} />}
-      {showCard && <CRMCardDetail card={leadCard} onClose={() => setShowCard(false)} />}
+      {showCard && <CRMCardDetail card={fichaCard} crmStrip={crmStrip} onSaved={() => reloadCrm()} onClose={() => setShowCard(false)} />}
       {showUpload && !inline &&
       <Modal title="Foto do cliente" onClose={() => setShowUpload(false)} footer={(close) => <><button className="btn fin-btn-back" onClick={() => close()}>Voltar</button><button className="btn btn-save" onClick={() => close()}>Salvar</button></>}>
           <div className="col" style={{ gap: 14, alignItems: 'center', textAlign: 'center', padding: '14px 0' }}>
