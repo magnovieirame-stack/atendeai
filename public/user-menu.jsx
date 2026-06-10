@@ -41,12 +41,14 @@ function UserMenu() {
 
   // Menu items per spec, with atendente exclusions
   const items = [
+  { id: 'meuperfil', label: 'Meu Perfil', icon: 'user', onClick: () => go('user-profile') }, // admin + atendente
   { id: 'integ', label: 'Integrações', icon: 'link', onClick: () => go('integrations'), hidden: isAtendente },
   { id: 'plans', label: 'Planos', icon: 'wallet', onClick: () => go('finance'), hidden: isAtendente },
   { id: 'help', label: 'Receba Ajuda', icon: 'help', onClick: openHelp },
   { id: 'dark', label: 'Dark Mode', icon: tweaks.theme === 'dark' ? 'moon' : 'sun', onClick: toggleDark, kind: 'toggle' },
   { id: 'cadastros', label: 'Cadastros', icon: 'database', onClick: () => go('cadastros'), hidden: isAtendente },
-  { id: 'profile', label: 'Configuração', icon: 'settings', onClick: () => go('user-profile') },
+  // "Configuração" fica como placeholder (vamos usar na frente) — não abre mais o perfil.
+  { id: 'profile', label: 'Configuração', icon: 'settings', onClick: () => { setOpen(false); window.showToast && window.showToast({ tipo: 'info', titulo: 'Configurações', descricao: 'Em breve.' }); } },
   { id: 'logout', label: 'Sair', icon: 'logout', onClick: () => go('login'), danger: true, sep: true }].
   filter((i) => !i.hidden);
 
@@ -316,9 +318,14 @@ function SidebarUserMenu({ collapsed = false }) {
     name: auth.nome || auth.email || 'Usuário',
     role: auth.cargo || auth.papelNome || '—',
     email: auth.email || '',
+    foto: auth.foto || null,
   };
   const inicial = initials(me.name);
   const isAtendente = tweaks.profile === 'atendente';
+  // Avatar: foto do cadastro quando existir, senão as iniciais coloridas.
+  const avatarInner = (fontSize) => me.foto
+    ? <img src={me.foto} alt={me.name} style={{ width: '100%', height: '100%', borderRadius: '50%', objectFit: 'cover', display: 'block' }} />
+    : <span style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colorFor(me.name), color: '#fff', fontWeight: 700, fontSize }}>{inicial}</span>;
 
   const openNow = () => {clearTimeout(closeTimer.current);setOpen(true);};
   const closeSoon = () => {
@@ -340,12 +347,14 @@ function SidebarUserMenu({ collapsed = false }) {
   const toggleDark = () => setTweak('theme', tweaks.theme === 'dark' ? 'light' : 'dark');
 
   const items = [
+  { id: 'meuperfil', label: 'Meu Perfil', icon: 'user', onClick: () => go('user-profile') }, // admin + atendente
   { id: 'integ', label: 'Integrações', icon: 'link', onClick: () => go('integrations'), hidden: isAtendente },
   { id: 'plans', label: 'Planos', icon: 'wallet', onClick: () => go('finance'), hidden: isAtendente },
   { id: 'help', label: 'Receba Ajuda', icon: 'help', onClick: openHelp },
   { id: 'dark', label: 'Dark Mode', icon: tweaks.theme === 'dark' ? 'moon' : 'sun', onClick: toggleDark, kind: 'toggle' },
   { id: 'cadastros', label: 'Cadastros', icon: 'database', onClick: () => go('cadastros'), hidden: isAtendente },
-  { id: 'profile', label: 'Configuração', icon: 'settings', onClick: () => go('user-profile') },
+  // "Configuração" fica como placeholder (vamos usar na frente) — não abre mais o perfil.
+  { id: 'profile', label: 'Configuração', icon: 'settings', onClick: () => { setOpen(false); window.showToast && window.showToast({ tipo: 'info', titulo: 'Configurações', descricao: 'Em breve.' }); } },
   { id: 'logout', label: 'Sair', icon: 'logout', onClick: () => go('login'), danger: true, sep: true }].
   filter((i) => !i.hidden);
 
@@ -361,7 +370,7 @@ function SidebarUserMenu({ collapsed = false }) {
           onClick={() => setOpen((o) => !o)}
           title={collapsed ? `${me.name} · ${me.role}` : ''}>
           <div className="sidebar-user-avatar">
-            <span style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colorFor(me.name), color: '#fff', fontWeight: 700, fontSize: 13 }}>{inicial}</span>
+            {avatarInner(13)}
             <span className="sidebar-user-dot" aria-hidden="true" />
           </div>
           <div className="sidebar-user-id">
@@ -375,7 +384,7 @@ function SidebarUserMenu({ collapsed = false }) {
         <div className="sidebar-user-dropdown" onMouseEnter={openNow} onMouseLeave={closeSoon}>
             <div className="um-head">
               <div className="sidebar-user-avatar lg">
-                <span style={{ width: '100%', height: '100%', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', background: colorFor(me.name), color: '#fff', fontWeight: 700, fontSize: 16 }}>{inicial}</span>
+                {avatarInner(16)}
               </div>
               <div style={{ minWidth: 0, flex: 1 }}>
                 <div className="um-head-name">{me.name}</div>

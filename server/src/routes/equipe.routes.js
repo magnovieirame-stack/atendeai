@@ -102,6 +102,7 @@ equipeRouter.post('/usuarios', requirePermissao('config.gerenciar'), async (req,
     const cpf = String(b.cpf || '').trim();
     const cargo = String(b.cargo || '').trim();
     const departamento = String(b.departamento || '').trim();
+    const departamentoId = b.departamentoId != null && b.departamentoId !== '' ? b.departamentoId : null;
     const nascimento = String(b.nascimento || '').trim();
     const endereco = String(b.endereco || '').trim();
     const bio = String(b.bio || '').trim();
@@ -124,7 +125,7 @@ equipeRouter.post('/usuarios', requirePermissao('config.gerenciar'), async (req,
 
     // 1) CONVITE por e-mail: cria o usuário SEM senha e dispara o e-mail (SMTP).
     //    Quem define a senha é o próprio convidado, na tela "Criar sua senha".
-    const meta = { name: apelido, nomeCompleto, telefone, cpf, cargo: cargo || null, departamento, nascimento, endereco, bio, cidade, uf };
+    const meta = { name: apelido, nomeCompleto, telefone, cpf, cargo: cargo || null, departamento, departamentoId, nascimento, endereco, bio, cidade, uf };
     const redirectTo = inviteRedirect(req);
     const invited = await db().auth.admin.inviteUserByEmail(email, { data: meta, redirectTo });
     if (invited.error) {
@@ -184,6 +185,7 @@ equipeRouter.patch('/usuarios/:id', requirePermissao('config.gerenciar'), async 
     if (b.cpf !== undefined) meta.cpf = String(b.cpf).trim();
     if (b.cargo !== undefined) meta.cargo = String(b.cargo).trim();
     if (b.departamento !== undefined) meta.departamento = String(b.departamento).trim();
+    if (b.departamentoId !== undefined) meta.departamentoId = (b.departamentoId === '' || b.departamentoId == null) ? null : b.departamentoId;
     if (b.nascimento !== undefined) meta.nascimento = String(b.nascimento).trim();
     if (b.endereco !== undefined) meta.endereco = String(b.endereco).trim();
     if (b.bio !== undefined) meta.bio = String(b.bio).trim();

@@ -11,7 +11,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import multer from 'multer';
 import { requireAuth } from '../middleware/auth.js';
-import { requirePermissao } from '../lib/autorizacao.js';
+import { requirePermissao, carregarAutorizacao, temPermissao } from '../lib/autorizacao.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
 import * as integ from '../lib/integracoes.js';
@@ -147,6 +147,9 @@ function mapContato(r, cliente, tags, ultima) {
     ia: !(r.atendente && String(r.atendente).trim() && r.atendente !== 'null'), // sem atendente humano => conduzida pela IA
     status: r.statuschat || 'ativo',
     departamento: r.departamento || null,
+    atendenteId: r.atendente_id || null,           // dono atual (isolamento/transferência)
+    atendenteNome: (r.atendente && String(r.atendente).trim() && r.atendente !== 'null') ? r.atendente : null, // nome do dono (selo)
+    departamentoId: r.departamento_id || null,      // departamento atual da conversa
     naoLidas: r.qtd_mensagem_nao_lida || 0,
     novaMensagem: !!r.nova_mensagem,
     fixado: !!r.fixado,
@@ -199,12 +202,50 @@ function mapMensagem(r) {
 // Faz poucas queries (in-list) em vez de uma por contato (evita N+1).
 chatbotRouter.get('/contatos', async (req, res, next) => {
   try {
-    const { data: contatos, error } = await req.supabase
-      .from('chatbot-contatos')
-      .select('id,nome,cliente_id,origemcontato,statuschat,departamento,qtd_mensagem_nao_lida,nova_mensagem,fixado,ultimamsg,atendente')
-      .order('ultimamsg', { ascending: false, nullsFirst: false });
-    if (error) throw error;
-    const rows = contatos || [];
+    // ISOLAMENTO (3 níveis). O RLS por empresa continua valendo por baixo.
+    //   - ADMIN (atendimento.gerenciar): vê TUDO.
+    //   - RESPONSÁVEL de um departamento: vê TUDO daquele departamento
+    //     (inclusive conversas já atribuídas a colegas) — papel de supervisor.
+    //   - ATENDENTE comum: vê só as ATRIBUÍDAS A ELE + o POOL que pode pegar
+    //     (sem dono, do seu setor ou sem setor nenhum). NÃO vê as dos colegas.
+    // RESILIÊNCIA: se as migrations 0034/0035 ainda não rodaram (colunas/tabelas
+    // ausentes), cai no comportamento legado (só tenant) sem quebrar o inbox.
+    const COLS_NEW = 'id,nome,cliente_id,origemcontato,statuschat,departamento,departamento_id,qtd_mensagem_nao_lida,nova_mensagem,fixado,ultimamsg,atendente,atendente_id';
+    const COLS_OLD = 'id,nome,cliente_id,origemcontato,statuschat,departamento,qtd_mensagem_nao_lida,nova_mensagem,fixado,ultimamsg,atendente';
+    const auth = await carregarAutorizacao(req);
+    const isAdmin = temPermissao(auth, 'atendimento.gerenciar');
+    const ehMigracaoFaltando = (e) => /does not exist|could not find|schema cache|column|relation/i.test((e && e.message) || '');
+    let rows;
+    try {
+      let cq = req.supabase.from('chatbot-contatos').select(COLS_NEW).order('ultimamsg', { ascending: false, nullsFirst: false });
+      if (!isAdmin) {
+        const [meusDeptos, deptosResp] = await Promise.all([deptosDoUsuario(req), deptosResponsavel(req)]);
+        const temDepartamento = meusDeptos.length > 0 || deptosResp.length > 0;
+        // Sempre vê as ATRIBUÍDAS a ele (é assim que recebe por transferência direta, mesmo sem setor).
+        const ors = [`atendente_id.eq.${req.user.id}`];
+        // REGRA: usuário SEM departamento (nem perfil, nem responsável) NÃO recebe nada da fila.
+        // Só atende o que transferirem direto pra ele (aba Atendente). Por isso o pool
+        // (global + do setor + encerradas do setor) só vale p/ quem TEM departamento.
+        if (temDepartamento) {
+          ors.push(`and(atendente_id.is.null,departamento_id.is.null)`);  // pool global (sem dono e sem setor)
+          if (meusDeptos.length) {
+            ors.push(`and(atendente_id.is.null,departamento_id.in.(${meusDeptos.join(',')}))`);    // pool do meu setor (posso pegar)
+            ors.push(`and(statuschat.eq.finalizado,departamento_id.in.(${meusDeptos.join(',')}))`); // encerradas do meu setor: todos do setor veem
+          }
+          if (deptosResp.length) ors.push(`departamento_id.in.(${deptosResp.join(',')})`);          // supervisor: tudo do(s) setor(es) que sou responsável
+        }
+        cq = cq.or(ors.join(','));
+      }
+      const { data, error } = await cq;
+      if (error) throw error;
+      rows = data || [];
+    } catch (e) {
+      if (!ehMigracaoFaltando(e)) throw e;
+      // Pré-migração: sem isolamento por depto/atribuição (só o RLS de empresa).
+      const { data, error } = await req.supabase.from('chatbot-contatos').select(COLS_OLD).order('ultimamsg', { ascending: false, nullsFirst: false });
+      if (error) throw error;
+      rows = data || [];
+    }
     const clienteIds = [...new Set(rows.map((r) => r.cliente_id).filter(Boolean))];
     const contatoIds = rows.map((r) => r.id);
 
@@ -261,7 +302,7 @@ chatbotRouter.get('/contatos', async (req, res, next) => {
           .in('contato', contatoIds)
           .order('created_at', { ascending: false })
           .limit(1000);
-        (msgs || []).forEach((m) => { if (!map[m.contato]) map[m.contato] = m; }); // 1ª = mais recente
+        (msgs || []).forEach((m) => { if (m.tipomidia === 'nota' || m.tipomidia === 'inicio') return; if (!map[m.contato]) map[m.contato] = m; }); // 1ª = mais recente; ignora marcadores internos
         return map;
       })(),
     ]);
@@ -272,6 +313,89 @@ chatbotRouter.get('/contatos', async (req, res, next) => {
       // (contato novo entra sem tag; o "Cliente"/"Lead" automático foi removido)
       return mapContato(r, cli, tagsByContato[r.id] || [], ultimaMsgByContato[r.id]);
     }) });
+  } catch (err) { next(err); }
+});
+
+// ---- GET /api/chatbot/departamentos — lista enxuta (id,nome) p/ a transferência.
+// Acessível a QUEM ATENDE (gate atendimento.ver), diferente de /cadastros/departamentos
+// que é só admin. Usa req.supabase (RLS por empresa) -> só os departamentos da loja.
+chatbotRouter.get('/departamentos', async (req, res, next) => {
+  try {
+    const { data, error } = await req.supabase.from('departamentos').select('id,nome,ativo').order('nome');
+    if (error) throw error;
+    // meusDepartamentos: setores do usuário (perfil + equipes) p/ o modal de transferência
+    // esconder o(s) meu(s) na aba "Departamento" e popular a aba "Meu departamento".
+    const meus = await deptosDoUsuario(req);
+    res.json({
+      departamentos: (data || []).filter((d) => d.ativo !== false).map((d) => ({ id: d.id, nome: d.nome })),
+      meusDepartamentos: meus,
+    });
+  } catch (err) { next(err); }
+});
+
+// ---- GET /api/chatbot/transferencia — listas p/ o popup de transferir.
+// Resolve "quem é de qual departamento" cruzando os 3 vínculos: perfil
+// (user_metadata.departamentoId), equipe (equipe_membros->equipes) e responsável
+// (departamentos.responsavel_id). Devolve tudo pronto p/ as 3 abas.
+const PAPEL_LABEL_CB = { admin: 'Admin da Loja', admin_loja: 'Admin da Loja', atendente: 'Atendente', super_admin: 'Super Admin' };
+const numId = (x) => { const n = Number(x); return Number.isFinite(n) ? n : x; };
+chatbotRouter.get('/transferencia', async (req, res, next) => {
+  try {
+    const meId = req.user.id;
+    const empresaId = await getEmpresaId(req);
+    const A = adminClient();
+
+    // membros + papéis + usuários do Auth
+    const { data: membros } = await A.from('empresa_membros').select('user_id,papel,papel_id').eq('empresa_id', empresaId);
+    const lista = (membros || []).filter((m) => m.user_id);
+    const memberIds = new Set(lista.map((m) => m.user_id));
+    const byUser = {}; lista.forEach((m) => { byUser[m.user_id] = m; });
+    const papelIds = [...new Set(lista.map((m) => m.papel_id).filter(Boolean))];
+    const papeisById = {};
+    if (papelIds.length) { const { data: ps } = await A.from('papeis').select('id,codigo,nome').in('id', papelIds); (ps || []).forEach((p) => { papeisById[p.id] = p; }); }
+    const { data: list } = await A.auth.admin.listUsers({ page: 1, perPage: 200 });
+    const authUsers = (list?.users || []).filter((u) => memberIds.has(u.id));
+
+    // departamentos (id, nome, responsável)
+    const { data: deps } = await A.from('departamentos').select('id,nome,ativo,responsavel_id').eq('empresa', empresaId);
+    const depsAtivos = (deps || []).filter((d) => d.ativo !== false);
+
+    // responsável: usuário -> setores que ele responde (supervisor).
+    const respDeptByUser = {};
+    (deps || []).forEach((d) => { if (d.responsavel_id) { (respDeptByUser[d.responsavel_id] = respDeptByUser[d.responsavel_id] || new Set()).add(numId(d.id)); } });
+
+    // Departamentos de um usuário = PERFIL + RESPONSÁVEL (equipe NÃO entra no chatbot).
+    const deptsOfUser = (u) => {
+      const s = new Set();
+      const md = u.user_metadata || {};
+      if (md.departamentoId != null && md.departamentoId !== '') s.add(numId(md.departamentoId));
+      (respDeptByUser[u.id] || []).forEach((d) => s.add(d));
+      return s;
+    };
+    // setor PRINCIPAL p/ a conversa seguir o dono (perfil > responsável).
+    const deptoPrincipal = (u) => {
+      const md = u.user_metadata || {};
+      if (md.departamentoId != null && md.departamentoId !== '') return numId(md.departamentoId);
+      const r = respDeptByUser[u.id]; if (r && r.size) return [...r][0];
+      return null;
+    };
+
+    // MEUS setores = perfil + responsável. Simétrico com deptsOfUser.
+    const meuUser = authUsers.find((u) => u.id === meId) || req.user;
+    const meusSet = deptsOfUser(meuUser);
+
+    const nomeDe = (u) => (u.user_metadata && u.user_metadata.name) || u.email;
+    const papelDe = (u) => { const m = byUser[u.id]; const p = m && m.papel_id ? papeisById[m.papel_id] : null; const cod = (p && p.codigo) || (m && m.papel) || null; return (p && p.nome) || PAPEL_LABEL_CB[cod] || cod || 'Atendente'; };
+    const dto = (u) => ({ id: u.id, nome: nomeDe(u), papelNome: papelDe(u), departamentoId: deptoPrincipal(u) });
+
+    const atendentes = authUsers.filter((u) => u.id !== meId).map(dto);                    // todos, menos eu
+    const colegas = authUsers.filter((u) => u.id !== meId && [...deptsOfUser(u)].some((d) => meusSet.has(d))).map(dto); // do(s) meu(s) setor(es)
+    res.json({
+      atendentes,
+      colegas,
+      departamentos: depsAtivos.map((d) => ({ id: d.id, nome: d.nome })),
+      meusDepartamentos: [...meusSet],
+    });
   } catch (err) { next(err); }
 });
 
@@ -523,7 +647,7 @@ chatbotRouter.get('/contatos/:id/midias', async (req, res, next) => {
   try {
     const id = uuid.parse(req.params.id);
     const { data, error } = await req.supabase.from('chatbot-mensagens').select('*')
-      .eq('contato', id).neq('tipomidia', 'texto').order('created_at', { ascending: false });
+      .eq('contato', id).neq('tipomidia', 'texto').neq('tipomidia', 'nota').neq('tipomidia', 'inicio').order('created_at', { ascending: false });
     if (error) throw error;
     res.json({ midias: (data || []).map(mapMensagem) });
   } catch (err) { next(err); }
@@ -552,6 +676,83 @@ chatbotRouter.patch('/contatos/:id/fixar', validateBody(fixarSchema), async (req
       .update({ fixado: req.body.fixado }).eq('id', id).select('id,fixado').single();
     if (error) throw error;
     res.json({ contato: { id: data.id, fixado: !!data.fixado } });
+  } catch (err) { next(err); }
+});
+
+// Departamentos do atendente = departamentos das equipes em que ele participa.
+// Usado no isolamento da lista de conversas. Sem equipe => sem departamento (só pool + atribuídas).
+async function deptosDoUsuario(req) {
+  // Departamento do usuário = o do PERFIL (cadastro de Usuários). Equipe NÃO entra
+  // aqui — no chatbot tratamos só por departamento (equipe é do mundo de vendas).
+  const md = (req.user && req.user.user_metadata) || {};
+  const dep = (md.departamentoId != null && md.departamentoId !== '') ? (Number(md.departamentoId) || md.departamentoId) : null;
+  return dep != null ? [dep] : [];
+}
+
+// Departamentos em que o usuário é RESPONSÁVEL (supervisor) -> vê tudo deles.
+async function deptosResponsavel(req) {
+  const { data } = await req.supabase.from('departamentos').select('id').eq('responsavel_id', req.user.id);
+  return [...new Set((data || []).map((d) => d.id).filter((x) => x != null))];
+}
+
+// ---- PATCH /api/chatbot/contatos/:id/atribuir  (transferir p/ atendente e/ou departamento) ----
+// atendenteId/departamentoId = null limpa o respectivo dono. Os campos de texto
+// (atendente/departamento) são atualizados em paralelo como snapshot p/ exibição.
+const atribuirSchema = z.object({
+  atendenteId: z.string().uuid('atendenteId inválido').nullable().optional(),
+  atendenteNome: z.string().trim().max(120).nullable().optional(),
+  departamentoId: z.union([z.string(), z.number()]).nullable().optional(), // departamentos.id é bigint
+  departamentoNome: z.string().trim().max(120).nullable().optional(),
+  nota: z.string().trim().max(2000).optional(),
+}).strip();
+chatbotRouter.patch('/contatos/:id/atribuir', validateBody(atribuirSchema), async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const b = req.body;
+    const patch = {};
+    if (b.atendenteId !== undefined) { patch.atendente_id = b.atendenteId || null; patch.atendente = b.atendenteId ? (b.atendenteNome || null) : null; }
+    if (b.departamentoId !== undefined) { patch.departamento_id = b.departamentoId || null; patch.departamento = b.departamentoId ? (b.departamentoNome || null) : null; }
+    if (!Object.keys(patch).length) return res.status(422).json({ error: 'Informe atendente e/ou departamento.' });
+    // Transferir = vira PENDENTE para quem recebe (atendente ou setor): aparece na aba
+    // Pendentes do destinatário, que precisa clicar "Atender" para iniciar. (não mexe se já encerrada)
+    patch.statuschat = 'pendente';
+    // Lê o setor ATUAL (origem "de qual setor veio") ANTES de trocar.
+    const { data: prev } = await req.supabase.from('chatbot-contatos').select('departamento').eq('id', id).single();
+    const origem = (prev && prev.departamento && String(prev.departamento).trim() && prev.departamento !== 'null') ? prev.departamento : null;
+    const { data, error } = await req.supabase.from('chatbot-contatos')
+      .update(patch).eq('id', id).select('id,atendente_id,departamento_id').single();
+    if (error) throw error;
+    // REGISTRO da transferência como mensagem INTERNA (tipomidia='nota'): quem transferiu
+    // (enviadopor), de qual setor veio (titulomidia) e a nota (texto). Alimenta o rodapé
+    // "Conversa pendente". Não vai pro canal externo nem vira "última mensagem" (preview).
+    const nota = (b.nota || '').trim();
+    try { await req.supabase.from('chatbot-mensagens').insert({ contato: id, tipomidia: 'nota', texto: nota || null, titulomidia: origem, enviadopor: nomeAtendente(req.user) }); } catch (e) { /* best-effort */ }
+    res.json({ contato: { id: data.id, atendenteId: data.atendente_id || null, departamentoId: data.departamento_id || null } });
+  } catch (err) { next(err); }
+});
+
+// ---- POST /api/chatbot/contatos/:id/assumir  (iniciar atendimento -> vira dono) ----
+// Atendente pega a conversa da fila: passa a ser o dono (atendente_id = ele) e a
+// conversa fica 'ativo'. A partir daqui, só ele + o responsável do setor a veem.
+chatbotRouter.post('/contatos/:id/assumir', async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const patch = { atendente_id: req.user.id, atendente: nomeAtendente(req.user), statuschat: 'ativo' };
+    // Carimba o departamento de quem assume SE a conversa ainda não tiver setor
+    // (não sobrescreve um setor já definido por transferência). Garante que as
+    // ENCERRADAS fiquem visíveis pra todos do último departamento que atendeu.
+    const meuDept = (req.user.user_metadata && req.user.user_metadata.departamentoId) || null;
+    if (meuDept != null && meuDept !== '') {
+      const { data: cur } = await req.supabase.from('chatbot-contatos').select('departamento_id').eq('id', id).single();
+      if (!cur || cur.departamento_id == null) patch.departamento_id = meuDept;
+    }
+    const { data, error } = await req.supabase.from('chatbot-contatos')
+      .update(patch).eq('id', id).select('id,atendente_id,departamento_id,statuschat').single();
+    if (error) throw error;
+    // Marca o INÍCIO do atendimento como mensagem interna ('inicio') -> vira o registro
+    // "Atendimento iniciado às HH:MM" no histórico da conversa. Não vai pro canal nem vira preview.
+    try { await req.supabase.from('chatbot-mensagens').insert({ contato: id, tipomidia: 'inicio', texto: null, enviadopor: nomeAtendente(req.user) }); } catch (e) { /* best-effort */ }
+    res.json({ contato: { id: data.id, atendenteId: data.atendente_id || null, departamentoId: data.departamento_id || null, status: data.statuschat } });
   } catch (err) { next(err); }
 });
 

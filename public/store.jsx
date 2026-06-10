@@ -130,7 +130,7 @@ function Provider({ children }) {
     return window.API.me()
       .then((r) => {
         const u = (r && r.user) || {};
-        setAuth({ papel: u.papel || null, papelNome: u.papelNome || null, cargo: u.cargo || null, empresaId: (u.empresa && u.empresa.id) || u.empresaId || null, empresaNome: (u.empresa && u.empresa.nome) || null, nome: u.name || null, email: u.email || null, permissoes: new Set(u.permissoes || []), preferencias: (u.preferencias && typeof u.preferencias === 'object') ? u.preferencias : null, loaded: true });
+        setAuth({ papel: u.papel || null, papelNome: u.papelNome || null, cargo: u.cargo || null, empresaId: (u.empresa && u.empresa.id) || u.empresaId || null, empresaNome: (u.empresa && u.empresa.nome) || null, nome: u.name || null, email: u.email || null, foto: u.fotoUrl || null, departamentoId: (u.departamentoId != null ? u.departamentoId : null), permissoes: new Set(u.permissoes || []), preferencias: (u.preferencias && typeof u.preferencias === 'object') ? u.preferencias : null, loaded: true });
         return u.papel || null;
       })
       .catch(() => { setAuth((a) => ({ ...a, loaded: true })); return null; });

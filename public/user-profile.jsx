@@ -17,9 +17,12 @@ function UserProfile() {
   const setPwK = (k, v) => setPw(p => ({ ...p, [k]: v }));
   // Sessões / logins recentes (Fase 4).
   const [sessoes, setSessoes] = React.useState(null);
+  // Departamentos vinculados (perfil + responsável) — só exibição, o usuário não edita.
+  const [deptosVinc, setDeptosVinc] = React.useState([]);
   React.useEffect(() => {
     let alive = true;
     API.getSessoes().then(r => { if (alive) setSessoes(r.sessoes || []); }).catch(() => { if (alive) setSessoes([]); });
+    API.getMeusDepartamentos().then(r => { if (alive) setDeptosVinc(r.departamentos || []); }).catch(() => {});
     return () => { alive = false; };
   }, []);
   const parseUA = (ua) => {
@@ -86,8 +89,9 @@ function UserProfile() {
     setSaving(true);
     try {
       await API.updatePerfil({
-        name: f.name, nomeCompleto: f.nomeCompleto, telefone: f.telefone, cargo: f.cargo,
-        departamento: f.departamento, nascimento: f.nascimento, endereco: f.endereco, bio: f.bio,
+        // cargo e departamento NÃO vão (são definidos pela administração; só leitura aqui).
+        name: f.name, nomeCompleto: f.nomeCompleto, telefone: f.telefone,
+        nascimento: f.nascimento, endereco: f.endereco, bio: f.bio,
       });
       await reloadAuth(); // atualiza nome/cargo na sidebar e topbar
       window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Perfil salvo', descricao: 'Suas alterações foram aplicadas.' });
@@ -195,8 +199,21 @@ function UserProfile() {
               <div><label className="label">Telefone / WhatsApp</label><PhoneInput value={d.telefone} onChange={(v) => set('telefone', v)} /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
-              <div><label className="label">Cargo</label><input className="input" value={d.cargo} onChange={e => set('cargo', e.target.value)} /></div>
-              <div><label className="label">Departamento</label><input className="input" value={d.departamento} onChange={e => set('departamento', e.target.value)} /></div>
+              <div><label className="label">Cargo</label><input className="input" value={d.cargo || '—'} disabled readOnly title="Definido pela administração da loja." style={{ opacity: .8, cursor: 'not-allowed' }} /></div>
+              <div>
+                <label className="label">Departamento{deptosVinc.length > 1 ? 's' : ''}</label>
+                {deptosVinc.length > 0 ? (
+                  <div className="row" style={{ gap: 6, flexWrap: 'wrap', minHeight: 38, alignItems: 'center', padding: '0 2px' }}>
+                    {deptosVinc.map((nome) => (
+                      <span key={nome} className="row" style={{ gap: 5, padding: '5px 10px', background: 'var(--accent-soft)', color: 'var(--accent-700)', border: '1px solid color-mix(in oklab, var(--accent) 28%, transparent)', borderRadius: 999, fontSize: 'var(--type-sm)', fontWeight: 600 }}>
+                        <Ic name="folder" size={12} />{nome}
+                      </span>
+                    ))}
+                  </div>
+                ) : (
+                  <input className="input" value="—" disabled readOnly title="Definido pela administração da loja." style={{ opacity: .8, cursor: 'not-allowed' }} />
+                )}
+              </div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div><label className="label">Data de nascimento</label><input className="input" value={d.nascimento} onChange={e => set('nascimento', maskData(e.target.value))} inputMode="numeric" maxLength={10} placeholder="dd/mm/aaaa" /></div>

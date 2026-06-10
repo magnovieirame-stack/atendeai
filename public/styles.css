@@ -520,7 +520,9 @@ textarea.da01-area.is-edit { border-color: var(--accent); box-shadow: 0 0 0 2px 
   display: flex; align-items: center;
   gap: 10px;
   height: 60px; min-height: 60px;
-  padding: 0 14px 0 60px;
+  /* padding-right alinhado ao fim do separador (::after right: 8px) p/ o botão
+     de menu não ficar afastado da borda. */
+  padding: 0 8px 0 60px;
   border-bottom: none;
   box-sizing: border-box;
   min-width: 0;
@@ -1052,6 +1054,8 @@ textarea.da01-area.is-edit { border-color: var(--accent); box-shadow: 0 0 0 2px 
 @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
 @keyframes fade-out { from { opacity: 1; } to { opacity: 0; } }
 @keyframes pop { from { transform: translateY(16px) scale(.96); opacity: 0; } to { transform: none; opacity: 1; } }
+/* "Conversa Recebida" pulando para dentro do histórico ao clicar em Atender */
+@keyframes recebidaIn { from { opacity: 0; transform: translateY(48px) scale(.94); } 60% { opacity: 1; } to { opacity: 1; transform: translateY(0) scale(1); } }
 @keyframes pop-out { from { transform: none; opacity: 1; } to { transform: translateY(12px) scale(.97); opacity: 0; } }
 @keyframes slide-in-right { from { transform: translateX(100%); } to { transform: none; } }
 @keyframes slide-out-right { from { transform: none; } to { transform: translateX(100%); } }

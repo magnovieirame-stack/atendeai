@@ -174,6 +174,17 @@ const API = {
   criarDepartamento(dto) { return this._json('/cadastros/departamentos', 'POST', dto); },
   editarDepartamento(id, dto) { return this._json('/cadastros/departamentos/' + id, 'PATCH', dto); },
   excluirDepartamento(id) { return this._req('/cadastros/departamentos/' + id, { method: 'DELETE' }); },
+  // --- Equipes (cada equipe -> 1 departamento; N membros) ---
+  getEquipes(departamentoId) { return this._req('/cadastros/equipes' + (departamentoId ? ('?departamento=' + encodeURIComponent(departamentoId)) : '')); },
+  criarEquipe(dto) { return this._json('/cadastros/equipes', 'POST', dto); },
+  editarEquipe(id, dto) { return this._json('/cadastros/equipes/' + id, 'PATCH', dto); },
+  excluirEquipe(id) { return this._req('/cadastros/equipes/' + id, { method: 'DELETE' }); },
+  addEquipeMembro(id, userId) { return this._json('/cadastros/equipes/' + id + '/membros', 'POST', { userId }); },
+  removeEquipeMembro(id, userId) { return this._req('/cadastros/equipes/' + id + '/membros/' + userId, { method: 'DELETE' }); },
+  // --- Roteamento inicial (destino do contato novo: IA ou Departamento) ---
+  getMeusDepartamentos() { return this._req('/auth/perfil/departamentos'); },
+  getRoteamento() { return this._req('/cadastros/roteamento'); },
+  saveRoteamento(dto) { return this._json('/cadastros/roteamento', 'PUT', dto); },
   getCategorias() { return this._req('/agenda/categorias'); },
   createCategoria(dto) { return this._json('/agenda/categorias', 'POST', dto); },
   updateCategoria(id, dto) { return this._json('/agenda/categorias/' + id, 'PATCH', dto); },
@@ -205,6 +216,14 @@ const API = {
   setContatoStatus(id, statuschat) { return this._json('/chatbot/contatos/' + id, 'PATCH', { statuschat }); },
   fixarContato(id, fixado) { return this._json('/chatbot/contatos/' + id + '/fixar', 'PATCH', { fixado }); },
   bloquearContato(id, bloquear) { return this._json('/chatbot/contatos/' + id + '/bloquear', 'PATCH', { bloquear }); },
+  // transferir conversa: para atendente e/ou departamento (ids null limpam o dono)
+  transferirContato(id, dto) { return this._json('/chatbot/contatos/' + id + '/atribuir', 'PATCH', dto); },
+  // assumir conversa (iniciar atendimento -> vira dono)
+  assumirContato(id) { return this._json('/chatbot/contatos/' + id + '/assumir', 'POST', {}); },
+  // departamentos p/ a transferência (acessível ao atendente, não só admin)
+  getDepartamentosAtendimento() { return this._req('/chatbot/departamentos'); },
+  // listas completas p/ o popup de transferir (atendentes, colegas do meu setor, departamentos)
+  getTransferenciaListas() { return this._req('/chatbot/transferencia'); },
   limparContato(id) { return this._req('/chatbot/contatos/' + id + '/mensagens', { method: 'DELETE' }); },
   apagarContato(id) { return this._req('/chatbot/contatos/' + id, { method: 'DELETE' }); },
   createClienteContato(nome, telefone, canal) { return this._json('/chatbot/clientes-contato', 'POST', { nome, telefone, canal }); },
@@ -306,8 +325,10 @@ function dbContatoToConv(c) {
     photo: c.foto || null,     // foto vem de clientes.fotolink
     avatar: typeof initials === 'function' ? initials(c.nome) : (c.nome || '?').slice(0, 2).toUpperCase(),
     channel: c.canal,
-    status: STATUS_DB_UI[c.status] || 'em-andamento',
-    handler: 'human',          // estes 2 bancos não têm IA/fila; tratamos como humano
+    // Estado p/ as abas: encerrada > pendente (na fila OU transferida e ainda não iniciada) > em-andamento.
+    // 'pendente' explícito (transferência) vale mesmo com dono — fica na aba Pendentes de quem recebeu.
+    status: c.status === 'finalizado' ? 'encerrada' : (c.status === 'pendente' ? 'pendente' : (c.atendenteId ? 'em-andamento' : 'pendente')),
+    handler: c.status === 'finalizado' ? 'human' : (c.status === 'pendente' ? 'queue' : (c.atendenteId ? 'human' : 'queue')),
     tags: c.tags || [],        // [{id,nome,cor}]
     tag: (c.tags && c.tags[0] && c.tags[0].nome) || null,
     unread: c.naoLidas || 0,
@@ -323,6 +344,10 @@ function dbContatoToConv(c) {
     fixado: c.fixado,
     blocked: c.status === 'bloqueado', // status cru do back (bloquear)
     aiHandled: !!c.ia,                  // conduzida pela IA (true) ou humano (false) — ícone sob o avatar
+    owner: c.atendenteNome || null,     // nome do atendente dono (selo "quem atende")
+    ownerId: c.atendenteId || null,
+    dept: c.departamento || null,       // nome do departamento da conversa
+    departamentoId: c.departamentoId || null,
   };
 }
 
@@ -337,7 +362,9 @@ function corContraste(hex) {
 
 function dbMsgToUi(m) {
   let kind = 'text';
-  if (m.tipo === 'imagem') kind = 'image';
+  if (m.tipo === 'nota') kind = 'nota';        // registro de transferência ("Conversa Recebida")
+  else if (m.tipo === 'inicio') kind = 'inicio'; // marcador "Atendimento iniciado às HH:MM"
+  else if (m.tipo === 'imagem') kind = 'image';
   else if (m.tipo === 'audio') kind = 'audio';
   else if (m.tipo === 'texto') kind = 'text';
   else kind = 'doc'; // arquivo, docx, xlsx, video, pdf...
@@ -353,6 +380,9 @@ function dbMsgToUi(m) {
     filename: m.titulo || 'arquivo',
     meta: metaParts.join(' · '),
     time: fmtHora(m.criadoEm),
+    // nota interna de transferência: quem transferiu + de qual setor veio
+    autor: m.enviadopor || null,
+    origem: kind === 'nota' ? (m.titulo || null) : null,
   };
 }
 

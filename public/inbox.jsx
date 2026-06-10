@@ -535,7 +535,7 @@ function Inbox() {
     startConvWith(routeParam);
   }, [route, routeParam, startConvWith]);
 
-  const [filter, setFilter] = React.useState('active');
+  const [filter, setFilter] = React.useState('active'); // abre em Ativas (em atendimento)
   const [showAI, setShowAI] = React.useState(tweaks.showAIPanel);
   const [composing, setComposing] = React.useState('');
   const [available, setAvailable] = React.useState(true);
@@ -550,10 +550,10 @@ function Inbox() {
 
   const empty = tweaks.dataState === 'empty';
   const matchesFilter = (c) => {
-    if (filter === 'alert') return c.unread > 0 && (c.handler === 'agent' || c.handler === 'human' && c.status === 'em-andamento');
-    if (filter === 'ai') return c.handler === 'agent' && c.status !== 'encerrada';
-    if (filter === 'active') return c.handler === 'human' && c.status === 'em-andamento';
-    if (filter === 'pending') return c.status === 'pendente' || c.handler === 'queue';
+    if (filter === 'alert') return c.unread > 0 && c.status !== 'encerrada';     // não-lidas (em aberto)
+    if (filter === 'ai') return c.handler === 'agent' && c.status !== 'encerrada'; // IA (quando a IA entrar)
+    if (filter === 'active') return c.handler === 'human' && c.status === 'em-andamento'; // em atendimento (tem dono)
+    if (filter === 'pending') return c.status === 'pendente' || c.handler === 'queue';     // fila (sem dono)
     if (filter === 'closed') return c.status === 'encerrada';
     return true;
   };
@@ -708,6 +708,8 @@ function ConvRow({ c, active, onClick, onFixar, onBloquear, onLimpar, onApagar }
         {/* Linha 3: tags + seta do menu (seta alinhada à direita, em coluna com data/hora e badge) */}
         <div className="row" style={{ marginTop: 6, gap: 4, alignItems: 'center' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, minWidth: 0 }}>
+            {c.owner && <span title={'Atendente: ' + c.owner} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 700, letterSpacing: '.02em', padding: '2px 6px', borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent-700)', border: '1px solid color-mix(in oklab, var(--accent) 30%, transparent)', whiteSpace: 'nowrap', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis' }}><Ic name="user" size={9} />{c.owner}</span>}
+            {c.dept && <span title={'Departamento: ' + c.dept} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 700, letterSpacing: '.02em', padding: '2px 6px', borderRadius: 999, background: 'var(--surface-3)', color: 'var(--text-muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis' }}><Ic name="folder" size={9} />{c.dept}</span>}
             {(c.tags || []).map((t) => { const col = t.cor || '#64748b'; return <span key={t.id} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 999, background: `${col}1A`, color: col, border: `1px solid ${col}33`, whiteSpace: 'nowrap' }}>{t.nome}</span>; })}
           </div>
           <button ref={btnRef} onClick={openMenu} title="Opções" style={{ background: 'transparent', border: 0, padding: 0, cursor: 'default', color: 'var(--text-faint)', display: 'flex', alignItems: 'center', flexShrink: 0, opacity: (hover || menu) ? 1 : 0, transition: 'opacity .12s ease' }}>
@@ -1056,71 +1058,111 @@ function DevolverIAModal({ conv, onClose, onConfirm }) {
 
 }
 
-const TRANSFER_AGENTS = [
-{ id: 'a1', name: 'Karla Zambelly', role: 'Atendente', status: 'available', queue: 3 },
-{ id: 'a2', name: 'Pedro Rocha', role: 'Atendente', status: 'available', queue: 1 },
-{ id: 'a3', name: 'Maria Souza', role: 'Supervisor', status: 'busy', queue: 8 },
-{ id: 'a4', name: 'João Lima', role: 'Atendente', status: 'offline', queue: 0 }];
-
-const TRANSFER_DEPTS = [
-{ id: 'd1', name: 'Comercial', desc: 'Vendas, propostas, fechamento', icon: 'commercial', color: '#16a34a' },
-{ id: 'd2', name: 'Financeiro', desc: 'Cobrança, pagamentos, NF', icon: 'finance', color: '#0ea5e9' },
-{ id: 'd3', name: 'Suporte', desc: 'Dúvidas técnicas e SAC', icon: 'help', color: '#f59e0b' },
-{ id: 'd4', name: 'Pós-venda', desc: 'Acompanhamento, fidelização', icon: 'star', color: '#a855f7' }];
-
+// Paleta p/ colorir os cards de departamento (eles não têm cor própria no banco).
+const DEPT_COLORS = ['#16a34a', '#0ea5e9', '#f59e0b', '#a855f7', '#ec4899', '#14b8a6', '#6366f1', '#f97316'];
 
 function TransferirModal({ conv, onClose, onConfirm }) {
+  const { auth } = useStore();
   const [tab, setTab] = React.useState('agent');
   const [selected, setSelected] = React.useState(null);
   const [note, setNote] = React.useState('');
+  const [atendentes, setAtendentes] = React.useState(null); // null = carregando
+  const [colegas, setColegas] = React.useState([]);          // do meu setor (backend já filtra + exclui eu)
+  const [deptos, setDeptos] = React.useState(null);
+  const [meusDeptos, setMeusDeptos] = React.useState([]);    // ids dos meus setores (do backend)
+  React.useEffect(() => {
+    let alive = true;
+    const mapU = (u) => ({ id: u.id, name: u.nome, role: u.papelNome || 'Atendente', departamentoId: u.departamentoId != null ? u.departamentoId : null });
+    API.getTransferenciaListas()
+      .then((r) => {
+        if (!alive) return;
+        setAtendentes((r.atendentes || []).map(mapU));
+        setColegas((r.colegas || []).map(mapU));
+        setDeptos((r.departamentos || []).map((d, i) => ({ id: d.id, name: d.nome, desc: 'Departamento', color: DEPT_COLORS[i % DEPT_COLORS.length] })));
+        setMeusDeptos(r.meusDepartamentos || []);
+      })
+      .catch(() => { if (alive) { setAtendentes([]); setDeptos([]); } });
+    return () => { alive = false; };
+  }, []);
+  const meusSet = new Set((meusDeptos || []).map(String));
   const submit = () => {
     if (!selected) return;
-    onConfirm({ kind: tab, target: selected, note });
+    const kind = tab === 'dept' ? 'dept' : 'agent';
+    let target = selected;
+    if (kind === 'agent') {
+      // a conversa passa a seguir o DEPARTAMENTO de quem recebe (carimba setor do dono).
+      const dep = (deptos || []).find((d) => String(d.id) === String(selected.departamentoId));
+      target = { ...selected, departamentoId: selected.departamentoId != null ? selected.departamentoId : null, departamentoNome: dep ? dep.name : null };
+    }
+    onConfirm({ kind, target, note });
   };
+  // Atendente: TODOS os usuários, menos eu (backend já exclui).
+  const listaAtendentes = atendentes || [];
+  // Meu departamento: colegas do(s) meu(s) setor(es) (backend já resolve perfil+equipe+responsável).
+  const listaMeuDepto = colegas;
+  // Departamento: todos os setores, menos o(s) meu(s).
+  const listaDeptos = (deptos || []).filter((d) => !meusSet.has(String(d.id)));
+  // card de atendente reutilizado nas abas "Atendente" e "Meu departamento"
+  const renderUser = (a) => {
+    const on = selected?.id === a.id;
+    return (
+      <div key={a.id} onClick={() => setSelected(a)} className="card" style={{ padding: 10, cursor: 'default', borderColor: on ? 'var(--accent)' : 'var(--border)', background: on ? 'var(--accent-soft)' : 'var(--surface)', transition: 'border-color .15s, background .15s' }}>
+        <div className="row" style={{ gap: 10 }}>
+          <Avatar name={a.name} size="sm" />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div className="row" style={{ gap: 6 }}><span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>{a.name}</span></div>
+            <div className="muted" style={{ fontSize: 11 }}>{a.role}</div>
+          </div>
+          {on && <Ic name="check" size={16} style={{ color: 'var(--accent)' }} />}
+        </div>
+      </div>);
+  };
+  const TABS = [['agent', 'Atendente', 'user'], ['dept', 'Departamento', 'team'], ['mydept', 'Meu departamento', 'folder']];
+  const tabIdx = Math.max(0, TABS.findIndex((t) => t[0] === tab));
   return (
     <Modal title="Transferir conversa" onClose={onClose} size="md" footer={<>
       <button className="btn fin-btn-back" onClick={onClose}>Voltar</button>
       <button className="btn btn-primary" disabled={!selected} onClick={submit} style={{ opacity: selected ? 1 : 0.5 }}><Ic name="users" size={13} /> Transferir</button>
     </>}>
       <div className="col" style={{ gap: 14 }}>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--border)', position: 'relative' }}>
-          {[['agent', 'Atendente', 'user'], ['dept', 'Departamento', 'team']].map(([id, l, ic]) =>
-          <div key={id} onClick={() => {setTab(id);setSelected(null);}} style={{ padding: '10px 0', textAlign: 'center', fontSize: 'var(--type-sm)', fontWeight: 600, color: tab === id ? 'var(--text)' : 'var(--text-muted)', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6, transition: 'color .15s' }}><Ic name={ic} size={13} />{l}</div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', borderBottom: '1px solid var(--border)', position: 'relative' }}>
+          {TABS.map(([id, l, ic]) =>
+          <div key={id} onClick={() => {setTab(id);setSelected(null);}} style={{ padding: '10px 4px', textAlign: 'center', fontSize: 'var(--type-xs)', fontWeight: 600, color: tab === id ? 'var(--text)' : 'var(--text-muted)', cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, transition: 'color .15s', whiteSpace: 'nowrap' }}><Ic name={ic} size={13} />{l}</div>
           )}
-          <div style={{ position: 'absolute', bottom: -1, height: 2, width: '50%', left: tab === 'agent' ? '0%' : '50%', background: 'var(--accent)', transition: 'left .25s cubic-bezier(.5,1.4,.4,1)' }} />
+          <div style={{ position: 'absolute', bottom: -1, height: 2, width: '33.333%', left: `${tabIdx * 33.333}%`, background: 'var(--accent)', transition: 'left .25s cubic-bezier(.5,1.4,.4,1)' }} />
         </div>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 280, overflow: 'auto' }}>
-          {tab === 'agent' && TRANSFER_AGENTS.map((a) => {
-            const on = selected?.id === a.id;
-            const dot = a.status === 'available' ? '#16a34a' : a.status === 'busy' ? '#f59e0b' : '#9ca3af';
-            return (
-              <div key={a.id} onClick={() => a.status !== 'offline' && setSelected(a)} className="card" style={{ padding: 10, cursor: 'default', borderColor: on ? 'var(--accent)' : 'var(--border)', background: on ? 'var(--accent-soft)' : 'var(--surface)', opacity: a.status === 'offline' ? 0.5 : 1, transition: 'border-color .15s, background .15s' }}>
-                <div className="row" style={{ gap: 10 }}>
-                  <Avatar name={a.name} size="sm" />
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="row" style={{ gap: 6 }}><span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>{a.name}</span><span style={{ width: 7, height: 7, borderRadius: '50%', background: dot }} /></div>
-                    <div className="muted" style={{ fontSize: 11 }}>{a.role} · {a.queue} na fila</div>
-                  </div>
-                  {on && <Ic name="check" size={16} style={{ color: 'var(--accent)' }} />}
-                </div>
-              </div>);
-
-          })}
-          {tab === 'dept' && TRANSFER_DEPTS.map((d) => {
+          {tab === 'agent' && (atendentes === null ?
+            <ContactListSkeleton count={3} /> :
+            listaAtendentes.length === 0 ?
+            <div className="muted" style={{ padding: 20, textAlign: 'center', fontSize: 'var(--type-sm)' }}>Nenhum outro atendente disponível.</div> :
+            listaAtendentes.map(renderUser))}
+          {tab === 'mydept' && (atendentes === null ?
+            <ContactListSkeleton count={3} /> :
+            meusDeptos.length === 0 ?
+            <div className="muted" style={{ padding: 20, textAlign: 'center', fontSize: 'var(--type-sm)' }}>Você não está atribuído a um departamento.</div> :
+            listaMeuDepto.length === 0 ?
+            <div className="muted" style={{ padding: 20, textAlign: 'center', fontSize: 'var(--type-sm)' }}>Nenhum outro colega no seu departamento.</div> :
+            listaMeuDepto.map(renderUser))}
+          {tab === 'dept' && (deptos === null ?
+            <ContactListSkeleton count={3} /> :
+            listaDeptos.length === 0 ?
+            <div className="muted" style={{ padding: 20, textAlign: 'center', fontSize: 'var(--type-sm)' }}>Nenhum outro departamento disponível.</div> :
+            listaDeptos.map((d) => {
             const on = selected?.id === d.id;
             return (
               <div key={d.id} onClick={() => setSelected(d)} className="card" style={{ padding: 10, cursor: 'default', borderColor: on ? d.color : 'var(--border)', background: on ? `color-mix(in oklab, ${d.color} 8%, var(--surface))` : 'var(--surface)', transition: 'border-color .15s, background .15s' }}>
                 <div className="row" style={{ gap: 10 }}>
-                  <span style={{ width: 36, height: 36, borderRadius: 9, background: `color-mix(in oklab, ${d.color} 14%, transparent)`, color: d.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name={d.icon} size={16} /></span>
+                  <span style={{ width: 36, height: 36, borderRadius: 9, background: `color-mix(in oklab, ${d.color} 14%, transparent)`, color: d.color, display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name="folder" size={16} /></span>
                   <div style={{ flex: 1, minWidth: 0 }}>
                     <div style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>{d.name}</div>
-                    <div className="muted" style={{ fontSize: 11 }}>{d.desc}</div>
+                    <div className="muted" style={{ fontSize: 11, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.desc}</div>
                   </div>
                   {on && <Ic name="check" size={16} style={{ color: d.color }} />}
                 </div>
               </div>);
 
-          })}
+          }))}
         </div>
         <div>
           <label className="label">Nota para quem receber <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
@@ -1300,11 +1342,24 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
 
   const handler = localHandler;
 
+  const isPending = localStatus === 'pendente' || handler === 'queue';
+  // Card "Conversa Recebida": enquanto PENDENTE fica só no rodapé (com o Atender);
+  // ao atender, ele "pula" para dentro do histórico (com efeito). Sem duplicar.
+  const ultimaTransf = (() => { for (let i = messages.length - 1; i >= 0; i--) { if (messages[i].kind === 'nota') return messages[i]; } return null; })();
+  const bubbles = (isPending && ultimaTransf) ? messages.filter((m) => m !== ultimaTransf) : messages;
+
   // grava o status no banco (ativo/finalizado) e atualiza a lista de conversas
   const mudarStatus = async (dbStatus) => {
     if (!conv._db) return;
     try { await API.setContatoStatus(conv.id, dbStatus); if (onConvChanged) onConvChanged(); }
     catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao alterar status', descricao: e.message || 'Não foi possível atualizar o status.' }); }
+  };
+  // iniciar atendimento: assume a conversa (vira dono) — a partir daqui só você + o responsável do setor veem.
+  const assumir = async (titulo) => {
+    setLocalStatus('em-andamento'); setLocalHandler('human');
+    if (!conv._db) { window.showToast({ tipo: 'sucesso', titulo }); return; }
+    try { await API.assumirContato(conv.id); window.showToast({ tipo: 'sucesso', titulo }); if (onConvChanged) onConvChanged(); }
+    catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao iniciar', descricao: e.message || 'Não foi possível assumir a conversa.' }); }
   };
 
   return (
@@ -1312,9 +1367,13 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       <div onClick={onOpenContext} title="Abrir contexto do cliente" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', cursor: 'default', transition: 'background .12s', height: "80px" }} className="row conv-head">
         {onBack && <button className="btn btn-ghost btn-icon" onClick={(e) => { e.stopPropagation(); onBack(); }} title="Voltar" style={{ width: "30px", height: "30px", marginRight: 2, flexShrink: 0 }}><Ic name="arrow-left" size={18} /></button>}
         <Avatar name={conv.client} src={conv.photo} />
-        <div style={{ flex: 1, marginLeft: 10 }}>
+        <div style={{ flex: 1, marginLeft: 10, minWidth: 0 }}>
           <div className="row" style={{ gap: 8 }}><span style={{ fontWeight: 600 }}>{conv.client}</span><ChannelIcon ch={conv.channel} size={13} /></div>
-          <div className="muted" style={{ fontSize: 'var(--type-xs)' }}>{conv.tag || 'PROSPECT'}</div>
+          <div className="row" style={{ gap: 6, marginTop: 1, flexWrap: 'wrap' }}>
+            <span className="muted" style={{ fontSize: 'var(--type-xs)' }}>{conv.tag || 'PROSPECT'}</span>
+            {conv.owner && <span className="muted" style={{ fontSize: 'var(--type-xs)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>· <Ic name="user" size={10} />{conv.owner}</span>}
+            {conv.dept && <span className="muted" style={{ fontSize: 'var(--type-xs)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>· <Ic name="folder" size={10} />{conv.dept}</span>}
+          </div>
         </div>
         {handler === 'agent' && <span className="badge badge-ai"><Ic name="sparkles" size={11} /> IA respondendo</span>}
         {handler === 'queue' && <span className="badge badge-warning"><Ic name="clock" size={11} /> Aguardando há {conv.waitMin || 3} min</span>}
@@ -1324,21 +1383,28 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       </div>
       <div ref={scrollRef} className="scroll" style={{ flex: 1, overflow: 'auto', padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {loadingMsgs ? <ChatSkeleton /> :
-         messages.length === 0 ? <div className="muted" style={{ margin: 'auto' }}>Nenhuma mensagem ainda.</div> :
-         messages.map((m, i) => <Bubble key={m._id || i} m={m} client={conv.client} clientPhoto={conv.photo} />)}
+         bubbles.length === 0 ? <div className="muted" style={{ margin: 'auto' }}>Nenhuma mensagem ainda.</div> :
+         bubbles.map((m, i) => <Bubble key={m._id || i} m={m} client={conv.client} clientPhoto={conv.photo} />)}
       </div>
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
-        {localStatus === 'pendente' || handler === 'queue' ?
-        <div className="row" style={{ gap: 10, padding: 14, border: '1px dashed color-mix(in oklab, var(--hue-amber) 50%, var(--border))', borderRadius: 10, background: 'color-mix(in oklab, var(--hue-amber) 6%, var(--surface))' }}>
+        {isPending ?
+        (ultimaTransf ?
+          <ReceivedCard m={ultimaTransf}>
+            <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginTop: 2 }}>
+              <span className="muted" style={{ fontSize: 'var(--type-sm)', marginRight: 'auto' }}>Inicie o atendimento para continuar.</span>
+              <button className="btn btn-primary" onClick={() => assumir('Atendimento iniciado')}><Ic name="user" size={14} /> Atender</button>
+            </div>
+          </ReceivedCard> :
+          <div className="row" style={{ gap: 10, padding: 14, border: '1px dashed color-mix(in oklab, var(--hue-amber) 50%, var(--border))', borderRadius: 10, background: 'color-mix(in oklab, var(--hue-amber) 6%, var(--surface))' }}>
             <Ic name="clock" size={18} style={{ color: 'var(--hue-amber)' }} />
-            <div style={{ flex: 1 }}><div style={{ fontWeight: 600 }}>Conversa pendente</div><div className="muted" style={{ fontSize: 'var(--type-sm)' }}>A IA transferiu para humano. Inicie o atendimento para continuar.</div></div>
-            <button className="btn btn-primary" onClick={() => {setLocalStatus('em-andamento');setLocalHandler('human');mudarStatus('ativo');window.showToast({ tipo: 'sucesso', titulo: 'Atendimento iniciado' });}}><Ic name="user" size={14} /> Atender</button>
-          </div> :
+            <div style={{ flex: 1 }}><div style={{ fontWeight: 600 }}>Conversa recebida</div><div className="muted" style={{ fontSize: 'var(--type-sm)' }}>Inicie o atendimento para continuar.</div></div>
+            <button className="btn btn-primary" onClick={() => assumir('Atendimento iniciado')}><Ic name="user" size={14} /> Atender</button>
+          </div>) :
         localStatus === 'encerrada' ?
         <div className="row" style={{ gap: 10, padding: 14, border: '1px dashed var(--border-strong)', borderRadius: 10, background: 'var(--surface-2)' }}>
             <Ic name="check-double" size={18} style={{ color: 'var(--text-faint)' }} />
             <div style={{ flex: 1 }}><div style={{ fontWeight: 600 }}>Conversa encerrada</div><div className="muted" style={{ fontSize: 'var(--type-sm)' }}>Você pode retomar o atendimento se o cliente voltar a interagir.</div></div>
-            <button className="btn btn-primary" onClick={() => {setLocalStatus('em-andamento');setLocalHandler('human');mudarStatus('ativo');window.showToast({ tipo: 'sucesso', titulo: 'Atendimento retomado' });}}><Ic name="repeat" size={14} /> Retomar</button>
+            <button className="btn btn-primary" onClick={() => assumir('Atendimento retomado')}><Ic name="repeat" size={14} /> Retomar</button>
           </div> :
         <>
             <div className="row" style={{ gap: 6, marginBottom: 8 }}>
@@ -1381,7 +1447,20 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       </div>
 
       {modal === 'devolver' && <DevolverIAModal conv={conv} onClose={() => setModal(null)} onConfirm={({ reason }) => {setModal(null);setLocalHandler('agent');setLocalStatus('ativa');addAgentMessage({ kind: 'text', text: reason ? `Conversa devolvida à IA · motivo: ${reason}` : 'Conversa devolvida à IA', system: true });window.showToast({ tipo: 'info', titulo: 'Devolvida à IA', descricao: 'A IA voltou a responder esta conversa.' });}} />}
-      {modal === 'transferir' && <TransferirModal conv={conv} onClose={() => setModal(null)} onConfirm={({ kind, target, note }) => {setModal(null);setLocalStatus('pendente');setLocalHandler('queue');window.showToast({ tipo: 'sucesso', titulo: 'Conversa transferida', descricao: `Transferida para ${target.name}` });}} />}
+      {modal === 'transferir' && <TransferirModal conv={conv} onClose={() => setModal(null)} onConfirm={async ({ kind, target, note }) => {
+        setModal(null);
+        if (!conv._db) { setLocalStatus('pendente'); setLocalHandler('queue'); window.showToast({ tipo: 'sucesso', titulo: 'Conversa transferida', descricao: `Transferida para ${target.name}` }); return; }
+        try {
+          const dto = kind === 'agent'
+            ? { atendenteId: target.id, atendenteNome: target.name, departamentoId: target.departamentoId != null ? target.departamentoId : null, departamentoNome: target.departamentoNome || null, nota: note } // a conversa segue o setor do dono
+            : { departamentoId: target.id, departamentoNome: target.name, atendenteId: null, nota: note }; // depto -> volta pro pool do setor
+          await API.transferirContato(conv.id, dto);
+          window.showToast({ tipo: 'sucesso', titulo: 'Conversa transferida', descricao: `Transferida para ${target.name}` });
+          if (onConvChanged) onConvChanged(); // re-busca a lista (a conversa pode sair da minha visão pelo isolamento)
+        } catch (e) {
+          window.showToast({ tipo: 'erro', titulo: 'Falha ao transferir', descricao: e.message || 'Não foi possível transferir.' });
+        }
+      }} />}
       {modal === 'encerrar' && <EncerrarModal conv={conv} onClose={() => setModal(null)} onConfirm={({ label }) => {setModal(null);setLocalStatus('encerrada');mudarStatus('finalizado');window.showToast({ tipo: 'sucesso', titulo: 'Conversa encerrada', descricao: label });}} />}
       {showContactPicker && <ContactPickerModal onClose={() => setShowContactPicker(false)} onPick={(c) => { setShowContactPicker(false); addAgentMessage({ kind: 'contact', contactName: c.name, contactPhone: c.phone, contactTag: c.tag, contactChannel: c.channel }); }} /> }
 
@@ -1461,7 +1540,48 @@ function AudioPlayer({ src, isClient, avatarName, avatarSrc }) {
     </div>);
 }
 
+// Card "Conversa Recebida" — usado no rodapé (enquanto pendente) e no histórico (após atender).
+function ReceivedCard({ m, children }) {
+  const temNota = (m.text || '').trim();
+  return (
+    <div style={{ border: '1px solid var(--border)', borderRadius: 12, background: 'var(--surface)', overflow: 'hidden', boxShadow: 'var(--shadow-sm)' }}>
+      <div className="row" style={{ gap: 8, alignItems: 'center', padding: '9px 14px', background: 'color-mix(in oklab, var(--hue-amber) 8%, var(--surface))', borderBottom: '1px solid var(--border)' }}>
+        <Ic name="inbox" size={15} style={{ color: 'var(--hue-amber)', flexShrink: 0 }} />
+        <strong style={{ fontSize: 'var(--type-sm)' }}>Conversa Recebida</strong>
+        <span className="muted" style={{ marginLeft: 'auto', fontSize: 11 }}>{m.time}</span>
+      </div>
+      <div style={{ padding: '10px 14px', display: 'flex', flexDirection: 'column', gap: 8 }}>
+        <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>Transferida por <strong style={{ color: 'var(--text)' }}>{m.autor || 'IA'}</strong>{m.origem ? <> · de <strong style={{ color: 'var(--text)' }}>{m.origem}</strong></> : ''}</div>
+        {temNota &&
+          <div className="row" style={{ gap: 10, alignItems: 'center', padding: '10px 14px', borderRadius: 10, background: '#FDEEE7', color: '#FF8B30', border: '1px solid color-mix(in oklab, #FF8B30 24%, transparent)' }}>
+            <div style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', fontWeight: 500, fontSize: 'var(--type-sm)', lineHeight: 1.4 }}>{m.text}</div>
+            <Ic name="alert" size={20} style={{ color: '#FF8B30', flexShrink: 0 }} />
+          </div>
+        }
+        {children}
+      </div>
+    </div>);
+}
+
 function Bubble({ m, client, clientPhoto }) {
+  // Registro de transferência ("Conversa Recebida") — card no histórico (entra com efeito).
+  if (m.kind === 'nota') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <div style={{ maxWidth: '92%', width: '100%', animation: 'recebidaIn .42s cubic-bezier(.34,1.56,.64,1)' }}>
+          <ReceivedCard m={m} />
+        </div>
+      </div>);
+  }
+  // Marcador "Atendimento iniciado às HH:MM" — fica registrado no histórico.
+  if (m.kind === 'inicio') {
+    return (
+      <div style={{ display: 'flex', justifyContent: 'center' }}>
+        <span className="muted" style={{ fontSize: 'var(--type-xs)', padding: '5px 12px', borderRadius: 999, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
+          <Ic name="check" size={12} style={{ color: 'var(--accent)' }} /> Atendimento iniciado às {m.time}{m.autor ? ' · ' + m.autor : ''}
+        </span>
+      </div>);
+  }
   const isClient = m.from === 'client';
   const isAI = m.ai;
   const bgClient = 'var(--surface)';

@@ -180,6 +180,7 @@ agendaRouter.get('/usuarios', async (req, res, next) => {
           cpf: md.cpf || '',
           cargo: md.cargo || '',
           departamento: md.departamento || '',
+          departamentoId: md.departamentoId != null ? md.departamentoId : null,
           nascimento: md.nascimento || '',
           endereco: md.endereco || '',
           bio: md.bio || '',

@@ -29,6 +29,7 @@ function perfilDoMetadata(user) {
     nomeCompleto: m.nome_completo || null,
     telefone: m.telefone || null,
     departamento: m.departamento || null,
+    departamentoId: m.departamentoId != null ? m.departamentoId : null,
     nascimento: m.nascimento || null,
     endereco: m.endereco || null,
     bio: m.bio || null,
@@ -116,6 +117,24 @@ authRouter.post('/auth/definir-senha', authLimiter, ensureSupabase, async (req, 
     const upd = await adminClient().auth.admin.updateUserById(data.user.id, { password: String(password) });
     if (upd.error) throw upd.error;
     res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// GET /api/auth/perfil/departamentos — TODOS os departamentos a que o usuário está
+// vinculado (perfil + responsável). Read-only, para exibir na página de Perfil.
+// Lê o metadata FRESCO (getUserById) p/ não depender de relogin após o admin trocar o setor.
+authRouter.get('/auth/perfil/departamentos', requireAuth, async (req, res, next) => {
+  try {
+    const auth = await carregarAutorizacao(req);
+    const empresaId = auth && auth.empresaId;
+    if (!empresaId) return res.json({ departamentos: [] });
+    let profileDeptId = (req.user.user_metadata && req.user.user_metadata.departamentoId) || null;
+    try { const g = await adminClient().auth.admin.getUserById(req.user.id); const md = g?.data?.user?.user_metadata; if (md && md.departamentoId != null) profileDeptId = md.departamentoId; } catch (e) {}
+    const { data: deps } = await adminClient().from('departamentos').select('id,nome,responsavel_id').eq('empresa', empresaId);
+    const meus = (deps || []).filter((d) =>
+      (profileDeptId != null && String(d.id) === String(profileDeptId)) || d.responsavel_id === req.user.id,
+    ).map((d) => d.nome);
+    res.json({ departamentos: [...new Set(meus)] });
   } catch (err) { next(err); }
 });
 

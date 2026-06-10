@@ -63,7 +63,7 @@ function UsersPage() {
         id: u.id,
         code: userCode(u.id, u.uf),
         name: u.nome || '—', nomeCompleto: u.nomeCompleto || '', email: u.email || '', telefone: u.telefone || '',
-        cpf: u.cpf || '', cargo: u.cargo || '', departamento: u.departamento || '', nascimento: u.nascimento || '',
+        cpf: u.cpf || '', cargo: u.cargo || '', departamento: u.departamento || '', departamentoId: u.departamentoId != null ? u.departamentoId : null, nascimento: u.nascimento || '',
         endereco: u.endereco || '', bio: u.bio || '', cidade: u.cidade || '', uf: u.uf || '', fotoUrl: u.fotoUrl || '',
         tipo: u.papelNome || u.papel || '—', papelCodigo: u.papel || 'atendente',
         status: u.status || 'ativo',
@@ -296,6 +296,7 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
     papel: 'atendente',
     cargo: (inicial && inicial.cargo) || '',
     departamento: (inicial && inicial.departamento) || '',
+    departamentoId: (inicial && inicial.departamentoId != null) ? String(inicial.departamentoId) : '',
     nascimento: (inicial && inicial.nascimento) || '',
     endereco: (inicial && inicial.endereco) || '',
     bio: (inicial && inicial.bio) || '',
@@ -304,6 +305,26 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
   }));
   const [pw, setPw] = React.useState({ nova: '', conf: '' });
   const [salvando, setSalvando] = React.useState(false);
+  // Departamentos reais (p/ o seletor). Best-effort: pré-seleciona pelo nome nos usuários antigos.
+  const [departamentos, setDepartamentos] = React.useState([]);
+  React.useEffect(() => {
+    let alive = true;
+    window.API.getDepartamentos().then((r) => {
+      if (!alive) return;
+      const ds = (r.departamentos || []).filter((d) => d.ativo !== false);
+      setDepartamentos(ds);
+      setF((p) => {
+        if (p.departamentoId || !p.departamento) return p;
+        const m = ds.find((d) => (d.nome || '').toLowerCase() === p.departamento.toLowerCase());
+        return m ? { ...p, departamentoId: String(m.id) } : p;
+      });
+    }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  const setDepartamento = (id) => {
+    const d = departamentos.find((x) => String(x.id) === String(id));
+    setF((p) => ({ ...p, departamentoId: id, departamento: d ? d.nome : '' }));
+  };
   const [prefs, setPrefs] = React.useState({ tema: 'light', densidade: 'regular', notifNovaMensagem: true, notifTransferida: true, notifAguardando: true, notifResumoEmail: false, notifPlataforma: false });
   const set = (k, v) => { if (ro) return; setF((p) => ({ ...p, [k]: v })); };
   const setPwK = (k, v) => setPw((p) => ({ ...p, [k]: v }));
@@ -349,7 +370,8 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
       const r = await window.API.criarUsuario({
         nomeCompleto: f.nomeCompleto, name: f.name, email: f.email, telefone: f.telefone,
         cpf: f.cpf, cargo: f.cargo, papel: f.papel,
-        departamento: f.departamento, nascimento: f.nascimento, endereco: f.endereco, bio: f.bio, cidade: f.cidade, uf: f.uf,
+        departamento: f.departamento, departamentoId: f.departamentoId ? Number(f.departamentoId) : null,
+        nascimento: f.nascimento, endereco: f.endereco, bio: f.bio, cidade: f.cidade, uf: f.uf,
       });
       if (fotoFile && r.userId) { try { await window.API.uploadFotoUsuario(r.userId, fotoFile); } catch (e) {} }
       window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Convite enviado', descricao: 'O usuário vai receber um e-mail para criar a senha e acessar.' });
@@ -365,7 +387,8 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
     try {
       await window.API.editarUsuario(inicial.id, {
         nomeCompleto: f.nomeCompleto, name: f.name, telefone: f.telefone, cpf: f.cpf, cargo: f.cargo,
-        departamento: f.departamento, nascimento: f.nascimento, endereco: f.endereco, bio: f.bio, cidade: f.cidade, uf: f.uf,
+        departamento: f.departamento, departamentoId: f.departamentoId ? Number(f.departamentoId) : null,
+        nascimento: f.nascimento, endereco: f.endereco, bio: f.bio, cidade: f.cidade, uf: f.uf,
         removerFoto: fotoRemovida,
       });
       if (fotoFile) { try { await window.API.uploadFotoUsuario(inicial.id, fotoFile); } catch (e) {} }
@@ -464,7 +487,17 @@ function NovoUsuarioDrawer({ modo = 'novo', inicial = null, onClose, onResultado
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div><label className="label">Cargo</label><input className="input" value={f.cargo} disabled={ro} onChange={(e) => set('cargo', e.target.value)} /></div>
-            <div><label className="label">Departamento</label><input className="input" value={f.departamento} disabled={ro} onChange={(e) => set('departamento', e.target.value)} /></div>
+            <div>
+              <label className="label">Departamento</label>
+              {ro ? (
+                <input className="input" value={f.departamento || '—'} disabled readOnly />
+              ) : (
+                <select className="input" value={f.departamentoId} onChange={(e) => setDepartamento(e.target.value)}>
+                  <option value="">— Sem departamento —</option>
+                  {departamentos.map((d) => <option key={d.id} value={d.id}>{d.nome}</option>)}
+                </select>
+              )}
+            </div>
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
             <div><label className="label">Data de nascimento</label><input className="input" value={f.nascimento} disabled={ro} onChange={(e) => set('nascimento', maskData(e.target.value))} inputMode="numeric" maxLength={10} placeholder="dd/mm/aaaa" /></div>
