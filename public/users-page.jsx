@@ -44,9 +44,31 @@ function UsersStyles() {
 }
 
 function UsersPage() {
-  const { back } = useStore();
-  const [users, setUsers] = React.useState([]);
-  const [loaded, setLoaded] = React.useState(false);
+  const { back, auth } = useStore();
+  // Usuários via cache por empresa (api.jsx): revisita instantânea + revalida no fundo.
+  const { data: users, setData: setUsers, loading: usersLoading, reload } = useCachedQuery(
+    ['usuarios'],
+    async () => {
+      let list;
+      try {
+        const r = await window.API.getUsuarios();
+        list = (r.usuarios || []).map((u) => ({
+          id: u.id,
+          code: userCode(u.id, u.uf),
+          name: u.nome || '—', nomeCompleto: u.nomeCompleto || '', email: u.email || '', telefone: u.telefone || '',
+          cpf: u.cpf || '', cargo: u.cargo || '', departamento: u.departamento || '', departamentoId: u.departamentoId != null ? u.departamentoId : null, nascimento: u.nascimento || '',
+          endereco: u.endereco || '', bio: u.bio || '', cidade: u.cidade || '', uf: u.uf || '', fotoUrl: u.fotoUrl || '',
+          tipo: u.papelNome || u.papel || '—', papelCodigo: u.papel || 'atendente',
+          status: u.status || 'ativo',
+        }));
+        if (window.semearFotosUsuarios) window.semearFotosUsuarios(r.usuarios); // foto única em todo Avatar
+        if (list.length && typeof skelRemember === 'function') skelRemember('usuarios', list.length);
+      } catch (e) { list = []; } // erro -> vazio (igual ao .catch antigo)
+      return list;
+    },
+    { empresaId: auth.empresaId, initialData: [] },
+  );
+  const loaded = !usersLoading;
   const [drawer, setDrawer] = React.useState(null);   // { modo, inicial }
   const [excluir, setExcluir] = React.useState(null); // usuário a excluir (confirmação)
   const [criado, setCriado] = React.useState(null);   // resultado de criação/reset (mostra a senha 1x)
@@ -55,26 +77,8 @@ function UsersPage() {
   const [filterStatus, setFilterStatus] = React.useState('all'); // all | ativo | inativo
   const [showFilters, setShowFilters] = React.useState(false);
 
-  const reload = React.useCallback(async () => {
-    setLoaded(false);
-    try {
-      const r = await window.API.getUsuarios();
-      const list = (r.usuarios || []).map((u) => ({
-        id: u.id,
-        code: userCode(u.id, u.uf),
-        name: u.nome || '—', nomeCompleto: u.nomeCompleto || '', email: u.email || '', telefone: u.telefone || '',
-        cpf: u.cpf || '', cargo: u.cargo || '', departamento: u.departamento || '', departamentoId: u.departamentoId != null ? u.departamentoId : null, nascimento: u.nascimento || '',
-        endereco: u.endereco || '', bio: u.bio || '', cidade: u.cidade || '', uf: u.uf || '', fotoUrl: u.fotoUrl || '',
-        tipo: u.papelNome || u.papel || '—', papelCodigo: u.papel || 'atendente',
-        status: u.status || 'ativo',
-      }));
-      setUsers(list);
-      if (window.semearFotosUsuarios) window.semearFotosUsuarios(r.usuarios); // foto única em todo Avatar
-      if (list.length) skelRemember('usuarios', list.length);
-    } catch (e) { setUsers([]); }
-    finally { setLoaded(true); }
-  }, []);
-  React.useEffect(() => { reload(); }, [reload]);
+  // (A busca de usuários e seu ciclo de vida vivem agora no hook useCachedQuery
+  // acima: carrega no mount, cacheia por empresa, revalida no fundo e expõe `reload`.)
 
   const tipos = React.useMemo(() => Array.from(new Set(users.map((u) => u.tipo).filter((t) => t && t !== '—'))), [users]);
   const filtered = React.useMemo(() => {

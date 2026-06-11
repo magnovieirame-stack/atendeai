@@ -29,15 +29,24 @@
   };
 
   function CatalogPage() {
-    const { can } = useStore();
+    const { can, auth } = useStore();
     const [query, setQuery] = React.useState('');
     const [showFilters, setShowFilters] = React.useState(false);
     const [filterCat, setFilterCat] = React.useState('all');
     const [filterStatus, setFilterStatus] = React.useState('all');
     const [filterStock, setFilterStock] = React.useState('all'); // all | com | sem | livre
-    const [items, setItems] = React.useState([]);
-    const [loading, setLoading] = React.useState(true);
-    const [error, setError] = React.useState('');
+    // Catálogo via cache por empresa (api.jsx): revisita instantânea + revalida no
+    // fundo. setItems aplica as edições otimistas direto no cache.
+    const { data: items, setData: setItems, loading, error, reload } = useCachedQuery(
+      ['catalogo'],
+      async () => {
+        const r = await window.API.getProdutos();
+        const rows = (r.produtos || []).map((p, i) => window.produtoDtoToRow(p, i));
+        if (rows.length && typeof skelRemember === 'function') skelRemember('catalogo', rows.length);
+        return rows;
+      },
+      { empresaId: auth.empresaId, initialData: [] },
+    );
     const [selected, setSelected] = React.useState(new Set());
     const [historyOf, setHistoryOf] = React.useState(null);
     const [viewOf, setViewOf] = React.useState(null);
@@ -47,21 +56,8 @@
     const [exportOpen, setExportOpen] = React.useState(false);
     const [importOpen, setImportOpen] = React.useState(false);
 
-    // Carrega o catálogo do backend (tabela catalogo-produtos, por empresa).
-    const reload = React.useCallback(async () => {
-      setLoading(true); setError('');
-      try {
-        const r = await window.API.getProdutos();
-        const rows = (r.produtos || []).map((p, i) => window.produtoDtoToRow(p, i));
-        setItems(rows);
-        if (rows.length) skelRemember('catalogo', rows.length);
-      } catch (e) {
-        setError((e && e.message) || 'Falha ao carregar o catálogo.');
-      } finally {
-        setLoading(false);
-      }
-    }, []);
-    React.useEffect(() => { reload(); }, [reload]);
+    // (A busca do catálogo e seu ciclo de vida vivem agora no hook useCachedQuery
+    // acima: carrega no mount, cacheia por empresa, revalida no fundo e expõe `reload`.)
 
     const cats = React.useMemo(() => Array.from(new Set(items.map((i) => i.cat))).sort(), [items]);
 

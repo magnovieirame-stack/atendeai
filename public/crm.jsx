@@ -226,13 +226,23 @@ function FunisSkeleton({ count = 3 }) {
 }
 
 function CRMList() {
-  const { setRoute } = useStore();
-  const [boards, setBoards] = React.useState(null); // null = carregando
+  const { setRoute, auth } = useStore();
+  // CRM (funis) via cache por empresa (api.jsx): revisita instantânea + revalida no
+  // fundo. boards === null = carregando (sem cache); erro vira lista vazia (como antes).
+  const { data: boardsData, setData: setBoards, error: boardsError } = useCachedQuery(
+    ['funis'],
+    async () => {
+      const r = await API.getFunis();
+      const list = r.funis || [];
+      if (list.length && typeof skelRemember === 'function') skelRemember('funis', list.length);
+      return list;
+    },
+    { empresaId: auth.empresaId, initialData: null },
+  );
+  const boards = boardsError ? [] : boardsData; // erro -> trata como vazio (igual ao .catch antigo)
   const [showNew, setShowNew] = React.useState(false);
   const [editing, setEditing] = React.useState(null);
   const [deleting, setDeleting] = React.useState(null);
-  React.useEffect(() => { API.getFunis().then((r) => setBoards(r.funis || [])).catch(() => setBoards([])); }, []);
-  React.useEffect(() => { if (Array.isArray(boards) && boards.length) skelRemember('funis', boards.length); }, [boards]);
 
   const handleCreate = async (data) => {
     setShowNew(false);
@@ -394,7 +404,7 @@ function CRMBoard() {
     <div className="screen">
       <Topbar title={funil ? funil.name : (loading ? 'Carregando…' : 'Funil')} subtitle={funil ? (funil.desc || 'Funil de vendas') : ''} left={<button className="btn btn-ghost btn-icon" onClick={back}><Ic name="chevron-left" size={16} /></button>} right={
       <div className="row" style={{ gap: 6 }}>
-          <FabNovo size="mini" label="Nova coluna" onClick={() => setAddingPhase(true)} />
+          <FabNovo size="sm" label="Nova coluna" onClick={() => setAddingPhase(true)} />
           <div style={{ position: 'relative', display: 'flex', gap: 0, background: 'var(--surface-2)', borderRadius: 10, padding: 4, height: 38, backgroundColor: "rgb(244, 244, 244)" }}>
             <div style={{ position: 'absolute', top: 4, left: 4 + ['funnel', 'list', 'chart'].indexOf(view) * 32, width: 32, height: 30, background: '#BFE6CE', borderRadius: 6, transition: 'left .22s cubic-bezier(.4,.0,.2,1)', pointerEvents: 'none' }} />
             {[
@@ -977,21 +987,23 @@ function CRMCard({ card, phaseColor, isDragging, floating, floatingX, floatingY,
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 13, minWidth: 0 }}>
-            <Ic name="user" className="crm-fic" />
+            <Ic name="user" className="crm-fic" style={{ marginLeft: -2 }} />
             <span style={{ fontWeight: 700, letterSpacing: '.02em', lineHeight: 1.15, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', color: 'var(--text)' }}>{card.name}</span>
           </div>
-          {card.company && <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 3, minWidth: 0 }}>
+          {/* empresa/telefone/e-mail SEMPRE renderizam (ícone fixo; sem dado fica só o
+              ícone) -> todos os cartões ficam com a MESMA altura. */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 3, minWidth: 0 }}>
             <Ic name="building" className="crm-fic" />
-            <span style={{ color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.company}</span>
-          </div>}
-          {card.phone && <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 2, minWidth: 0 }}>
+            <span style={{ color: 'var(--text-muted)', fontWeight: 600, letterSpacing: '.02em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.company || ''}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 2, minWidth: 0 }}>
             <Ic name="phone" className="crm-fic" />
-            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.phone}</span>
-          </div>}
-          {card.email && <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 2, minWidth: 0 }}>
+            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.phone || ''}</span>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 2, fontSize: 11, marginTop: 2, minWidth: 0 }}>
             <Ic name="mail" className="crm-fic" />
-            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.email}</span>
-          </div>}
+            <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.email || ''}</span>
+          </div>
         </div>
         <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.04em', color: 'var(--text-faint)', whiteSpace: 'nowrap', paddingTop: 1, flexShrink: 0 }}>{card.date}</div>
       </div>

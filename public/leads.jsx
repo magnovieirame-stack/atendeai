@@ -91,16 +91,25 @@
 
 
   function AdminLeads() {
-    const { setRoute } = useStore();
+    const { setRoute, auth } = useStore();
     const [query, setQuery] = React.useState('');
     const [showFilters, setShowFilters] = React.useState(false);
     const [showNew, setShowNew] = React.useState(false);
     const [showImport, setShowImport] = React.useState(false);
     const [selected, setSelected] = React.useState(new Set());
-    const [allLeads, setAllLeads] = React.useState([]);
-    const [loaded, setLoaded] = React.useState(false);
-    React.useEffect(() => { API.getLeads().then((r) => setAllLeads((r.leads || []).map((l, i) => enrichLead(l, i)))).catch(() => setAllLeads([])).finally(() => setLoaded(true)); }, []);
-    React.useEffect(() => { if (loaded && allLeads.length) skelRemember('leads', allLeads.length); }, [loaded, allLeads]);
+    // Leads via cache por empresa (api.jsx): revisita instantânea + revalida no fundo.
+    const { data: allLeads, setData: setAllLeads, loading: leadsLoading } = useCachedQuery(
+      ['leads'],
+      async () => {
+        let list;
+        try { const r = await API.getLeads(); list = (r.leads || []).map((l, i) => enrichLead(l, i)); }
+        catch (e) { list = []; } // erro -> lista vazia (igual ao .catch antigo)
+        if (list.length && typeof skelRemember === 'function') skelRemember('leads', list.length);
+        return list;
+      },
+      { empresaId: auth.empresaId, initialData: [] },
+    );
+    const loaded = !leadsLoading;
     const [visibleCols, setVisibleCols] = React.useState(() => new Set(ALL_COLUMNS.map((c) => c.id)));
     const [filterStages, setFilterStages] = React.useState(() => new Set());
     const [filterTags, setFilterTags] = React.useState(() => new Set());

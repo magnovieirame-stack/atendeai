@@ -167,6 +167,7 @@ function TypeSelect({ value, onChange }) {
 }
 
 function Agenda() {
+  const { auth } = useStore();
   const [view, setView] = React.useState('month');
   const [cursor, setCursor] = React.useState(new Date());
   const [showNew, setShowNew] = React.useState(false);
@@ -178,20 +179,28 @@ function Agenda() {
   const [animKey, setAnimKey] = React.useState(0);
   const [animDir, setAnimDir] = React.useState('right');
   const [active, setActive] = React.useState(null); // { appt, mode: 'view' | 'edit' }
-  const [appts, setAppts] = React.useState([]);
-  const [tasks, setTasks] = React.useState([]);
+  // Agendamentos e tarefas via cache por empresa (api.jsx): revisita instantânea
+  // + revalida no fundo. setAppts/setTasks aplicam as edições otimistas no cache.
+  const { data: appts, setData: setAppts, loading: apptsLoading } = useCachedQuery(
+    ['agenda'],
+    async () => { try { const r = await API.getAgenda(); return r.agenda || []; } catch (e) { return []; } },
+    { empresaId: auth.empresaId, initialData: [] },
+  );
+  const { data: tasks, setData: setTasks, loading: tasksLoading } = useCachedQuery(
+    ['agenda-tarefas'],
+    async () => { try { const r = await API.getTarefas(); return r.tarefas || []; } catch (e) { return []; } },
+    { empresaId: auth.empresaId, initialData: [] },
+  );
   const [me, setMe] = React.useState(null);
-  const [loaded, setLoaded] = React.useState(false); // dados iniciais (agenda+tarefas+categorias) carregados
+  const loaded = !apptsLoading && !tasksLoading; // skeleton some quando agenda+tarefas chegam
   const cfg = useAgendaConfig();
   const [catFilter, setCatFilter] = React.useState(() => new Set()); // labels marcadas; vazio = mostra todos
   const toggleCat = (label) => setCatFilter((s) => { const n = new Set(s); n.has(label) ? n.delete(label) : n.add(label); return n; });
   const filteredAppts = catFilter.size ? appts.filter((a) => catFilter.has(a.type)) : appts;
+  // Categorias, identidade (me) e config da agenda — busca leve secundária, fora do
+  // cache (não bloqueia o skeleton; agendamentos/tarefas já vêm do cache acima).
   React.useEffect(() => {
-    Promise.all([
-      API.getAgenda().then((r) => setAppts(r.agenda || [])).catch(() => setAppts([])),
-      API.getTarefas().then((r) => setTasks(r.tarefas || [])).catch(() => setTasks([])),
-      API.getCategorias().then((r) => setCustomCategories((r.categorias || []).map((c) => ({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || null })))).catch(() => {})
-    ]).finally(() => setLoaded(true));
+    API.getCategorias().then((r) => setCustomCategories((r.categorias || []).map((c) => ({ id: c.id, label: c.nome, icon: c.icone, color: c.cor || null })))).catch(() => {});
     API.me().then((r) => setMe(r.user)).catch(() => {});
     API.getAgendaConfig().then((r) => { setAgendaConfig(r.config); const v = r.config && r.config.visaoInicial; if (v === 'week' || v === 'day' || v === 'month') setView(v); }).catch(() => {});
   }, []);

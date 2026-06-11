@@ -103,26 +103,27 @@
   }
 
   function SalesPage() {
+    const { auth } = useStore();
     const [query, setQuery] = React.useState('');
     const [showFilters, setShowFilters] = React.useState(false);
     const [filterStatus, setFilterStatus] = React.useState('all');
     const [filterMethod, setFilterMethod] = React.useState(new Set());
     const [filterSeller, setFilterSeller] = React.useState(new Set());
     const [filterStore, setFilterStore] = React.useState(new Set());
-    const [sales, setSales] = React.useState([]);
-    const [loading, setLoading] = React.useState(true);
-    // Lista REAL por tenant via API.getVendas (alimentada pelo PDV).
-    const reload = React.useCallback(async () => {
-      setLoading(true);
-      try {
-        const r = await window.API.getVendas();
-        setSales((r.vendas || []).map(vendaDtoToRow));
-      } catch (e) {
-        setSales([]);
-        window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao carregar vendas', descricao: (e && e.message) || 'Tente novamente.' });
-      } finally { setLoading(false); }
-    }, []);
-    React.useEffect(() => { reload(); }, [reload]);
+    // Vendas (lista REAL por tenant, alimentada pelo PDV) via cache por empresa.
+    const { data: sales, setData: setSales, loading, reload } = useCachedQuery(
+      ['vendas'],
+      async () => {
+        try {
+          const r = await window.API.getVendas();
+          return (r.vendas || []).map(vendaDtoToRow);
+        } catch (e) {
+          window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao carregar vendas', descricao: (e && e.message) || 'Tente novamente.' });
+          throw e; // mantém estado de erro do hook (não cacheia) -> remonta tenta de novo
+        }
+      },
+      { empresaId: auth.empresaId, initialData: [] },
+    );
     const [selected, setSelected] = React.useState(new Set());
     const [viewOf, setViewOf] = React.useState(null);
     const [printOf, setPrintOf] = React.useState(null);

@@ -820,16 +820,17 @@ function WhatsappConnectModal({ disponivel, current, onClose, onConnected }) {
 }
 
 function AdminIntegrations() {
-  const [data, setData] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
+  const { auth } = useStore();
+  // Integrações via cache por empresa (api.jsx): revisita instantânea + revalida no fundo.
+  const { data, loading, reload: load } = useCachedQuery(
+    ['integracoes'],
+    async () => {
+      try { return await API.getIntegracoes(); }
+      catch (e) { return { integracoes: {} }; } // erro -> vazio (igual ao .catch antigo)
+    },
+    { empresaId: auth.empresaId, initialData: null },
+  );
   const [modal, setModal] = React.useState(null); // 'instagram' | 'facebook' | 'whatsapp' | null
-
-  const load = React.useCallback(async () => {
-    try { const r = await API.getIntegracoes(); setData(r); }
-    catch (e) { setData({ integracoes: {} }); }
-    finally { setLoading(false); }
-  }, []);
-  React.useEffect(() => { load(); }, [load]);
 
   const integ = (data && data.integracoes) || {};
   const info = (canal) => integ[canal] || null;
@@ -1257,6 +1258,7 @@ function TeamMemberCard({ m, idx, allTeam, onClick }) {
             <div className="row" style={{ gap: 8, alignItems: 'center' }}>
               <div style={{ fontWeight: 700, fontSize: 'var(--type-lg)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: 1.15 }}>{m.name}</div>
               <span className={`badge ${m.status === 'ativo' ? 'badge-success' : 'badge-neutral'}`} style={{ flexShrink: 0 }}>{m.status === 'ativo' ? 'Ativo' : 'Inativo'}</span>
+              {m.pausa && <span className="badge badge-neutral" style={{ flexShrink: 0 }}><span className="dot" style={{ background: m.pausaCor || '#f59e0b' }} /> {m.pausaLabel || 'Em pausa'}</span>}
             </div>
             <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 2 }}>Equipe {teamName}</div>
           </div>
@@ -1322,33 +1324,38 @@ function AdminTeam() {
   // Equipe REAL por tenant: membros via GET /api/agenda/usuarios + KPIs de venda
   // reais via GET /api/equipe/kpis (mês atual, só vendas 'concluida' — cancelada
   // NÃO conta). Meta/Comissão ficam "—" (honesto; ainda não modeladas).
-  const [team, setTeam] = React.useState([]);
-  const [kpis, setKpis] = React.useState({});
-  const [periodo, setPeriodo] = React.useState(null);
-  const [loaded, setLoaded] = React.useState(false);
-
-  React.useEffect(() => {
-    let alive = true;
-    (async () => {
+  const { auth } = useStore();
+  // Equipe (membros + KPIs de venda) via cache por empresa: revisita instantânea
+  // + revalida no fundo. Read-only (sem edição otimista) -> só leitura do cache.
+  const { data: equipe, loading: equipeLoading } = useCachedQuery(
+    ['equipe'],
+    async () => {
       try {
-        const [ru, rk] = await Promise.all([
+        const [ru, rk, rp] = await Promise.all([
           API.getUsuarios(),
           API.getEquipeKpis().catch(() => ({ kpis: {}, periodo: null })),
+          API.getPresencas().catch(() => ({ presencas: [] })),
         ]);
-        const membros = (ru.usuarios || []).map((u) => ({
-          id: u.id, name: u.nome, email: u.email,
-          papel: u.papel || null, papelNome: u.papelNome || null,
-          status: 'ativo', // membros vinculados ao tenant são ativos
-        }));
-        if (alive) { setTeam(membros); setKpis(rk.kpis || {}); setPeriodo(rk.periodo || null); skelRemember('equipe', membros.length); }
+        const presByUser = {}; (rp.presencas || []).forEach((p) => { presByUser[p.user_id] = p; });
+        const membros = (ru.usuarios || []).map((u) => {
+          const pr = presByUser[u.id]; const emPausa = !!(pr && pr.status === 'pausa');
+          return {
+            id: u.id, name: u.nome, email: u.email,
+            papel: u.papel || null, papelNome: u.papelNome || null,
+            status: 'ativo', // membros vinculados ao tenant são ativos
+            pausa: emPausa, pausaLabel: emPausa ? (pr.motivo_label || 'Em pausa') : null, pausaCor: emPausa ? (pr.cor || null) : null,
+          };
+        });
+        if (typeof skelRemember === 'function') skelRemember('equipe', membros.length);
+        return { team: membros, kpis: rk.kpis || {}, periodo: rk.periodo || null };
       } catch (e) {
-        if (alive) setTeam([]);
-      } finally {
-        if (alive) setLoaded(true);
+        return { team: [], kpis: {}, periodo: null }; // erro -> vazio (igual ao .catch antigo)
       }
-    })();
-    return () => { alive = false; };
-  }, []);
+    },
+    { empresaId: auth.empresaId, initialData: { team: [], kpis: {}, periodo: null } },
+  );
+  const team = equipe.team, kpis = equipe.kpis, periodo = equipe.periodo;
+  const loaded = !equipeLoading;
 
   const brl = (v) => 'R$ ' + (Number(v) || 0).toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const kpiDe = (id) => kpis[id] || { vendido: 0, num_vendas: 0, ticket_medio: 0 };
@@ -1361,6 +1368,7 @@ function AdminTeam() {
     id: m.id, name: m.name, color: colorFor(m.name) || 'var(--hue-orange)',
     status: m.status, role: m.papelNome || 'Colaborador',
     vendido: kpiDe(m.id).vendido, meta: 50000,
+    pausa: m.pausa, pausaLabel: m.pausaLabel, pausaCor: m.pausaCor,
   }));
 
   // célula de métrica (não-componente, evita remount)

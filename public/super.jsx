@@ -1853,8 +1853,16 @@ function clienteParaLoja(c) {
 }
 
 function SuperTenants() {
-  const [clientes, setClientes] = React.useState(null); // null = carregando
-  const [erro, setErro] = React.useState('');
+  const { auth } = useStore();
+  // Clientes da plataforma via cache (super admin): revisita instantânea + revalida no fundo.
+  const { data: clientes, loading, error: erro, reload } = useCachedQuery(
+    ['plataforma-clientes'],
+    async () => {
+      try { const r = await API.getPlataformaClientes(); return r.clientes || []; }
+      catch (e) { throw new Error(e && e.status === 403 ? '403' : 'erro'); } // preserva o '403'
+    },
+    { empresaId: auth.empresaId, initialData: null },
+  );
   const [search, setSearch] = React.useState('');
   const [tipoFilter, setTipoFilter] = React.useState('todos');
   const [editing, setEditing] = React.useState(null);   // 'new' | cliente | null
@@ -1863,13 +1871,8 @@ function SuperTenants() {
   const [deleting, setDeleting] = React.useState(null); // cliente a apagar (confirmação)
   const [delBusy, setDelBusy] = React.useState(false);
 
-  const reload = React.useCallback(() => {
-    setClientes(null); setErro('');
-    API.getPlataformaClientes()
-      .then((r) => setClientes(r.clientes || []))
-      .catch((e) => { setClientes([]); setErro(e && e.status === 403 ? '403' : 'erro'); });
-  }, []);
-  React.useEffect(() => { reload(); }, [reload]);
+  // (A busca dos clientes da plataforma vive agora no hook useCachedQuery acima;
+  // `reload` continua disponível para o efeito de exclusão.)
 
   const confirmarApagar = () => {
     if (!deleting || delBusy) return;
@@ -1880,7 +1883,6 @@ function SuperTenants() {
       .finally(() => setDelBusy(false));
   };
 
-  const loading = clientes === null;
   const lista = clientes || [];
   const norm = (s) => (s || '').toLowerCase();
   const filtered = lista.filter((c) =>
@@ -2444,18 +2446,19 @@ function PlanoDetalhe({ plano, onBack, onEditar, onApagar }) {
 }
 
 function SuperPlans() {
-  const [planos, setPlanos] = React.useState(null); // null = carregando
-  const [erro, setErro] = React.useState('');
+  const { auth } = useStore();
+  // Planos da plataforma via cache (super admin): revisita instantânea + revalida no fundo.
+  const { data: planos, loading, error: erro, reload } = useCachedQuery(
+    ['plataforma-planos'],
+    async () => {
+      try { const r = await API.getPlanos(); return r.planos || []; }
+      catch (e) { throw new Error(e && e.status === 403 ? '403' : 'erro'); } // preserva o '403'
+    },
+    { empresaId: auth.empresaId, initialData: null },
+  );
   const [detail, setDetail] = React.useState(null);
   const [editing, setEditing] = React.useState(null); // plano | 'new' | null
   const [deleting, setDeleting] = React.useState(null);
-
-  const reload = React.useCallback(() => {
-    setPlanos(null); setErro('');
-    API.getPlanos().then((r) => setPlanos(r.planos || [])).catch((e) => { setPlanos([]); setErro(e && e.status === 403 ? '403' : 'erro'); });
-  }, []);
-  React.useEffect(() => { reload(); }, [reload]);
-  const loading = planos === null;
   const lista = planos || [];
   React.useEffect(() => { if (!loading) skelRemember('super-planos', lista.length || 3); });
   const limTxt = (v) => v == null ? 'Ilimitado' : Number(v).toLocaleString('pt-BR');

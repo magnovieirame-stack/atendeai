@@ -1,10 +1,10 @@
 // inbox.jsx — Atendente: tela principal de atendimento, fila, perfil cliente, notificações
 
 const AWAY_REASONS = [
-{ id: 'lunch', label: 'Pausa para almoço', icon: 'cart', color: '#f59e0b', desc: 'Retorno em 1h' },
-{ id: 'rest', label: 'Pausa para descanso', icon: 'pause', color: '#0ea5e9', desc: 'Retorno em 15 min' },
-{ id: 'emergency', label: 'Pausa de emergência', icon: 'flag', color: '#dc2626', desc: 'Retorno breve' },
-{ id: 'shift', label: 'Encerrar expediente', icon: 'logout', color: '#64748b', desc: 'Volto amanhã' }];
+{ id: 'lunch', label: 'Pausa para almoço', icon: 'cart', color: '#f59e0b', desc: 'Retorno em 1h', min: 60 },
+{ id: 'rest', label: 'Pausa para descanso', icon: 'pause', color: '#0ea5e9', desc: 'Retorno em 15 min', min: 15 },
+{ id: 'emergency', label: 'Pausa de emergência', icon: 'flag', color: '#dc2626', desc: 'Retorno breve', min: 5 },
+{ id: 'shift', label: 'Encerrar expediente', icon: 'logout', color: '#64748b', desc: 'Volto amanhã', min: 0 }]; // min:0 = sem regressiva
 
 
 function fmtElapsed(ms) {
@@ -14,13 +14,28 @@ function fmtElapsed(ms) {
   const sec = s % 60;
   return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(sec).padStart(2, '0')}`;
 }
+// Contagem REGRESSIVA ("resta"): MM:SS (com HH só se passar de 1h).
+function fmtCountdown(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000));
+  const h = Math.floor(s / 3600), m = Math.floor(s % 3600 / 60), sec = s % 60;
+  const p = (n) => String(n).padStart(2, '0');
+  return (h > 0 ? p(h) + ':' : '') + p(m) + ':' + p(sec);
+}
+// Quanto ESTOUROU do tempo previsto, em texto amigável de minutos.
+function fmtOver(ms) {
+  const totalMin = Math.floor(ms / 60000);
+  if (totalMin < 1) return 'menos de 1 min';
+  if (totalMin < 60) return totalMin + ' min';
+  const h = Math.floor(totalMin / 60), m = totalMin % 60;
+  return h + 'h' + (m ? ' ' + m + ' min' : '');
+}
 
 function AwayModal({ onConfirm, onClose }) {
   const [reason, setReason] = React.useState(null);
   const [note, setNote] = React.useState('');
   const submit = () => {
     if (!reason) return;
-    onConfirm({ reason: reason.id, label: reason.label, color: reason.color, note, since: Date.now() });
+    onConfirm({ reason: reason.id, label: reason.label, color: reason.color, note, since: Date.now(), min: reason.min });
   };
   return (
     <Modal title="Definir como indisponível" onClose={onClose} size="md" footer={
@@ -60,16 +75,26 @@ function AwayModal({ onConfirm, onClose }) {
 function AwayBadge({ away, onResume }) {
   const [now, setNow] = React.useState(Date.now());
   React.useEffect(() => {const t = setInterval(() => setNow(Date.now()), 1000);return () => clearInterval(t);}, []);
-  const elapsed = now - away.since;
+  const elapsed = now - away.since;                 // ms desde o início da pausa
+  const totalMs = (away.min || 0) * 60000;          // tempo previsto (0 = sem regressiva)
+  const temContagem = totalMs > 0;
+  const restante = totalMs - elapsed;
+  const estourou = temContagem && restante <= 0;
+  // Dentro do tempo: regressiva ("resta MM:SS"). Estourou: "passou X min da pausa" (vermelho).
+  // Sem tempo previsto (ex.: encerrar expediente): conta pra cima como antes.
+  const texto = !temContagem ? fmtElapsed(elapsed)
+    : !estourou ? 'resta ' + fmtCountdown(restante)
+    : 'passou ' + fmtOver(-restante) + ' da pausa';
+  const cor = estourou ? '#dc2626' : away.color;
   return (
-    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', background: `color-mix(in oklab, ${away.color} 8%, var(--surface))`, display: 'flex', alignItems: 'center', gap: 10 }}>
-      <span style={{ width: 8, height: 8, borderRadius: '50%', background: away.color, animation: 'pulse 1.6s ease-in-out infinite', flexShrink: 0 }} />
+    <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', background: `color-mix(in oklab, ${cor} 8%, var(--surface))`, display: 'flex', alignItems: 'center', gap: 10 }}>
+      <span style={{ width: 8, height: 8, borderRadius: '50%', background: cor, animation: 'pulse 1.6s ease-in-out infinite', flexShrink: 0 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: away.color }}>{away.label}</div>
+        <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: cor }}>{away.label}</div>
         {away.note && <div className="muted" style={{ fontSize: 'var(--type-xs)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{away.note}</div>}
       </div>
-      <span className="tnum" style={{ fontSize: 'var(--type-sm)', fontWeight: 600, color: away.color, fontVariantNumeric: 'tabular-nums' }}>{fmtElapsed(elapsed)}</span>
-      <button className="btn btn-sm fin-btn-back" onClick={onResume} style={{ borderColor: away.color, color: away.color }}>Voltar</button>
+      <span className="tnum" style={{ fontSize: 'var(--type-sm)', fontWeight: 600, color: cor, fontVariantNumeric: 'tabular-nums', whiteSpace: 'nowrap' }}>{texto}</span>
+      <button className="btn btn-sm fin-btn-back" onClick={onResume} style={{ borderColor: cor, color: cor }}>Voltar</button>
     </div>);
 
 }
@@ -506,6 +531,9 @@ function Inbox() {
   // todas as tags da empresa (para o filtro), independente de estarem ou não em uma conversa
   const [tagList, setTagList] = React.useState([]);
   React.useEffect(() => { API.getTags().then((r) => setTagList((r.tags || []).map((t) => t.nome))).catch(() => {}); }, []);
+  // funis REAIS da empresa (para o filtro por fase/coluna) — cada funil traz suas colunas com id.
+  const [funis, setFunis] = React.useState([]);
+  React.useEffect(() => { API.getFunis().then((r) => setFunis(r.funis || [])).catch(() => {}); }, []);
   // Seleciona a primeira conversa real assim que carregar.
   React.useEffect(() => {
     if (dbConvs && dbConvs.length && selectedId === 'c1') setSelectedId(dbConvs[0].id);
@@ -541,6 +569,30 @@ function Inbox() {
   const [available, setAvailable] = React.useState(true);
   const [away, setAway] = React.useState(null);
   const [showAwayModal, setShowAwayModal] = React.useState(false);
+  // Presença persiste no backend (sobrevive ao F5 e tira do pool/transferências).
+  React.useEffect(() => {
+    API.getPresenca().then((r) => {
+      const p = r && r.presenca;
+      if (p && p.status === 'pausa') {
+        const rz = AWAY_REASONS.find((x) => x.id === p.motivo); // recupera a duração (min) pelo motivo
+        setAvailable(false);
+        setAway({ reason: p.motivo, label: p.motivo_label || (rz && rz.label) || 'Em pausa', color: p.cor || (rz && rz.color) || '#64748b', note: p.nota || '', since: p.desde ? Date.parse(p.desde) : Date.now(), min: rz ? rz.min : 0 });
+      }
+    }).catch(() => {});
+  }, []);
+  const resumir = () => {
+    API.setPresenca({ status: 'disponivel' }).catch(() => {});
+    setAvailable(true); setAway(null);
+    window.showToast({ tipo: 'sucesso', titulo: 'Você está disponível' });
+  };
+  const pausar = (a) => {
+    setShowAwayModal(false);
+    setAvailable(false); setAway(a);
+    API.setPresenca({ status: 'pausa', motivo: a.reason, motivoLabel: a.label, cor: a.color, nota: a.note })
+      .then((r) => { const p = r && r.presenca; if (p && p.desde) setAway((prev) => ({ ...(prev || a), since: Date.parse(p.desde) })); })
+      .catch(() => {});
+    window.showToast({ tipo: 'info', titulo: 'Você está ausente' });
+  };
   const [selectedTags, setSelectedTags] = React.useState([]);
   const [selectedPhases, setSelectedPhases] = React.useState([]);
   const singlePane = useIsMobile(900);     // <=900 (celular + tablet retrato): um painel por vez
@@ -559,12 +611,16 @@ function Inbox() {
   };
   const matchesRefine = (c) => {
     if (selectedTags.length && !(c.tags || []).some((t) => selectedTags.includes(t.nome))) return false;
-    if (selectedPhases.length && !selectedPhases.includes(c.phaseId || 'prospec')) return false;
+    // filtra pela fase REAL do CRM: a conversa traz faseIds (pode estar em vários funis);
+    // casa se QUALQUER uma das fases dela estiver entre as selecionadas (comparação por string p/ tolerar tipo).
+    if (selectedPhases.length && !(c.faseIds || []).some((id) => selectedPhases.some((s) => String(s) === String(id)))) return false;
     return true;
   };
   const SOURCE = dbConvs || []; // fonte real de conversas
   const allTags = tagList; // todas as tags da empresa
-  const allPhases = (typeof CRM_PHASES !== 'undefined' ? CRM_PHASES : []).map((p) => ({ id: p.id, label: p.label, color: p.color }));
+  // fases reais (colunas) de todos os funis, rotuladas com o nome do funil p/ não confundir
+  // colunas homônimas de funis diferentes.
+  const allPhases = (funis || []).flatMap((fu) => (fu.columns || []).map((col) => ({ id: col.id, label: (funis.length > 1 ? (fu.name + ' · ') : '') + col.label, color: col.color })));
   const ALL_CONVS = [...extraConvs, ...SOURCE];
   // fixados primeiro (igual CRM); sort estável preserva a ordem por recência dentro de cada grupo.
   const list = empty ? [] : ALL_CONVS.filter((c) => matchesFilter(c) && matchesRefine(c)).sort((a, b) => (b.fixado ? 1 : 0) - (a.fixado ? 1 : 0));
@@ -586,7 +642,7 @@ function Inbox() {
             available={available}
             away={away}
             onSetAway={() => setShowAwayModal(true)}
-            onResume={() => {setAvailable(true);setAway(null);window.showToast({ tipo: 'sucesso', titulo: 'Você está disponível' });}}
+            onResume={resumir}
             filter={filter}
             tags={allTags}
             phases={allPhases}
@@ -596,7 +652,7 @@ function Inbox() {
             onTogglePhase={(p) => setSelectedPhases((s) => s.includes(p) ? s.filter((x) => x !== p) : [...s, p])}
             onClear={() => {setSelectedTags([]);setSelectedPhases([]);}} />
           
-          {!available && away && <AwayBadge away={away} onResume={() => {setAvailable(true);setAway(null);window.showToast({ tipo: 'sucesso', titulo: 'Você está disponível' });}} />}
+          {!available && away && <AwayBadge away={away} onResume={resumir} />}
           <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
             <div style={{ position: 'relative' }}>
               <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)' }}><Ic name="search" size={14} /></span>
@@ -651,7 +707,7 @@ function Inbox() {
         {/* RIGHT: AI panel or context (desktop: showAI; mobile: mobilePane==='ai') */}
         {conv && ((!singlePane && showAI && !isNarrow) || (singlePane && mobilePane === 'ai')) && <AIPanel conv={conv} setComposing={setComposing} inline={true} onDataChanged={refetchContatos} onBack={singlePane ? () => setMobilePane('thread') : null} />}
       </div>
-      {showAwayModal && <AwayModal onClose={() => setShowAwayModal(false)} onConfirm={(a) => {setAway(a);setAvailable(false);setShowAwayModal(false);window.showToast({ tipo: 'info', titulo: 'Você está ausente' });}} />}
+      {showAwayModal && <AwayModal onClose={() => setShowAwayModal(false)} onConfirm={pausar} />}
     </div>);
 
 }
@@ -708,8 +764,7 @@ function ConvRow({ c, active, onClick, onFixar, onBloquear, onLimpar, onApagar }
         {/* Linha 3: tags + seta do menu (seta alinhada à direita, em coluna com data/hora e badge) */}
         <div className="row" style={{ marginTop: 6, gap: 4, alignItems: 'center' }}>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, minWidth: 0 }}>
-            {c.owner && <span title={'Atendente: ' + c.owner} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 700, letterSpacing: '.02em', padding: '2px 6px', borderRadius: 999, background: 'var(--accent-soft)', color: 'var(--accent-700)', border: '1px solid color-mix(in oklab, var(--accent) 30%, transparent)', whiteSpace: 'nowrap', maxWidth: 110, overflow: 'hidden', textOverflow: 'ellipsis' }}><Ic name="user" size={9} />{c.owner}</span>}
-            {c.dept && <span title={'Departamento: ' + c.dept} style={{ display: 'inline-flex', alignItems: 'center', gap: 3, fontSize: 9, fontWeight: 700, letterSpacing: '.02em', padding: '2px 6px', borderRadius: 999, background: 'var(--surface-3)', color: 'var(--text-muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap', maxWidth: 100, overflow: 'hidden', textOverflow: 'ellipsis' }}><Ic name="folder" size={9} />{c.dept}</span>}
+            {/* tags do atendente e do departamento removidas — só as tags reais do contato */}
             {(c.tags || []).map((t) => { const col = t.cor || '#64748b'; return <span key={t.id} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 999, background: `${col}1A`, color: col, border: `1px solid ${col}33`, whiteSpace: 'nowrap' }}>{t.nome}</span>; })}
           </div>
           <button ref={btnRef} onClick={openMenu} title="Opções" style={{ background: 'transparent', border: 0, padding: 0, cursor: 'default', color: 'var(--text-faint)', display: 'flex', alignItems: 'center', flexShrink: 0, opacity: (hover || menu) ? 1 : 0, transition: 'opacity .12s ease' }}>
@@ -1072,7 +1127,7 @@ function TransferirModal({ conv, onClose, onConfirm }) {
   const [meusDeptos, setMeusDeptos] = React.useState([]);    // ids dos meus setores (do backend)
   React.useEffect(() => {
     let alive = true;
-    const mapU = (u) => ({ id: u.id, name: u.nome, role: u.papelNome || 'Atendente', departamentoId: u.departamentoId != null ? u.departamentoId : null });
+    const mapU = (u) => ({ id: u.id, name: u.nome, role: u.papelNome || 'Atendente', departamentoId: u.departamentoId != null ? u.departamentoId : null, emPausa: !!u.emPausa, pausaLabel: u.pausaLabel || null });
     API.getTransferenciaListas()
       .then((r) => {
         if (!alive) return;
@@ -1105,12 +1160,23 @@ function TransferirModal({ conv, onClose, onConfirm }) {
   // card de atendente reutilizado nas abas "Atendente" e "Meu departamento"
   const renderUser = (a) => {
     const on = selected?.id === a.id;
+    const pausado = a.emPausa; // em pausa: não recebe transferência (cinza + aviso ao clicar)
+    // Aviso de acordo com a pausa: usa o rótulo (= label do AWAY_REASONS) p/ pegar a previsão de retorno.
+    const avisarPausa = () => {
+      const r = AWAY_REASONS.find((x) => x.label === a.pausaLabel);
+      const motivo = (a.pausaLabel || (r && r.label) || 'pausa').toLowerCase();
+      const retorno = (r && r.desc) ? ` · ${r.desc.toLowerCase()}` : '';
+      window.showToast && window.showToast({ tipo: 'aviso', titulo: `${a.name} está indisponível`, descricao: `Entrou em ${motivo}${retorno}.`, duracao: 5000 });
+    };
     return (
-      <div key={a.id} onClick={() => setSelected(a)} className="card" style={{ padding: 10, cursor: 'default', borderColor: on ? 'var(--accent)' : 'var(--border)', background: on ? 'var(--accent-soft)' : 'var(--surface)', transition: 'border-color .15s, background .15s' }}>
+      <div key={a.id} onClick={() => { if (pausado) avisarPausa(); else setSelected(a); }} className="card" style={{ padding: 10, cursor: 'default', opacity: pausado ? 0.55 : 1, borderColor: on ? 'var(--accent)' : 'var(--border)', background: on ? 'var(--accent-soft)' : 'var(--surface)', transition: 'border-color .15s, background .15s' }}>
         <div className="row" style={{ gap: 10 }}>
           <Avatar name={a.name} size="sm" />
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div className="row" style={{ gap: 6 }}><span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>{a.name}</span></div>
+            <div className="row" style={{ gap: 6 }}>
+              <span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>{a.name}</span>
+              {pausado && <span style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '1px 6px', borderRadius: 999, background: 'var(--surface-3)', color: 'var(--text-muted)', border: '1px solid var(--border)', whiteSpace: 'nowrap' }}>{a.pausaLabel || 'Em pausa'}</span>}
+            </div>
             <div className="muted" style={{ fontSize: 11 }}>{a.role}</div>
           </div>
           {on && <Ic name="check" size={16} style={{ color: 'var(--accent)' }} />}
@@ -1234,6 +1300,11 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
   const [toast, setToast] = React.useState(null);
   const inputRef = React.useRef(null);
   const scrollRef = React.useRef(null);
+  const atBottomRef = React.useRef(true);   // o usuário está "colado" no fim da conversa?
+  const prevConvRef = React.useRef(conv.id);
+  const scrollToBottom = React.useCallback(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, []);
+  const onScrollMsgs = () => { const el = scrollRef.current; if (el) atBottomRef.current = (el.scrollHeight - el.scrollTop - el.clientHeight) < 80; };
+  const [qrIndex, setQrIndex] = React.useState(0); // item realçado na lista de respostas rápidas (modo "/")
 
   React.useEffect(() => {
     setLocalStatus(conv.status);
@@ -1275,9 +1346,26 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
     return () => clearInterval(id);
   }, [conv.id, conv._db]);
 
+  // Rola pro FIM (última mensagem). Ao ABRIR/trocar de conversa, sempre nasce no fim
+  // — depois dos balões renderizarem (loadingMsgs false), não na skeleton. Em mensagem
+  // nova (envio/poll), só rola se você JÁ estava no fim (não atrapalha quem lê o
+  // histórico). useLayoutEffect = aplica antes de pintar, sem "pulo" visível.
+  React.useLayoutEffect(() => {
+    if (loadingMsgs) return;
+    const trocou = prevConvRef.current !== conv.id;
+    prevConvRef.current = conv.id;
+    if (trocou || atBottomRef.current) { scrollToBottom(); atBottomRef.current = true; }
+  }, [conv.id, messages, loadingMsgs]);
+
+  // Mídia (imagem/áudio/vídeo) carrega depois e aumenta a altura -> reancora no fim
+  // se ainda estávamos no fim (corrige o "scroll parado no meio" quando há imagens).
   React.useEffect(() => {
-    if (scrollRef.current) scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
-  }, [messages.length]);
+    const el = scrollRef.current;
+    if (!el) return;
+    const onMediaLoad = (e) => { const t = e.target; if (t && /^(IMG|VIDEO|AUDIO)$/.test(t.tagName || '') && atBottomRef.current) scrollToBottom(); };
+    el.addEventListener('load', onMediaLoad, true); // capture: o 'load' de mídia não borbulha
+    return () => el.removeEventListener('load', onMediaLoad, true);
+  }, [conv.id]);
 
   React.useEffect(() => {if (toast) {const t = setTimeout(() => setToast(null), 2400);return () => clearTimeout(t);}}, [toast]);
 
@@ -1303,17 +1391,30 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       window.showToast({ tipo: 'erro', titulo: 'Falha ao enviar', descricao: e.message || 'Não foi possível enviar a mensagem.' });
     }
   };
-  const onKeyDown = (e) => {if (e.key === 'Enter' && !e.shiftKey) {e.preventDefault();handleSend();}};
-  const onPickEmoji = (e) => {setComposing((composing || '') + e);inputRef.current?.focus();};
-  // expande o atalho: se o texto digitado for exatamente um comando, troca pela mensagem completa
-  const onComposeChange = (val) => {
-    const exact = quickReplies.find((q) => q.comando && q.comando.trim().toLowerCase() === val.trim().toLowerCase());
-    setComposing(exact ? exact.mensagem : val);
-  };
-  // sugestões enquanto digita o começo de um atalho
-  const qrSuggestions = composing.trim()
-    ? quickReplies.filter((q) => q.comando && q.comando.toLowerCase().startsWith(composing.trim().toLowerCase()) && q.comando.trim().toLowerCase() !== composing.trim().toLowerCase()).slice(0, 5)
+  // --- Respostas rápidas estilo WhatsApp Web: digitar "/" abre a lista; o texto após
+  // a barra filtra pelo TÍTULO; clicar/Enter joga a mensagem completa no campo. ---
+  const slashOpen = composing.startsWith('/');
+  const slashQuery = slashOpen ? composing.slice(1).toLowerCase().trim() : '';
+  // título normalizado (minúsculo, sem barra inicial caso o comando tenha sido salvo com "/")
+  const _qrTitulo = (q) => (q.comando || '').toLowerCase().replace(/^\/+/, '').trim();
+  const qrList = slashOpen
+    ? quickReplies.filter((q) => !slashQuery || _qrTitulo(q).includes(slashQuery))
     : [];
+  const pickQuickReply = (q) => { if (!q) return; setComposing(q.mensagem); inputRef.current && inputRef.current.focus(); };
+  React.useEffect(() => { setQrIndex(0); }, [composing]); // realça o 1º conforme o filtro muda
+
+  const onKeyDown = (e) => {
+    if (slashOpen && qrList.length) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setQrIndex((i) => Math.min(i + 1, qrList.length - 1)); return; }
+      if (e.key === 'ArrowUp')   { e.preventDefault(); setQrIndex((i) => Math.max(i - 1, 0)); return; }
+      if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); pickQuickReply(qrList[qrIndex] || qrList[0]); return; }
+      if (e.key === 'Escape')    { e.preventDefault(); setComposing(''); return; }
+    }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); }
+  };
+  const onPickEmoji = (e) => {setComposing((composing || '') + e);inputRef.current?.focus();};
+  // digitar só atualiza o texto; a inserção da resposta vem do painel "/" (clique/Enter).
+  const onComposeChange = (val) => { setComposing(val); };
   // dispara o seletor de arquivo do sistema
   const triggerFile = (accept) => { setPendingAccept(accept); setTimeout(() => fileRef.current && fileRef.current.click(), 0); };
   // faz upload do arquivo escolhido (ou áudio gravado) via API
@@ -1381,11 +1482,26 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
         <button className="btn btn-ghost btn-icon" onClick={(e) => e.stopPropagation()} style={{ width: "30px", height: "30px" }}><Ic name="phone" size={15} /></button>
         <button className="btn btn-ghost btn-icon" onClick={(e) => e.stopPropagation()} style={{ width: "30px", height: "30px" }}><Ic name="user" size={15} /></button>
       </div>
-      <div ref={scrollRef} className="scroll" style={{ flex: 1, overflow: 'auto', padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
+      <div ref={scrollRef} onScroll={onScrollMsgs} className="scroll" style={{ flex: 1, overflow: 'auto', padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {loadingMsgs ? <ChatSkeleton /> :
          bubbles.length === 0 ? <div className="muted" style={{ margin: 'auto' }}>Nenhuma mensagem ainda.</div> :
          bubbles.map((m, i) => <Bubble key={m._id || i} m={m} client={conv.client} clientPhoto={conv.photo} />)}
       </div>
+      {slashOpen && qrList.length > 0 &&
+      <div className="qr-slash">
+        <style>{`@keyframes qrSlideUp{from{transform:translateY(16px);opacity:0}to{transform:translateY(0);opacity:1}} .qr-slash{border-top:1px solid var(--border);background:var(--surface);max-height:46%;overflow:auto;box-shadow:0 -8px 18px rgba(15,23,42,.07);animation:qrSlideUp .16s ease-out}`}</style>
+        <div style={{ padding: '8px 14px', fontSize: 'var(--type-xs)', fontWeight: 700, color: 'var(--text-muted)', textTransform: 'uppercase', letterSpacing: '.4px', position: 'sticky', top: 0, background: 'var(--surface)', display: 'flex', alignItems: 'center', gap: 6 }}>
+          <Ic name="zap" size={12} style={{ color: 'var(--accent)' }} /> Respostas rápidas{slashQuery ? ` · “${slashQuery}”` : ''}
+        </div>
+        {qrList.map((q, i) =>
+        <div key={q.id} onMouseEnter={() => setQrIndex(i)} onClick={() => pickQuickReply(q)}
+          style={{ padding: '9px 14px', cursor: 'pointer', display: 'flex', flexDirection: 'column', gap: 2, background: i === qrIndex ? 'var(--accent-soft)' : 'transparent', borderLeft: i === qrIndex ? '3px solid var(--accent)' : '3px solid transparent' }}>
+          <span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>{q.comando}</span>
+          <span className="muted" style={{ fontSize: 'var(--type-xs)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{q.mensagem}</span>
+        </div>
+        )}
+      </div>
+      }
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
         {isPending ?
         (ultimaTransf ?
@@ -1413,16 +1529,6 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
               <div className="spacer" />
               <button className="btn btn-sm btn-ghost" onClick={() => setModal('encerrar')}><Ic name="check" size={13} /> Encerrar</button>
             </div>
-            {qrSuggestions.length > 0 &&
-            <div style={{ marginBottom: 8, border: '1px solid var(--border)', borderRadius: 8, overflow: 'hidden', background: 'var(--surface)', boxShadow: 'var(--shadow-sm)' }}>
-              {qrSuggestions.map((q) =>
-              <div key={q.id} onClick={() => { setComposing(q.mensagem); inputRef.current && inputRef.current.focus(); }} className="filter-row" style={{ padding: '8px 10px', cursor: 'pointer', display: 'flex', alignItems: 'center' }}>
-                <span className="mono" style={{ fontSize: 11, color: 'var(--accent-700)', background: 'var(--accent-soft)', padding: '1px 6px', borderRadius: 4, flexShrink: 0 }}>{q.comando}</span>
-                <span className="muted" style={{ fontSize: 'var(--type-xs)', marginLeft: 8, flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{q.mensagem}</span>
-              </div>
-              )}
-            </div>
-            }
             <div className="row" style={{ gap: 6, alignItems: 'center' }}>
               <div style={{ position: 'relative' }}>
                 <button className="btn btn-ghost btn-icon" data-on={menu === 'emoji'} onClick={() => setMenu(menu === 'emoji' ? null : 'emoji')} style={{ background: menu === 'emoji' ? 'var(--accent-soft)' : 'transparent', color: menu === 'emoji' ? 'var(--accent)' : undefined, width: "30px", height: "30px" }}><Ic name="smile" size={17} /></button>
@@ -1437,7 +1543,7 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
             <VoiceRecorder onCancel={() => setRecording(false)} onSend={(blob) => {setRecording(false); if (blob && blob.size) { const ext = ((blob.type.split('/')[1] || 'webm').split(';')[0]).replace('mpeg', 'mp3'); enviarArquivo(new File([blob], 'audio.' + ext, { type: blob.type || 'audio/webm' })); } else { window.showToast({ tipo: 'erro', titulo: 'Falha na gravação', descricao: 'Não foi possível gravar o áudio (microfone?).' }); }}} /> :
 
             <>
-                  <input ref={inputRef} className="input" placeholder="Digite sua mensagem · digite o atalho da resposta rápida · Enter envia" value={composing} onChange={(e) => onComposeChange(e.target.value)} onKeyDown={onKeyDown} />
+                  <input ref={inputRef} className="input" placeholder="Digite sua mensagem · / abre as respostas rápidas · Enter envia" value={composing} onChange={(e) => onComposeChange(e.target.value)} onKeyDown={onKeyDown} />
                   <button className="btn btn-primary btn-icon" onClick={handleSend} disabled={!composing.trim()} style={{ width: 36, height: 36, borderStyle: "solid", opacity: composing.trim() ? 1 : 0.5 }}><Ic name="send" size={15} /></button>
                 </>
             }
@@ -1735,7 +1841,9 @@ function FunnelPopup({ crm, onSave }) {
     setStep('fases');
   };
   return (
-    <div className="funnel-pop" style={{ position: 'absolute', top: 'calc(100% + 6px)', right: 8, width: 270, zIndex: 60, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 34px rgba(0,0,0,.18)', overflow: 'hidden' }}>
+    <div className="funnel-pop" style={{ position: 'absolute', top: 'calc(100% + 6px)', left: 0, right: 0, zIndex: 60, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 34px rgba(0,0,0,.18)', overflow: 'hidden', animation: 'funnelGrowDown .2s ease-out' }}>
+      {/* topo fica ESTÁTICO; o conteúdo empurra a altura pra baixo (anima max-height, não move o bloco) */}
+      <style>{`@keyframes funnelGrowDown{from{max-height:0;opacity:.35}to{max-height:560px;opacity:1}}`}</style>
       {step === 'funis' ?
         <>
           <div style={{ padding: '10px 14px', borderBottom: '1px solid var(--border)', fontWeight: 700, fontSize: 'var(--type-sm)' }}>{card ? 'Mover no CRM' : 'Atribuir ao CRM'}</div>

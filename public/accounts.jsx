@@ -88,18 +88,31 @@
     </>);
   }
   function AccountsPage() {
-    const [items, setItems] = React.useState([]);
-    const [loaded, setLoaded] = React.useState(false);
+    const { auth } = useStore();
+    // Contas via cache por empresa (api.jsx): revisita instantânea + revalida no fundo.
+    const { data: items, setData: setItems, loading: contasLoading, reload: loadContas } = useCachedQuery(
+      ['fin-contas'],
+      async () => {
+        const r = await API.getContas();
+        const ui = (r.contas || []).map(contaToUi);
+        if (ui.length && typeof skelRemember === 'function') skelRemember('contas', ui.length);
+        return ui;
+      },
+      { empresaId: auth.empresaId, initialData: [] },
+    );
+    const loaded = !contasLoading;
     const showSkel = !loaded; // some SÓ quando os dados chegam (loading real, sem delay artificial)
     const [hidden, setHidden] = React.useState({}); // saldo oculto por conta (carregado do banco)
     const contaToUi = (c) => ({ id: c.id, descricao: c.descricao, banco: c.banco, agencia: c.agencia, conta: c.conta, tipo: c.tipoConta || 'Corrente', pessoa: c.fisicaJuridica || 'Jurídica', operacao: '', saldo: c.saldo, natureza: c.gerencial ? 'gerencial' : 'capital', cor: c.cor || '#22c55e', obs: c.observacoes || '', gerencialDefault: !!c.gerencialDefault, saldoOculto: !!c.saldoOculto });
-    const loadContas = React.useCallback(() => API.getContas().then((r) => {
-      const ui = (r.contas || []).map(contaToUi);
-      setItems(ui);
-      setHidden(Object.fromEntries(ui.map((c) => [c.id, !!c.saldoOculto])));
-    }).catch(() => {}).finally(() => setLoaded(true)), []);
-    React.useEffect(() => { loadContas(); }, [loadContas]);
-    React.useEffect(() => { if (items.length) skelRemember('contas', items.length); }, [items]);
+    // Inicializa o "saldo oculto" a partir das contas carregadas, SEM sobrescrever
+    // toggles locais já feitos (só preenche ids ainda não vistos).
+    React.useEffect(() => {
+      setHidden((prev) => {
+        const next = { ...prev };
+        items.forEach((c) => { if (!(c.id in next)) next[c.id] = !!c.saldoOculto; });
+        return next;
+      });
+    }, [items]);
     // Usuário atual — usado como "Responsável" (travado) nas movimentações.
     const [userName, setUserName] = React.useState('');
     React.useEffect(() => { API.me().then((r) => setUserName((r.user && (r.user.name || r.user.email)) || '')).catch(() => {}); }, []);

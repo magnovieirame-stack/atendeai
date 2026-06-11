@@ -221,22 +221,29 @@ chatbotRouter.get('/contatos', async (req, res, next) => {
     try {
       let cq = req.supabase.from('chatbot-contatos').select(COLS_NEW).order('ultimamsg', { ascending: false, nullsFirst: false });
       if (!isAdmin) {
-        const [meusDeptos, deptosResp] = await Promise.all([deptosDoUsuario(req), deptosResponsavel(req)]);
-        const temDepartamento = meusDeptos.length > 0 || deptosResp.length > 0;
-        // Sempre vê as ATRIBUÍDAS a ele (é assim que recebe por transferência direta, mesmo sem setor).
-        const ors = [`atendente_id.eq.${req.user.id}`];
-        // REGRA: usuário SEM departamento (nem perfil, nem responsável) NÃO recebe nada da fila.
-        // Só atende o que transferirem direto pra ele (aba Atendente). Por isso o pool
-        // (global + do setor + encerradas do setor) só vale p/ quem TEM departamento.
-        if (temDepartamento) {
-          ors.push(`and(atendente_id.is.null,departamento_id.is.null)`);  // pool global (sem dono e sem setor)
-          if (meusDeptos.length) {
-            ors.push(`and(atendente_id.is.null,departamento_id.in.(${meusDeptos.join(',')}))`);    // pool do meu setor (posso pegar)
-            ors.push(`and(statuschat.eq.finalizado,departamento_id.in.(${meusDeptos.join(',')}))`); // encerradas do meu setor: todos do setor veem
+        // EM PAUSA: não recebe NADA novo do pool — vê só as conversas que já são dele
+        // (as em andamento permanecem com ele). Ao voltar, o pool reaparece.
+        const emPausa = await atendenteEmPausa(req.user.id);
+        if (emPausa) {
+          cq = cq.or(`atendente_id.eq.${req.user.id}`);
+        } else {
+          const [meusDeptos, deptosResp] = await Promise.all([deptosDoUsuario(req), deptosResponsavel(req)]);
+          const temDepartamento = meusDeptos.length > 0 || deptosResp.length > 0;
+          // Sempre vê as ATRIBUÍDAS a ele (é assim que recebe por transferência direta, mesmo sem setor).
+          const ors = [`atendente_id.eq.${req.user.id}`];
+          // REGRA: usuário SEM departamento (nem perfil, nem responsável) NÃO recebe nada da fila.
+          // Só atende o que transferirem direto pra ele (aba Atendente). Por isso o pool
+          // (global + do setor + encerradas do setor) só vale p/ quem TEM departamento.
+          if (temDepartamento) {
+            ors.push(`and(atendente_id.is.null,departamento_id.is.null)`);  // pool global (sem dono e sem setor)
+            if (meusDeptos.length) {
+              ors.push(`and(atendente_id.is.null,departamento_id.in.(${meusDeptos.join(',')}))`);    // pool do meu setor (posso pegar)
+              ors.push(`and(statuschat.eq.finalizado,departamento_id.in.(${meusDeptos.join(',')}))`); // encerradas do meu setor: todos do setor veem
+            }
+            if (deptosResp.length) ors.push(`departamento_id.in.(${deptosResp.join(',')})`);          // supervisor: tudo do(s) setor(es) que sou responsável
           }
-          if (deptosResp.length) ors.push(`departamento_id.in.(${deptosResp.join(',')})`);          // supervisor: tudo do(s) setor(es) que sou responsável
+          cq = cq.or(ors.join(','));
         }
-        cq = cq.or(ors.join(','));
       }
       const { data, error } = await cq;
       if (error) throw error;
@@ -252,7 +259,7 @@ chatbotRouter.get('/contatos', async (req, res, next) => {
     const contatoIds = rows.map((r) => r.id);
 
     // clientes e tags são independentes entre si -> buscamos em PARALELO (corta 1 round-trip).
-    const [clientesById, tagsByContato, leadKeys, ultimaMsgByContato] = await Promise.all([
+    const [clientesById, tagsByContato, leadKeys, ultimaMsgByContato, crmFasesByCliente] = await Promise.all([
       // 1) clientes (nome/foto/telefone/email)
       (async () => {
         const map = {};
@@ -307,15 +314,87 @@ chatbotRouter.get('/contatos', async (req, res, next) => {
         (msgs || []).forEach((m) => { if (m.tipomidia === 'nota' || m.tipomidia === 'inicio') return; if (!map[m.contato]) map[m.contato] = m; }); // 1ª = mais recente; ignora marcadores internos
         return map;
       })(),
+      // 5) CRM: fases (colunas) em que cada CLIENTE está. Um cliente pode estar em
+      //    vários funis -> guardamos a lista de faseIds (o filtro do inbox casa por qualquer uma).
+      (async () => {
+        const map = {};
+        if (!clienteIds.length) return map;
+        try {
+          const { data: rel } = await req.supabase.from('crm-clientesfunil').select('cliente,fase').in('cliente', clienteIds);
+          (rel || []).forEach((x) => {
+            if (!x.cliente || x.fase == null) return;
+            (map[x.cliente] = map[x.cliente] || []).push(x.fase);
+          });
+        } catch (e) { /* CRM ausente: contato fica sem fase; o filtro simplesmente não casa */ }
+        return map;
+      })(),
     ]);
 
     res.json({ contatos: rows.map((r) => {
       const cli = clientesById[r.cliente_id];
       // Sem tag forçada: o contato exibe apenas as tags realmente atribuídas.
       // (contato novo entra sem tag; o "Cliente"/"Lead" automático foi removido)
-      return mapContato(r, cli, tagsByContato[r.id] || [], ultimaMsgByContato[r.id]);
+      const dto = mapContato(r, cli, tagsByContato[r.id] || [], ultimaMsgByContato[r.id]);
+      dto.faseIds = crmFasesByCliente[r.cliente_id] || []; // fases do CRM p/ o filtro do inbox
+      return dto;
     }) });
   } catch (err) { next(err); }
+});
+
+// ---- Presença do atendente (disponível / em pausa) ----
+// Sobrevive ao F5, tira quem está em pausa do pool/transferências e deixa o admin ver.
+async function atendenteEmPausa(userId) {
+  try {
+    const { data } = await adminClient().from('atendente_presenca').select('status').eq('user_id', userId).single();
+    return !!(data && data.status === 'pausa');
+  } catch (e) { return false; }
+}
+
+// minha presença atual (default: disponível)
+chatbotRouter.get('/presenca', async (req, res, next) => {
+  try {
+    const { data } = await adminClient().from('atendente_presenca').select('*').eq('user_id', req.user.id).single();
+    res.json({ presenca: data || { status: 'disponivel' } });
+  } catch (e) { res.json({ presenca: { status: 'disponivel' } }); }
+});
+
+// define minha presença (entrar em pausa / voltar a ficar disponível)
+const presencaSchema = z.object({
+  status: z.enum(['disponivel', 'pausa']),
+  motivo: z.string().trim().max(40).nullable().optional(),
+  motivoLabel: z.string().trim().max(80).nullable().optional(),
+  cor: z.string().trim().max(20).nullable().optional(),
+  nota: z.string().trim().max(280).nullable().optional(),
+}).strip();
+chatbotRouter.post('/presenca', validateBody(presencaSchema), async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const b = req.body;
+    const emPausa = b.status === 'pausa';
+    const row = {
+      user_id: req.user.id,
+      empresa: empresaId,
+      status: b.status,
+      motivo: emPausa ? (b.motivo || null) : null,
+      motivo_label: emPausa ? (b.motivoLabel || null) : null,
+      cor: emPausa ? (b.cor || null) : null,
+      nota: emPausa ? (b.nota || null) : null,
+      desde: emPausa ? new Date().toISOString() : null,
+      updated_at: new Date().toISOString(),
+    };
+    const { data, error } = await adminClient().from('atendente_presenca').upsert(row, { onConflict: 'user_id' }).select('*').single();
+    if (error) throw error;
+    res.json({ presenca: data });
+  } catch (err) { next(err); }
+});
+
+// presença de TODOS os atendentes da empresa (admin/equipe enxerga quem está em pausa)
+chatbotRouter.get('/presencas', async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const { data } = await adminClient().from('atendente_presenca').select('user_id,status,motivo,motivo_label,cor,nota,desde').eq('empresa', empresaId);
+    res.json({ presencas: data || [] });
+  } catch (e) { res.json({ presencas: [] }); }
 });
 
 // ---- GET /api/chatbot/departamentos — lista enxuta (id,nome) p/ a transferência.
@@ -479,7 +558,14 @@ chatbotRouter.get('/transferencia', async (req, res, next) => {
 
     const nomeDe = (u) => (u.user_metadata && u.user_metadata.name) || u.email;
     const papelDe = (u) => { const m = byUser[u.id]; const p = m && m.papel_id ? papeisById[m.papel_id] : null; const cod = (p && p.codigo) || (m && m.papel) || null; return (p && p.nome) || PAPEL_LABEL_CB[cod] || cod || 'Atendente'; };
-    const dto = (u) => ({ id: u.id, nome: nomeDe(u), papelNome: papelDe(u), departamentoId: deptoPrincipal(u) });
+    // presença (p/ marcar quem está EM PAUSA -> não pode receber transferência)
+    const { data: presRows } = await A.from('atendente_presenca').select('user_id,status,motivo_label').eq('empresa', empresaId);
+    const presByUser = {}; (presRows || []).forEach((p) => { presByUser[p.user_id] = p; });
+    const dto = (u) => {
+      const pr = presByUser[u.id];
+      const emPausa = !!(pr && pr.status === 'pausa');
+      return { id: u.id, nome: nomeDe(u), papelNome: papelDe(u), departamentoId: deptoPrincipal(u), emPausa, pausaLabel: emPausa ? (pr.motivo_label || 'Em pausa') : null };
+    };
 
     const atendentes = authUsers.filter((u) => u.id !== meId).map(dto);                    // todos, menos eu
     const colegas = authUsers.filter((u) => u.id !== meId && [...deptsOfUser(u)].some((d) => meusSet.has(d))).map(dto); // do(s) meu(s) setor(es)

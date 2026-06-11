@@ -41,7 +41,7 @@ const API = {
 
   // --- Auth ---
   login(email, senha) { return this._json('/auth/login', 'POST', { email, senha }); },
-  logout() { return this._req('/auth/logout', { method: 'POST' }); },
+  logout() { try { clearQueryCache(); } catch (e) {} return this._req('/auth/logout', { method: 'POST' }); },
   me() { return this._req('/auth/me'); },
   updatePerfil(dto) { return this._json('/auth/perfil', 'PATCH', dto); },
   uploadFotoPerfil(file) {
@@ -224,6 +224,10 @@ const API = {
   getDepartamentosAtendimento() { return this._req('/chatbot/departamentos'); },
   // listas completas p/ o popup de transferir (atendentes, colegas do meu setor, departamentos)
   getTransferenciaListas() { return this._req('/chatbot/transferencia'); },
+  // --- Presença do atendente (disponível / em pausa) ---
+  getPresenca() { return this._req('/chatbot/presenca'); },
+  setPresenca(dto) { return this._json('/chatbot/presenca', 'POST', dto); },
+  getPresencas() { return this._req('/chatbot/presencas'); },
   // CRM do contato (painel do chat): posicao no funil/fase + funis disponiveis
   getCrmDoContato(clienteId) { return this._req('/chatbot/crm/' + clienteId); },
   setCrmDoContato(clienteId, faseId) { return this._json('/chatbot/crm/' + clienteId, 'PUT', { faseId }); },
@@ -281,6 +285,118 @@ function relativeTime(iso) {
   return Math.floor(h / 24) + ' d';
 }
 Object.assign(window, { refreshNotifs, useNotifs, markNotifRead, markAllNotifsRead, relativeTime });
+
+// ───────── Cache genérico de leitura — mini "useQuery" em memória ─────────
+// Generaliza o cache da lista de clientes: QUALQUER tela cacheia sua busca por
+// (key + empresaId). Revisita SEMPRE instantânea (mostra o cache na hora); o
+// STALE_MS decide só SE revalida em silêncio por trás, nunca SE mostra o cache.
+// Dedupe de chamadas concorrentes + TRAVA DE TENANT (descarta a resposta se a
+// loja ativa mudou no caminho). Tudo em MEMÓRIA — some no F5/logout, nunca em disco.
+const QUERY_STALE_MS = 60 * 1000; // 60s (padrão; cada query pode sobrescrever)
+const QUERY_CACHE = new Map();      // chaveStr -> { data, fetchedAt }
+const QUERY_INFLIGHT = new Map();   // chaveStr -> Promise (dedupe)
+const QUERY_ERR = new Map();        // chaveStr -> mensagem (só relevante quando NÃO há cache)
+const QUERY_LISTENERS = new Map();  // chaveStr -> Set<fn>
+let QUERY_ACTIVE_EMPRESA = undefined; // empresa ativa "agora" (trava de tenant)
+
+function _qKey(key, empresaId) {
+  const base = Array.isArray(key) ? key.join('|') : String(key);
+  return base + '@@' + String(empresaId == null ? '' : empresaId);
+}
+function _qNotify(k) { const s = QUERY_LISTENERS.get(k); if (s) s.forEach((fn) => fn()); }
+
+// Dispara a busca. background=true => silenciosa (não mexe em loading/erro
+// enquanto houver cache). Na volta, TRAVA DE TENANT: só aplica se a empresa
+// pedida ainda for a ativa (senão trocou de loja no meio -> descarta).
+function _qFetch(k, empresaId, fetcher, background) {
+  if (QUERY_INFLIGHT.has(k)) return QUERY_INFLIGHT.get(k); // dedupe
+  if (!background) { QUERY_ERR.delete(k); _qNotify(k); }   // bloqueante: limpa erro antigo
+  const p = Promise.resolve().then(fetcher).then((data) => {
+    if (empresaId !== QUERY_ACTIVE_EMPRESA) return;        // trocou de loja -> descarta
+    QUERY_CACHE.set(k, { data, fetchedAt: Date.now() });
+    QUERY_ERR.delete(k);
+    _qNotify(k);
+  }).catch((e) => {
+    if (empresaId !== QUERY_ACTIVE_EMPRESA) return;        // trocou de loja -> ignora o erro
+    if (!QUERY_CACHE.has(k)) { QUERY_ERR.set(k, (e && e.message) || 'Falha ao carregar.'); _qNotify(k); }
+    // com cache: revalidação falha em silêncio (mantém o que já está na tela)
+  }).finally(() => { if (QUERY_INFLIGHT.get(k) === p) QUERY_INFLIGHT.delete(k); });
+  QUERY_INFLIGHT.set(k, p);
+  return p;
+}
+
+// Regra central (igual à da lista de clientes): HÁ cache -> mostra IMEDIATO e
+// revalida no fundo só se velho; SEM cache (ou force) -> busca bloqueante (skeleton).
+function loadQuery(k, empresaId, fetcher, opts = {}) {
+  QUERY_ACTIVE_EMPRESA = empresaId;
+  if (QUERY_CACHE.has(k) && !opts.force) {
+    const idade = Date.now() - QUERY_CACHE.get(k).fetchedAt;
+    const stale = (opts.staleMs != null) ? opts.staleMs : QUERY_STALE_MS;
+    if (idade >= stale) return _qFetch(k, empresaId, fetcher, true); // revalida calado
+    return Promise.resolve();                                        // cache já visível
+  }
+  return _qFetch(k, empresaId, fetcher, false); // bloqueante; reload() pode ser awaited
+}
+
+// Hook reutilizável. `key` é string ou array (a empresaId entra na chave por baixo,
+// então a lista de uma loja nunca vaza pra outra). `fetcher` é () => Promise<data>.
+// opts: { empresaId, staleMs, enabled, initialData }. Devolve { data, loading, error, reload, setData }.
+// setData aplica edição otimista no cache (sobrevive à navegação); aceita valor ou updater(prev).
+function useCachedQuery(key, fetcher, opts = {}) {
+  const empresaId = opts.empresaId;
+  const enabled = opts.enabled !== false;
+  const k = _qKey(key, empresaId);
+  const fetchRef = React.useRef(fetcher); fetchRef.current = fetcher; // sempre o fetcher mais novo, sem re-disparar
+  const [, force] = React.useReducer((x) => x + 1, 0);
+  React.useEffect(() => {
+    let s = QUERY_LISTENERS.get(k); if (!s) { s = new Set(); QUERY_LISTENERS.set(k, s); }
+    s.add(force);
+    return () => { const set = QUERY_LISTENERS.get(k); if (set) { set.delete(force); if (!set.size) QUERY_LISTENERS.delete(k); } };
+  }, [k]);
+  React.useEffect(() => { if (enabled) loadQuery(k, empresaId, () => fetchRef.current(), { staleMs: opts.staleMs }); }, [k, enabled]);
+  const has = QUERY_CACHE.has(k);
+  const initial = (opts.initialData !== undefined) ? opts.initialData : null;
+  const data = has ? QUERY_CACHE.get(k).data : initial;
+  const error = has ? '' : (QUERY_ERR.get(k) || '');
+  const loading = has ? false : (enabled && !error); // sem cache, sem erro, habilitado => carregando
+  const setData = React.useCallback((updater) => {
+    const cur = QUERY_CACHE.has(k) ? QUERY_CACHE.get(k).data : initial;
+    const next = (typeof updater === 'function') ? updater(cur) : updater;
+    const fetchedAt = QUERY_CACHE.has(k) ? QUERY_CACHE.get(k).fetchedAt : Date.now();
+    QUERY_CACHE.set(k, { data: next, fetchedAt });
+    _qNotify(k);
+  }, [k]);
+  const reload = React.useCallback(() => loadQuery(k, empresaId, () => fetchRef.current(), { force: true, staleMs: opts.staleMs }), [k]);
+  return { data, loading, error, reload, setData };
+}
+
+// Limpa TODO o cache (logout / volta pro login / troca de sessão): nunca mostrar
+// dado de uma sessão/loja anterior. A chave por empresa já isola; isto é o cinto
+// de segurança. Notifica os listeners pra telas montadas recarregarem do zero.
+function clearQueryCache() {
+  QUERY_CACHE.clear();
+  QUERY_INFLIGHT.clear();
+  QUERY_ERR.clear();
+  QUERY_ACTIVE_EMPRESA = undefined;
+  QUERY_LISTENERS.forEach((s) => s.forEach((fn) => fn()));
+}
+
+// Wrapper fino: mantém a MESMA API de antes ({ rows, loading, error, reload, setRows })
+// pra que clients.jsx não mude. Só delega ao helper genérico acima.
+function useClientes(empresaId, mapFn) {
+  const { data, loading, error, reload, setData } = useCachedQuery(
+    ['clientes'],
+    async () => {
+      const r = await API.getClientes('', 'cliente');
+      const rows = (r.clientes || []).map((d, i) => (mapFn ? mapFn(d, i) : d));
+      if (rows.length && typeof skelRemember === 'function') skelRemember('clientes', rows.length);
+      return rows;
+    },
+    { empresaId, initialData: [] },
+  );
+  return { rows: data || [], loading, error, reload, setRows: setData };
+}
+Object.assign(window, { useCachedQuery, loadQuery, clearQueryCache, useClientes });
 
 // ---------- helpers de formatação ----------
 function fmtHora(iso) {
@@ -354,6 +470,7 @@ function dbContatoToConv(c) {
     ownerId: c.atendenteId || null,
     dept: c.departamento || null,       // nome do departamento da conversa
     departamentoId: c.departamentoId || null,
+    faseIds: c.faseIds || [],           // fases do CRM em que o contato está (filtro do inbox)
   };
 }
 

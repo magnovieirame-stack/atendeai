@@ -2,23 +2,26 @@
 // cabeçalho + Voltar + botão Criar + lista + busca). Drawer cria/edita; confirma exclusão.
 
 function DepartamentosPage() {
-  const { back } = useStore();
-  const [itens, setItens] = React.useState([]);
-  const [loaded, setLoaded] = React.useState(false);
+  const { back, auth } = useStore();
+  // Departamentos via cache por empresa (api.jsx): revisita instantânea + revalida no fundo.
+  const { data: itens, setData: setItens, loading: depLoading, reload } = useCachedQuery(
+    ['departamentos'],
+    async () => {
+      let list;
+      try { const r = await window.API.getDepartamentos(); list = r.departamentos || []; }
+      catch (e) { list = []; } // erro -> vazio (igual ao .catch antigo)
+      if (list.length && typeof skelRemember === 'function') skelRemember('departamentos', list.length);
+      return list;
+    },
+    { empresaId: auth.empresaId, initialData: [] },
+  );
+  const loaded = !depLoading;
   const [query, setQuery] = React.useState('');
   const [drawer, setDrawer] = React.useState(null);   // { modo, inicial }
   const [excluir, setExcluir] = React.useState(null);
 
-  const reload = React.useCallback(async () => {
-    setLoaded(false);
-    try {
-      const r = await window.API.getDepartamentos();
-      setItens(r.departamentos || []);
-      if ((r.departamentos || []).length) skelRemember('departamentos', r.departamentos.length);
-    } catch (e) { setItens([]); }
-    finally { setLoaded(true); }
-  }, []);
-  React.useEffect(() => { reload(); }, [reload]);
+  // (A busca de departamentos e seu ciclo de vida vivem agora no hook useCachedQuery
+  // acima: carrega no mount, cacheia por empresa, revalida no fundo e expõe `reload`.)
 
   const filtered = React.useMemo(() => {
     const q = query.trim().toLowerCase();

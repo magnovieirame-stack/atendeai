@@ -124,7 +124,7 @@ crmRouter.get('/funis', async (req, res, next) => {
 
     const boards = (funis || []).map((fu) => {
       const fs = (fasesByFunil[fu.id] || []).sort((a, b) => (a.pos || 0) - (b.pos || 0));
-      const columns = fs.map((f) => ({ label: f.nome, color: f.cor_funil || '#94a3b8', count: (statByFase[f.id] || {}).count || 0, value: (statByFase[f.id] || {}).value || 0 }));
+      const columns = fs.map((f) => ({ id: f.id, label: f.nome, color: f.cor_funil || '#94a3b8', count: (statByFase[f.id] || {}).count || 0, value: (statByFase[f.id] || {}).value || 0 }));
       return { id: fu.id, name: fu.nome, desc: fu.descricao || '', color: fu.cor_funil || '#22C55E', updated: fmtData(fu.created_at), cards: columns.reduce((s, c) => s + c.count, 0), columns };
     });
     res.json({ funis: boards });

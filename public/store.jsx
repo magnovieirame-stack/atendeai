@@ -118,6 +118,9 @@ function Provider({ children }) {
 
   // Voltar pra tela de login (logout, "Sair", etc.) sempre encerra o modo demo.
   React.useEffect(() => { if (route === 'login' && demo) setDemo(false); }, [route, demo]);
+  // ...e zera TODO o cache de leitura (o "Sair" do menu só faz go('login'), sem
+  // passar pela API.logout) — pra nunca mostrar dado da sessão/loja anterior.
+  React.useEffect(() => { if (route === 'login') { try { window.clearQueryCache && window.clearQueryCache(); } catch (e) {} } }, [route]);
   // Espelha o fim do demo na flag global: ao sair do demo, volta ao fluxo REAL
   // (rede liberada, zero mock). Entrar é feito sincronamente em enterDemo.
   React.useEffect(() => { if (!demo) window.__DEMO__ = false; }, [demo]);

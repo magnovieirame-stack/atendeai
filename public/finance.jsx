@@ -344,6 +344,7 @@
   // ---------- Main list ----------
   function FinanceList({ kind }) {
     const isReceita = kind === 'receivables';
+    const { auth } = useStore();
     const cfg = {
       title: isReceita ? 'Receitas' : 'Despesas',
       subtitle: isReceita ?
@@ -366,9 +367,8 @@
     const [from, setFrom] = React.useState('');
     const [to, setTo] = React.useState('');
     const [query, setQuery] = React.useState('');
-    const [items, setItems] = React.useState([]);
-    const [loaded, setLoaded] = React.useState(false);
-    const [contasMap, setContasMap] = React.useState({ byId: {}, byName: {} });
+    // (items, contasMap e loaded agora vêm dos hooks de cache abaixo — definidos
+    // logo após entradaToRow/skelKey, que eles utilizam.)
     // API entrada -> linha da UI
     const entradaToRow = (e) => ({
       _id: e.id, codigo: e.codigo,
@@ -383,26 +383,31 @@
       parcAtual: e.parcelas ? 0 : undefined,
     });
     const skelKey = 'fin-entradas';
-    React.useEffect(() => {
-      let alive = true;
-      setLoaded(false);
-      API.getContas().then((r) => {
-        if (!alive) return;
+    // Mapa de contas (id<->nome) via cache por empresa.
+    const { data: contasMap } = useCachedQuery(
+      ['fin-contas-map'],
+      async () => {
+        const r = await API.getContas();
         const byId = {}, byName = {};
         (r.contas || []).forEach((c) => { byId[c.id] = c.descricao; byName[(c.descricao || '').toLowerCase()] = c.id; });
-        setContasMap({ byId, byName });
-      }).catch(() => {});
-      API.getEntradas(isReceita ? 'entrada' : 'saida')
-        .then((r) => {
-          if (!alive) return;
-          const rows = (r.entradas || []).map(entradaToRow);
-          setItems(rows);
-          skelRemember(skelKey, rows.length);
-        })
-        .catch(() => {})
-        .finally(() => { if (alive) setLoaded(true); });
-      return () => { alive = false; };
-    }, [isReceita]);
+        return { byId, byName };
+      },
+      { empresaId: auth.empresaId, initialData: { byId: {}, byName: {} } },
+    );
+    // Lançamentos (entradas/saídas) via cache — a chave inclui o tipo (receita/despesa),
+    // então receita e despesa têm caches separados e não se misturam.
+    const { data: items, setData: setItems, loading: itemsLoading } = useCachedQuery(
+      ['fin-entradas', isReceita ? 'entrada' : 'saida'],
+      async () => {
+        let rows;
+        try { const r = await API.getEntradas(isReceita ? 'entrada' : 'saida'); rows = (r.entradas || []).map(entradaToRow); }
+        catch (e) { rows = []; } // erro -> vazio (igual ao .catch antigo)
+        if (typeof skelRemember === 'function') skelRemember(skelKey, rows.length);
+        return rows;
+      },
+      { empresaId: auth.empresaId, initialData: [] },
+    );
+    const loaded = !itemsLoading;
     const [showNew, setShowNew] = React.useState(false);
     const [editItem, setEditItem] = React.useState(null);
     const [drawerMode, setDrawerMode] = React.useState('new'); // 'new' | 'view' | 'edit'

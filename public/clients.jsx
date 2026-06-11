@@ -157,15 +157,18 @@
 
 
   function AdminClients() {
-    const { setRoute } = useStore();
+    const { setRoute, auth } = useStore();
     const [query, setQuery] = React.useState('');
     const [showFilters, setShowFilters] = React.useState(false);
     const [showNew, setShowNew] = React.useState(false);
     const [showImport, setShowImport] = React.useState(false);
     const [selected, setSelected] = React.useState(new Set());
-    const [allClients, setAllClients] = React.useState([]);
-    const [loading, setLoading] = React.useState(true);
-    const [loadErr, setLoadErr] = React.useState('');
+    // Lista de clientes via cache por empresa (api.jsx): revisita instantânea do
+    // cache + revalidação silenciosa quando passa do staleTime (60s). A chave inclui
+    // a empresaId, então a lista de uma loja nunca vaza pro cache de outra.
+    // `setAllClients` (setRows) aplica as edições otimistas direto no cache.
+    const { rows: allClients, setRows: setAllClients, loading, error: loadErr, reload } =
+      useClientes(auth.empresaId, clienteDtoToRow);
     const [visibleCols, setVisibleCols] = React.useState(() => new Set(ALL_COLUMNS.map((c) => c.id)));
     const [filterSegments, setFilterSegments] = React.useState(() => new Set());
     const [filterTags, setFilterTags] = React.useState(() => new Set());
@@ -179,22 +182,9 @@
     const [viewClient, setViewClient] = React.useState(null);
     const [chatClient, setChatClient] = React.useState(null);
 
-    // Carrega os clientes do backend (tabela clientes, por empresa).
-    // Só COMPRADORES (estagio='cliente'); leads ficam fora até a 1ª compra.
-    const reload = React.useCallback(async () => {
-      setLoading(true); setLoadErr('');
-      try {
-        const r = await window.API.getClientes('', 'cliente');
-        const rows = (r.clientes || []).map((d, i) => clienteDtoToRow(d, i));
-        setAllClients(rows);
-        if (rows.length) skelRemember('clientes', rows.length);
-      } catch (e) {
-        setLoadErr((e && e.message) || 'Falha ao carregar os clientes.');
-      } finally {
-        setLoading(false);
-      }
-    }, []);
-    React.useEffect(() => { reload(); }, [reload]);
+    // (A busca da lista — só COMPRADORES, estagio='cliente' — e seu ciclo de vida
+    // agora vivem no hook useClientes acima: carrega no mount, cacheia por empresa,
+    // revalida no fundo e expõe `reload` para o botão "Tentar de novo".)
 
     const togglePin = (id) => {
       const s = new Set(pinnedIds);
