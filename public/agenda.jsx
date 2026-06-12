@@ -181,11 +181,17 @@ function Agenda() {
   const [active, setActive] = React.useState(null); // { appt, mode: 'view' | 'edit' }
   // Agendamentos e tarefas via cache por empresa (api.jsx): revisita instantânea
   // + revalida no fundo. setAppts/setTasks aplicam as edições otimistas no cache.
-  const { data: appts, setData: setAppts, loading: apptsLoading } = useCachedQuery(
+  const { data: appts, setData: setAppts, loading: apptsLoading, reload: reloadAppts } = useCachedQuery(
     ['agenda'],
     async () => { try { const r = await API.getAgenda(); return r.agenda || []; } catch (e) { return []; } },
     { empresaId: auth.empresaId, initialData: [] },
   );
+  // TEMPO REAL (leve): re-busca a agenda a cada 15s com a aba visível. Assim, se OUTRA
+  // pessoa criar/editar/remover, os envolvidos veem sem precisar sair e voltar.
+  React.useEffect(() => {
+    const id = setInterval(() => { if (document.visibilityState === 'visible') reloadAppts(); }, 15000);
+    return () => clearInterval(id);
+  }, [reloadAppts]);
   const { data: tasks, setData: setTasks, loading: tasksLoading } = useCachedQuery(
     ['agenda-tarefas'],
     async () => { try { const r = await API.getTarefas(); return r.tarefas || []; } catch (e) { return []; } },
@@ -219,9 +225,9 @@ function Agenda() {
   const addAppt = async (dto) => { try { const r = await API.createAppt(dto); setAppts((list) => [...list, r.appt]); window.showToast({ tipo: 'sucesso', titulo: 'Agendamento criado' }); } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao criar agendamento', descricao: e.message || 'Tente novamente.' }); } };
   const updateAppt = async (updated) => {
     try {
-      const r = await API.updateApptApi(updated.id, { participante: updated.client, participanteTipo: updated.participanteTipo, clienteId: updated.clienteId || null, service: updated.service, data: updated.data, start: updated.start, dur: updated.dur, resp: updated.resp, type: updated.type, status: updated.status, local: updated.local, phone: updated.phone, obs: updated.obs });
+      const r = await API.updateApptApi(updated.id, { participante: updated.client, participanteTipo: updated.participanteTipo, clienteId: updated.clienteId || null, service: updated.service, data: updated.data, start: updated.start, dur: updated.dur, resp: updated.resp, respNome: updated.respNome, participantes: updated.participantes, type: updated.type, status: updated.status, local: updated.local, phone: updated.phone, obs: updated.obs });
       setAppts((list) => list.map((x) => x.id === r.appt.id ? r.appt : x));
-      setActive({ appt: r.appt, mode: 'view' });
+      setActive(null); // salvou -> fecha a aba de imediato (não volta pra visualização)
       window.showToast({ tipo: 'sucesso', titulo: 'Agendamento atualizado' });
     } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao atualizar', descricao: e.message || 'Tente novamente.' }); }
   };
@@ -325,9 +331,9 @@ function Agenda() {
           <div style={{ flex: 1, overflow: 'hidden', position: 'relative' }}>
             <div key={animKey} className={`view-anim view-anim-${animDir}`} style={{ position: 'absolute', inset: 0, display: 'flex', flexDirection: 'column' }}>
               {!loaded ? (view === 'tasks' ? <TasksSkeleton /> : <MonthSkeleton cursor={cursor} />) : <>
-              {view === 'month' && <MonthView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} onOpenDay={openDay} />}
-              {view === 'week' && <WeekView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} />}
-              {view === 'day' && <DayView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} />}
+              {view === 'month' && <MonthView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} onOpenDay={openDay} meId={me && me.id} />}
+              {view === 'week' && <WeekView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} meId={me && me.id} />}
+              {view === 'day' && <DayView cursor={cursor} appts={filteredAppts} onView={openView} onEdit={openEdit} onDelete={removeAppt} onNewAt={openNewAt} meId={me && me.id} />}
               {view === 'tasks' && <TasksView cursor={cursor} setCursor={updateCursor} tasks={tasks} onToggle={toggleTask} onDelete={deleteTask} />}
               </>}
             </div>
@@ -340,6 +346,7 @@ function Agenda() {
       {active && active.mode === 'view' &&
       <AppointmentDetailDrawer
         appt={active.appt}
+        meId={me && me.id}
         onClose={() => setActive(null)}
         onDelete={() => removeAppt(active.appt)}
         onEdit={() => setActive({ appt: active.appt, mode: 'edit' })} />
@@ -443,7 +450,7 @@ function MiniCalendar({ cursor, setCursor }) {
 
 }
 
-function useEvPopover({ onView, onEdit, onDelete }) {
+function useEvPopover({ onView, onEdit, onDelete, meId }) {
   const [hover, setHover] = React.useState(null); // { ev, rect }
   const [confirmDel, setConfirmDel] = React.useState(null);
   const closeTimer = React.useRef(null);
@@ -466,6 +473,7 @@ function useEvPopover({ onView, onEdit, onDelete }) {
     <MonthEvPopover
       ev={hover.ev}
       rect={hover.rect}
+      meId={meId}
       onEnter={cancelHide}
       onLeave={scheduleHide}
       onView={() => {hidePop();onView && onView(hover.ev);}}
@@ -561,7 +569,7 @@ function TasksSkeleton() {
     </div>);
 }
 
-function MonthView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt, onOpenDay }) {
+function MonthView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt, onOpenDay, meId }) {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
   const first = new Date(year, month, 1);
@@ -574,7 +582,7 @@ function MonthView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onN
   while (cells.length < 42) cells.push({ d: cells.length - (startWd + daysInMonth) + 1, cur: false });
 
   const today = new Date(); // dia atual real -> realça o "hoje" em verde claro
-  const { evProps, layer } = useEvPopover({ onView, onEdit, onDelete });
+  const { evProps, layer } = useEvPopover({ onView, onEdit, onDelete, meId });
 
   return (
     <div className="month-view scroll">
@@ -623,7 +631,7 @@ function fmtEndTime(start, dur) {
   return `${eh.toString().padStart(2, '0')}:${em.toString().padStart(2, '0')}`;
 }
 
-function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete }) {
+function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete, meId }) {
   const popRef = React.useRef(null);
   const [pos, setPos] = React.useState({ left: rect.right + 10, top: rect.top, ready: false });
 
@@ -641,7 +649,9 @@ function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete }
     setPos({ left, top, ready: true });
   }, [rect, ev]);
 
-  const resp = TEAM.find((m) => m.id === ev.resp);
+  const respNome = ev.respNome || (TEAM.find((m) => m.id === ev.resp) || {}).name || null;
+  const outros = (ev.participantes || []).filter((p) => p.papel !== 'responsavel' && (p.nome || '').trim());
+  const canEdit = !meId || ev.resp === meId;
   const accent = catColor(ev.type);
   const stop = (fn) => (e) => {e.stopPropagation();fn && fn();};
 
@@ -670,10 +680,16 @@ function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete }
           <Ic name="map-pin" size={13} />
           <span>{ev.local}</span>
         </div>
-        {resp &&
+        {respNome &&
         <div className="mep-row">
             <Ic name="team" size={13} />
-            <span>{resp.name}</span>
+            <span>{respNome}</span>
+          </div>
+        }
+        {outros.length > 0 &&
+        <div className="mep-row">
+            <Ic name="participants" size={13} />
+            <span>{outros.map((p) => p.nome).join(', ')}</span>
           </div>
         }
       </div>
@@ -682,12 +698,14 @@ function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete }
         {ev.byAI && <span className="mep-chip mep-ai"><Ic name="sparkles" size={11} /> IA</span>}
       </div>
       <div className="mep-foot">
+        {canEdit &&
         <button className="mep-act mep-act-danger" title="Cancelar agendamento" onClick={stop(onDelete)}>
           <Ic name="x" size={15} />
-        </button>
+        </button>}
+        {canEdit &&
         <button className="mep-act" title="Editar agendamento" onClick={stop(onEdit)}>
           <Ic name="edit" size={15} />
-        </button>
+        </button>}
         <button className="mep-act" title="Visualizar detalhes" onClick={stop(onView)}>
           <Ic name="eye" size={15} />
         </button>
@@ -715,7 +733,7 @@ function gridHours(cfg, dayAppts) {
   return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
 }
 
-function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt }) {
+function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt, meId }) {
   const cfg = useAgendaConfig();
   const start = weekStartDate(cursor, firstDow(cfg));
   const days = Array.from({ length: 7 }, (_, i) => {const d = new Date(start);d.setDate(d.getDate() + i);return d;});
@@ -723,7 +741,7 @@ function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNe
   const DAY_START = hours[0] * 60;
   const HOUR_H = 56;
   const today = new Date(); // dia atual real -> realça o "hoje" no cabeçalho em verde claro
-  const { evProps, layer } = useEvPopover({ onView, onEdit, onDelete });
+  const { evProps, layer } = useEvPopover({ onView, onEdit, onDelete, meId });
   const toMin = (s) => {const [h, m] = s.split(':').map(Number);return h * 60 + m;};
 
   // Empacota eventos sobrepostos em colunas (lanes)
@@ -816,7 +834,7 @@ function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNe
 
 }
 
-function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt }) {
+function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt, meId }) {
   const cfg = useAgendaConfig();
   const hours = gridHours(cfg, appts.filter((a) => a.data === ymd(cursor))); // dinâmico: horas de trabalho + agendamentos do dia
   const DAY_START = hours[0] * 60;
@@ -875,7 +893,9 @@ function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNew
               const top = (s - DAY_START) / 60 * HOUR_H;
               const height = ev.dur / 60 * HOUR_H;
               const w = 100 / lanes;
-              const resp = TEAM.find((m) => m.id === ev.resp);
+              const respNome = ev.respNome || (TEAM.find((m) => m.id === ev.resp) || {}).name || null;
+              const outros = (ev.participantes || []).filter((p) => p.papel !== 'responsavel' && (p.nome || '').trim());
+              const canEdit = !meId || ev.resp === meId;
               const compact = height < 64;
               return (
                 <div
@@ -896,13 +916,14 @@ function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNew
                     <div className="day-ev-meta">
                         <span><Ic name={typeIcon(ev.type)} size={12} /> {ev.type}</span>
                         <span><Ic name="map-pin" size={12} /> {ev.local}</span>
-                        {resp && <span><Ic name="team" size={12} /> {resp.name}</span>}
+                        {respNome && <span><Ic name="team" size={12} /> {respNome}</span>}
+                        {outros.length > 0 && <span><Ic name="participants" size={12} /> {outros.map((p) => p.nome).join(', ')}</span>}
                       </div>
                     }
                   </div>
                   <div className="day-ev-actions" onClick={(e) => e.stopPropagation()}>
-                    <button className="day-ev-act day-ev-act-danger" title="Cancelar agendamento" onClick={() => setConfirmDel(ev)}><Ic name="x" size={14} /></button>
-                    <button className="day-ev-act" title="Editar agendamento" onClick={() => onEdit && onEdit(ev)}><Ic name="edit" size={14} /></button>
+                    {canEdit && <button className="day-ev-act day-ev-act-danger" title="Cancelar agendamento" onClick={() => setConfirmDel(ev)}><Ic name="x" size={14} /></button>}
+                    {canEdit && <button className="day-ev-act" title="Editar agendamento" onClick={() => onEdit && onEdit(ev)}><Ic name="edit" size={14} /></button>}
                     <button className="day-ev-act" title="Visualizar detalhes" onClick={() => onView && onView(ev)}><Ic name="eye" size={14} /></button>
                   </div>
                 </div>);
@@ -1419,20 +1440,38 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
   { v: '240', l: '4 horas' },
   { v: '300', l: '5 horas' }];
 
-  const responsibles = ['Karla Zambelly', 'Magno Vieira', 'Paulo Henrique', 'Francisco Junior'];
-  const respList = defaultResponsible && !responsibles.includes(defaultResponsible) ?
-  [defaultResponsible, ...responsibles] :
-  responsibles;
-  const [respName, setRespName] = React.useState(defaultResponsible || respList[0]);
+  // Responsável: usuários REAIS da empresa; default = você (usuário logado).
+  const [users, setUsers] = React.useState([]);
+  const [respId, setRespId] = React.useState('');
+  const [respName, setRespName] = React.useState(defaultResponsible || '');
+  // Participantes adicionais (além do principal): usuário, cliente, lead ou externo.
+  const [extras, setExtras] = React.useState([]);
+  const [pendingExtra, setPendingExtra] = React.useState(null);
+  const [extraKey, setExtraKey] = React.useState(0);
+  React.useEffect(() => {
+    let alive = true;
+    Promise.all([API.getUsuarios().catch(() => ({})), API.me().catch(() => ({}))]).then(([ru, rm]) => {
+      if (!alive) return;
+      const us = (ru.usuarios || []).map((u) => ({ id: u.id, nome: u.nome }));
+      setUsers(us);
+      const meId = rm.user && rm.user.id;
+      const meU = us.find((u) => u.id === meId) || us[0];
+      if (meU) { setRespId(meU.id); setRespName(meU.nome); }
+    });
+    return () => { alive = false; };
+  }, []);
+  const addExtra = () => { if (pendingExtra && (pendingExtra.name || '').trim()) { setExtras((xs) => [...xs, pendingExtra]); setPendingExtra(null); setExtraKey((k) => k + 1); } };
+  const removeExtra = (i) => setExtras((xs) => xs.filter((_, idx) => idx !== i));
   const STATUSES = ['agendado', 'confirmado', 'realizado'];
 
   const cfg = useAgendaConfig();
-  const respConf = (TEAM.find((m) => m.name === respName) || {}).id;
-  const conflito = !cfg.overbooking && hasConflict(appts, { data: date, start: time, dur: parseInt(duration, 10) || 60, resp: respConf });
+  const conflito = !cfg.overbooking && hasConflict(appts, { data: date, start: time, dur: parseInt(duration, 10) || 60, resp: respId });
   const valid = client.trim() && service.trim() && isDiaUtil(date, cfg) && !conflito && !isPast(date, time);
   const submit = () => {
     if (!valid || !onSave) {onClose();return;}
-    const resp = TEAM.find((m) => m.name === respName);
+    // participante PRINCIPAL (dirige o título/exibição) + adicionais -> lista completa.
+    const principal = { tipo: participanteTipo, userId: participanteTipo === 'usuario' ? participanteId : null, clienteId: (participanteTipo === 'cliente' || participanteTipo === 'lead') ? (clienteId || participanteId) : null, nome: client.trim() };
+    const participantes = [principal, ...extras.map((p) => ({ tipo: p.tipo, userId: p.tipo === 'usuario' ? p.participanteId : null, clienteId: (p.tipo === 'cliente' || p.tipo === 'lead') ? (p.clienteId || p.participanteId) : null, nome: p.name }))];
     onSave({
       participante: client.trim(),
       participanteTipo,
@@ -1444,7 +1483,8 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
       data: date,
       start: time,
       dur: parseInt(duration, 10),
-      resp: resp ? resp.id : 'kz',
+      resp: respId,
+      participantes,
       source: 'manual',
       status,
       byAI: false,
@@ -1462,6 +1502,17 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
     footer={(close) => <><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Criar" disabled={!valid} onClick={() => close(submit)} /></>}>
       <div className="col" style={{ gap: 14 }}>
         <div><label className="label">Participante</label><ParticipantPicker defaultValue={defaultParticipante} onChange={(p) => { setClient(p.name); setParticipanteTipo(p.tipo); setClienteId(p.clienteId); setParticipanteId(p.participanteId); if (p.phone && !phone) setPhone(p.phone); }} /></div>
+        <div>
+          <label className="label">Outros participantes <span className="muted" style={{ fontWeight: 400 }}>(opcional)</span></label>
+          {extras.length > 0 &&
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            {extras.map((p, i) => <PartChip key={i} p={p} onRemove={() => removeExtra(i)} />)}
+          </div>}
+          <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}><ParticipantPicker key={extraKey} onChange={setPendingExtra} /></div>
+            <ActionButton action="salvar" icon="plus" label="" efeito={false} size="md" onClick={addExtra} disabled={!pendingExtra || !(pendingExtra.name || '').trim()} title="Adicionar participante" style={{ flexShrink: 0 }} />
+          </div>
+        </div>
         <div><label className="label">Serviço</label><input className="input" value={service} onChange={(e) => setService(e.target.value)} placeholder="Ex.: Limpeza de pele" /></div>
         <div className="row" style={{ gap: 10 }}>
           <div style={{ flex: 1 }}><label className="label">Data</label><DateInput value={date} onChange={setDate} /></div>
@@ -1477,13 +1528,10 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
         <div><label className="label">Local</label><input className="input" value={local} onChange={(e) => setLocal(e.target.value)} placeholder="Ex.: Sala 1" /></div>
         <div className="row" style={{ gap: 10 }}>
           <div style={{ flex: 1 }}><label className="label">Responsável</label>
-            {lockResponsible ? (
-              <div className="input" title="Responsável travado (você)" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface-2)', cursor: 'not-allowed' }}>
-                <Ic name="lock" size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{respName}</span>
-              </div>
-            ) : (
-              <select className="input" value={respName} onChange={(e) => setRespName(e.target.value)}>{respList.map((r) => <option key={r}>{r}</option>)}</select>
-            )}
+            <select className="input" value={respId} onChange={(e) => { setRespId(e.target.value); setRespName((users.find((u) => u.id === e.target.value) || {}).nome || ''); }}>
+              {users.length === 0 && <option value="">—</option>}
+              {users.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            </select>
           </div>
           <div style={{ flex: 1 }}><label className="label">Status</label><select className="input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ textTransform: 'capitalize' }}>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
         </div>
@@ -1570,8 +1618,10 @@ function NewTask({ onClose, onCreate }) {
 
 }
 
-function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
-  const resp = TEAM.find((m) => m.id === appt.resp);
+function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete, meId }) {
+  const respNome = appt.respNome || (TEAM.find((m) => m.id === appt.resp) || {}).name || null;
+  const outros = (appt.participantes || []).filter((p) => p.papel !== 'responsavel' && (p.nome || '').trim());
+  const canEdit = !meId || appt.resp === meId;
   const accent = appt.byAI ? 'var(--ai)' : 'var(--accent)';
   const [confirmDel, setConfirmDel] = React.useState(false);
   const dateObj = appt.data ? new Date(appt.data + 'T00:00:00') : new Date();
@@ -1596,11 +1646,13 @@ function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
       width={DRAWER_W}
       leftHead={<Avatar name={appt.client} />}
       footer={
+      canEdit ?
       <>
           <ActionButton action="cancelar" size="md" label="Cancelar agendamento" onClick={() => setConfirmDel(true)} />
           <div style={{ flex: 1 }} />
           <ActionButton action="editar" size="md" onClick={onEdit} />
-        </>
+        </> :
+      <div className="muted" style={{ fontSize: 'var(--type-xs)', padding: '0 4px', display: 'flex', alignItems: 'center', gap: 6 }}><Ic name="lock" size={13} /> Somente o responsável pode editar ou cancelar.</div>
       }>
       
       <div className="apd-chips">
@@ -1613,7 +1665,8 @@ function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
         <Row icon="clock" label="Horário">{appt.start} – {fmtEndTime(appt.start, appt.dur)} <span className="mep-dim">({appt.dur} min)</span></Row>
         <Row icon={typeIcon(appt.type)} label="Tipo">{appt.type}</Row>
         <Row icon="map-pin" label="Local">{appt.local}</Row>
-        {resp && <Row icon="team" label="Responsável">{resp.name} <span className="mep-dim">· {resp.role}</span></Row>}
+        {respNome && <Row icon="team" label="Responsável">{respNome}</Row>}
+        {outros.length > 0 && <Row icon="participants" label="Participantes">{outros.map((p) => p.nome).join(', ')}</Row>}
         <Row icon="chat" label="Origem">{sourceLabel}</Row>
         {appt.phone && <Row icon="phone" label="Telefone">{appt.phone}</Row>}
       </div>
@@ -1646,6 +1699,19 @@ function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
 
 }
 
+// Chip de participante: hover -> tinta vermelha + (X) pra remover.
+function PartChip({ p, onRemove }) {
+  const [h, setH] = React.useState(false);
+  const icon = p.tipo === 'usuario' ? 'user' : p.tipo === 'lead' ? 'leads' : p.tipo === 'cliente' ? 'team' : 'user';
+  return (
+    <span onMouseEnter={() => setH(true)} onMouseLeave={() => setH(false)}
+      style={{ display: 'inline-flex', alignItems: 'center', gap: 6, padding: '4px 8px 4px 10px', borderRadius: 999, fontSize: 'var(--type-xs)', fontWeight: 600, whiteSpace: 'nowrap', cursor: 'default', border: '1px solid ' + (h ? '#FF452A' : 'var(--border)'), background: h ? '#FFEBEC' : 'var(--surface-2)', color: h ? '#FF452A' : 'var(--text)', transition: 'background .12s, border-color .12s, color .12s' }}>
+      <Ic name={icon} size={11} style={{ flexShrink: 0 }} />
+      <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 160 }}>{p.name}</span>
+      <button onClick={onRemove} title="Remover participante" style={{ border: 'none', background: 'transparent', cursor: 'pointer', color: h ? '#FF452A' : 'var(--text-faint)', display: 'flex', padding: 0, marginLeft: 2, flexShrink: 0, transition: 'color .12s' }}><Ic name="x" size={12} /></button>
+    </span>);
+}
+
 function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
   const DURATIONS = [
   { v: '15', l: '15 min' }, { v: '30', l: '30 min' }, { v: '45', l: '45 min' },
@@ -1660,6 +1726,19 @@ function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
   const [type, setType] = React.useState(appt.type);
   const [local, setLocal] = React.useState(appt.local);
   const [respId, setRespId] = React.useState(appt.resp);
+  const [respName, setRespName] = React.useState(appt.respNome || '');
+  const [users, setUsers] = React.useState([]);
+  React.useEffect(() => {
+    let alive = true;
+    API.getUsuarios().then((r) => { if (alive) setUsers((r.usuarios || []).map((u) => ({ id: u.id, nome: u.nome }))); }).catch(() => {});
+    return () => { alive = false; };
+  }, []);
+  // Participantes (papel 'participante') -> editáveis em tags. Normaliza p/ o formato do picker.
+  const [parts, setParts] = React.useState(() => (appt.participantes || []).filter((p) => p.papel !== 'responsavel').map((p) => ({ tipo: p.tipo, participanteId: p.userId || null, clienteId: p.clienteId || null, name: p.nome || '' })));
+  const [pendingExtra, setPendingExtra] = React.useState(null);
+  const [extraKey, setExtraKey] = React.useState(0);
+  const addPart = () => { if (pendingExtra && (pendingExtra.name || '').trim()) { setParts((xs) => [...xs, pendingExtra]); setPendingExtra(null); setExtraKey((k) => k + 1); } };
+  const removePart = (i) => setParts((xs) => xs.filter((_, idx) => idx !== i));
   const [phone, setPhone] = React.useState(appt.phone || '');
   const [obs, setObs] = React.useState(appt.obs || '');
   const [status, setStatus] = React.useState(appt.status);
@@ -1678,6 +1757,8 @@ function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
       type,
       local: local.trim() || '—',
       resp: respId,
+      respNome: respName,
+      participantes: parts.map((p) => ({ tipo: p.tipo, userId: p.tipo === 'usuario' ? p.participanteId : null, clienteId: (p.tipo === 'cliente' || p.tipo === 'lead') ? (p.clienteId || p.participanteId) : null, nome: p.name })),
       status,
       phone: phone.trim() || '—',
       obs: obs.trim()
@@ -1720,11 +1801,25 @@ function AppointmentEditDrawer({ appt, onClose, onBack, onSave }) {
         <div className="row" style={{ gap: 10 }}>
           <div style={{ flex: 1 }}>
             <label className="label">Responsável</label>
-            <select className="input" value={respId} onChange={(e) => setRespId(e.target.value)}>{TEAM.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select>
+            <select className="input" value={respId} onChange={(e) => { setRespId(e.target.value); setRespName((users.find((u) => u.id === e.target.value) || {}).nome || ''); }}>
+              {!users.some((u) => u.id === respId) && <option value={respId}>{respName || '—'}</option>}
+              {users.map((u) => <option key={u.id} value={u.id}>{u.nome}</option>)}
+            </select>
           </div>
           <div style={{ flex: 1 }}>
             <label className="label">Status</label>
             <select className="input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ textTransform: 'capitalize' }}>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select>
+          </div>
+        </div>
+        <div>
+          <label className="label">Participantes</label>
+          {parts.length > 0 &&
+          <div className="row" style={{ gap: 6, flexWrap: 'wrap', marginBottom: 8 }}>
+            {parts.map((p, i) => <PartChip key={i} p={p} onRemove={() => removePart(i)} />)}
+          </div>}
+          <div className="row" style={{ gap: 8, alignItems: 'flex-start' }}>
+            <div style={{ flex: 1 }}><ParticipantPicker key={extraKey} onChange={setPendingExtra} /></div>
+            <ActionButton action="salvar" icon="plus" label="" efeito={false} size="md" onClick={addPart} disabled={!pendingExtra || !(pendingExtra.name || '').trim()} title="Adicionar participante" style={{ flexShrink: 0 }} />
           </div>
         </div>
         <div>

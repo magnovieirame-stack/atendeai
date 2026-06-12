@@ -10,6 +10,7 @@ import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
 import * as integ from '../lib/integracoes.js';
 import * as gcal from '../lib/google.js';
+import { criarNotificacao } from '../lib/notify.js';
 
 export const agendaRouter = Router();
 agendaRouter.use(requireAuth);
@@ -52,9 +53,11 @@ async function getEmpresaId(req) {
 }
 
 // =========================== COMPROMISSOS ===========================
-function mapAppt(r, cli) {
+function mapAppt(r, cli, participantes) {
   return {
     id: r.id,
+    criadoPor: r.criado_por || null,
+    participantes: participantes || [],
     clienteId: r.cliente_id || null,
     client: (r.participante && r.participante !== 'null') ? r.participante : (cli && cli.nome && cli.nome !== 'null' ? cli.nome : 'Sem nome'),
     participanteTipo: r.participante_tipo || 'cliente',
@@ -93,6 +96,13 @@ const apptSchema = z.object({
   obs: z.string().trim().max(2000).optional().default(''),
   source: z.string().trim().max(40).optional().default('manual'),
   byAI: z.coerce.boolean().optional().default(false),
+  // Participantes (N pessoas): usuario | cliente | lead | externo. Opcional (compat).
+  participantes: z.array(z.object({
+    tipo: z.string().trim().max(20).optional(),
+    userId: uuid.nullable().optional(),
+    clienteId: uuid.nullable().optional(),
+    nome: z.string().trim().max(160).optional(),
+  }).strip()).optional(),
 }).strip();
 
 function apptToDb(b, empresaId) {
@@ -129,15 +139,133 @@ async function clientesMap(ids) {
   return map;
 }
 
+// ---- PARTICIPANTES (N pessoas por reunião) -------------------------------
+const isUuid = (s) => typeof s === 'string' && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s);
+
+// participantes de cada agenda (1 query in-list, evita N+1) -> { agendaId: [...] }
+async function participantesMap(ids) {
+  const map = {};
+  const uniq = [...new Set((ids || []).filter(Boolean))];
+  if (!uniq.length) return map;
+  const { data } = await db().from('agenda_participantes').select('*').in('agenda_id', uniq);
+  (data || []).forEach((p) => {
+    (map[p.agenda_id] = map[p.agenda_id] || []).push({
+      id: p.id, tipo: p.tipo, userId: p.user_id || null, clienteId: p.cliente_id || null,
+      nome: p.nome || null, papel: p.papel || 'participante',
+    });
+  });
+  return map;
+}
+
+// monta as linhas de participantes (papel 'participante') a partir do payload do front
+function buildParticipanteRows(agendaId, empresaId, participantes) {
+  return (participantes || []).map((p) => {
+    if (!p) return null;
+    const tipo = p.tipo || (p.userId ? 'usuario' : (p.clienteId ? 'cliente' : 'externo'));
+    return {
+      agenda_id: agendaId, empresa_id: empresaId, tipo,
+      user_id: tipo === 'usuario' && isUuid(p.userId) ? p.userId : null,
+      cliente_id: (tipo === 'cliente' || tipo === 'lead') && isUuid(p.clienteId) ? p.clienteId : null,
+      nome: p.nome || null, papel: 'participante',
+    };
+  }).filter(Boolean);
+}
+
+// grava o RESPONSÁVEL como participante (papel 'responsavel') — fonte do filtro "minha agenda".
+async function gravarResponsavel(agendaId, empresaId, resp, respNome) {
+  await db().from('agenda_participantes').delete().eq('agenda_id', agendaId).eq('papel', 'responsavel');
+  if (isUuid(resp)) {
+    await db().from('agenda_participantes').insert({ agenda_id: agendaId, empresa_id: empresaId, tipo: 'usuario', user_id: resp, nome: respNome || null, papel: 'responsavel' });
+  }
+}
+
+// substitui a lista de participantes (papel 'participante') da reunião.
+async function gravarParticipantes(agendaId, empresaId, participantes) {
+  await db().from('agenda_participantes').delete().eq('agenda_id', agendaId).eq('papel', 'participante');
+  const rows = buildParticipanteRows(agendaId, empresaId, participantes);
+  if (rows.length) await db().from('agenda_participantes').insert(rows);
+}
+
+// compat: se o front não mandar `participantes`, monta 1 a partir do participante único legado.
+function participantesDoBody(b) {
+  if (b.participantes !== undefined) return b.participantes || [];
+  if (b.participante || b.participanteId || b.clienteId) {
+    const tipo = b.participanteTipo || 'cliente';
+    return [{
+      tipo,
+      userId: tipo === 'usuario' ? b.participanteId : null,
+      clienteId: (tipo === 'cliente' || tipo === 'lead') ? (b.participanteId || b.clienteId) : null,
+      nome: b.participante || null,
+    }];
+  }
+  return [];
+}
+
+// Notifica (in-app/sino) os USUÁRIOS envolvidos (participantes + responsável) ao criar/reagendar.
+// Não notifica quem fez a ação. Best-effort: nunca quebra a rota.
+function fmtBRdata(d) { const m = String(d || '').match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? `${m[3]}/${m[2]}/${String(m[1]).slice(2)}` : (d || ''); }
+// "Maria", "Maria e José", "Maria, José e Ana"
+function listaNomes(arr) {
+  const a = (arr || []).filter(Boolean);
+  if (!a.length) return '';
+  if (a.length === 1) return a[0];
+  return `${a.slice(0, -1).join(', ')} e ${a[a.length - 1]}`;
+}
+// Descreve O QUE mudou entre o compromisso antigo e o novo (p/ a notificação de edição).
+function descreverMudancas(antes, depois) {
+  if (!antes) return '';
+  const hFmt = (h) => String(h || '').replace(':', 'h');
+  const ch = [];
+  if ((antes.data || '') !== (depois.data || '') || (antes.hora || '') !== (depois.hora || '')) ch.push(`novo horário ${fmtBRdata(depois.data)} às ${hFmt(depois.hora)}`);
+  if ((antes.local || '') !== (depois.local || '')) ch.push(`local: ${depois.local || '—'}`);
+  if ((antes.servico || '') !== (depois.servico || '')) ch.push(`serviço: ${depois.servico || '—'}`);
+  if ((antes.status || '') !== (depois.status || '')) ch.push(`status: ${depois.status}`);
+  return ch.join(' · ');
+}
+// Notifica (in-app/sino) os USUÁRIOS envolvidos ao criar/reagendar.
+// Inclui os OUTROS participantes ("com Maria e José") e, na edição, O QUE mudou.
+async function notificarEnvolvidos(empresaId, appt, { tipo, atorId, antes }) {
+  try {
+    const { data: parts } = await db().from('agenda_participantes').select('user_id,nome').eq('agenda_id', appt.id);
+    const userIds = [...new Set((parts || []).filter((p) => p.user_id).map((p) => p.user_id))];
+    if (!userIds.length) return;
+    const quando = `${fmtBRdata(appt.data)}${appt.hora ? ' às ' + String(appt.hora).replace(':', 'h') : ''}`;
+    const mudancas = tipo === 'reagendado' ? descreverMudancas(antes, appt) : '';
+    for (const uid of userIds) {
+      if (atorId && uid === atorId) continue;
+      const outros = listaNomes((parts || []).filter((p) => p.user_id !== uid).map((p) => p.nome));
+      const comQuem = outros ? ` com ${outros}` : '';
+      const texto = tipo === 'reagendado'
+        ? (mudancas
+            ? `🔄 Agendamento alterado${comQuem} — ${mudancas}.`
+            : `🔄 Agendamento atualizado${comQuem}, ${quando}.`)
+        : `📅 Você foi incluído em um novo agendamento${comQuem}, ${quando}.`;
+      await criarNotificacao({ empresaId, userId: uid, kind: 'schedule', texto, link: 'agenda' });
+    }
+  } catch (e) { /* notificação é secundária */ }
+}
+
 agendaRouter.get('/', async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
-    const { data, error } = await db().from('agenda').select('*').eq('empresa_id', empresaId)
-      .order('data', { ascending: true }).order('hora', { ascending: true });
+    const me = req.user.id;
+    // MINHA AGENDA: compromissos onde sou RESPONSÁVEL ou PARTICIPANTE-usuário.
+    // (a tela coletiva p/ admin/líderes virá depois, liberada por permissão.)
+    const { data: parts } = await db().from('agenda_participantes')
+      .select('agenda_id').eq('empresa_id', empresaId).eq('user_id', me);
+    const ids = [...new Set((parts || []).map((p) => p.agenda_id).filter(Boolean))];
+    let q = db().from('agenda').select('*').eq('empresa_id', empresaId);
+    // MINHA AGENDA = sou RESPONSÁVEL ou sou PARTICIPANTE (linha em agenda_participantes).
+    // Ao ser removido dos participantes, a linha some -> o compromisso some da minha agenda.
+    q = ids.length ? q.or(`responsavel.eq.${me},id.in.(${ids.join(',')})`) : q.eq('responsavel', me);
+    const { data, error } = await q.order('data', { ascending: true }).order('hora', { ascending: true });
     if (error) throw error;
     const rows = data || [];
-    const cmap = await clientesMap(rows.map((r) => r.cliente_id));
-    res.json({ agenda: rows.map((r) => mapAppt(r, cmap[r.cliente_id])) });
+    const [cmap, pmap] = await Promise.all([
+      clientesMap(rows.map((r) => r.cliente_id)),
+      participantesMap(rows.map((r) => r.id)),
+    ]);
+    res.json({ agenda: rows.map((r) => mapAppt(r, cmap[r.cliente_id], pmap[r.id])) });
   } catch (err) { next(err); }
 });
 
@@ -273,39 +401,59 @@ agendaRouter.post('/', validateBody(apptSchema), async (req, res, next) => {
     if (req.user && req.user.id) row.criado_por = req.user.id;
     const { data, error } = await db().from('agenda').insert(row).select('*').single();
     if (error) throw error;
+    // grava responsável + participantes (fonte do filtro "minha agenda")
+    await gravarResponsavel(data.id, empresaId, req.body.resp, req.body.respNome);
+    await gravarParticipantes(data.id, empresaId, participantesDoBody(req.body));
+    await notificarEnvolvidos(empresaId, data, { tipo: 'novo', atorId: req.user.id });
     // espelha no Google Calendar (se conectado) e guarda o id do evento
     const eventId = await sincronizarGoogle(empresaId, 'create', data);
     if (eventId) { await db().from('agenda').update({ gcal_event_id: eventId }).eq('id', data.id); data.gcal_event_id = eventId; }
-    const cmap = await clientesMap([data.cliente_id]);
+    const [cmap, pmap] = await Promise.all([clientesMap([data.cliente_id]), participantesMap([data.id])]);
     // NÃO notifica na criação — o lembrete é disparado pelo worker no tempo de antecedência.
-    res.status(201).json({ appt: mapAppt(data, cmap[data.cliente_id]) });
+    res.status(201).json({ appt: mapAppt(data, cmap[data.cliente_id], pmap[data.id]) });
   } catch (err) { next(err); }
 });
 
 agendaRouter.patch('/:id', validateBody(apptSchema.partial()), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
+    const me = req.user.id;
     const id = uuid.parse(req.params.id);
+    // OWNERSHIP: só o responsável OU o criador pode editar (participantes só veem).
+    const { data: cur } = await db().from('agenda').select('id,responsavel,criado_por,data,hora,local,servico,status').eq('id', id).eq('empresa_id', empresaId).maybeSingle();
+    if (!cur) return res.status(404).json({ error: 'Compromisso não encontrado.' });
+    if (cur.responsavel !== me) return res.status(403).json({ error: 'Só o responsável pode editar este compromisso.' });
     const full = apptToDb({ data: req.body.data || '2000-01-01', ...req.body }, null);
     const map = { clienteId: 'cliente_id', participante: 'participante', participanteTipo: 'participante_tipo', participanteId: 'participante_id', respNome: 'responsavel_nome', service: 'servico', data: 'data', start: 'hora', dur: 'duracao', resp: 'responsavel', type: 'tipo', status: 'status', local: 'local', phone: 'telefone', obs: 'observacoes', source: 'canal', byAI: 'por_ia' };
     const patch = {};
     Object.keys(req.body).forEach((k) => { if (map[k]) patch[map[k]] = full[map[k]]; });
-    const { data, error } = await db().from('agenda').update(patch).eq('id', id).eq('empresa_id', empresaId).select('*').single();
+    const { data, error } = Object.keys(patch).length
+      ? await db().from('agenda').update(patch).eq('id', id).eq('empresa_id', empresaId).select('*').single()
+      : await db().from('agenda').select('*').eq('id', id).eq('empresa_id', empresaId).single();
     if (error) throw error;
+    // sincroniza responsável/participantes só quando vierem no payload (PATCH parcial não clobbera).
+    if (req.body.resp !== undefined) await gravarResponsavel(id, empresaId, req.body.resp, req.body.respNome);
+    if (req.body.participantes !== undefined) await gravarParticipantes(id, empresaId, req.body.participantes);
+    await notificarEnvolvidos(empresaId, data, { tipo: 'reagendado', atorId: req.user.id, antes: cur });
     // espelha a edição no Google Calendar (cria o evento se ainda não existir)
     const eventId = await sincronizarGoogle(empresaId, 'update', data);
     if (eventId && eventId !== data.gcal_event_id) { await db().from('agenda').update({ gcal_event_id: eventId }).eq('id', data.id); data.gcal_event_id = eventId; }
-    const cmap = await clientesMap([data.cliente_id]);
-    res.json({ appt: mapAppt(data, cmap[data.cliente_id]) });
+    const [cmap, pmap] = await Promise.all([clientesMap([data.cliente_id]), participantesMap([data.id])]);
+    res.json({ appt: mapAppt(data, cmap[data.cliente_id], pmap[data.id]) });
   } catch (err) { next(err); }
 });
 
 agendaRouter.delete('/:id', async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
+    const me = req.user.id;
     const id = uuid.parse(req.params.id);
     // pega o id do evento no Google antes de apagar, p/ remover de lá também
-    const { data: row } = await db().from('agenda').select('gcal_event_id').eq('id', id).eq('empresa_id', empresaId).maybeSingle();
+    const { data: row } = await db().from('agenda').select('gcal_event_id,responsavel,criado_por').eq('id', id).eq('empresa_id', empresaId).maybeSingle();
+    if (!row) return res.status(404).json({ error: 'Compromisso não encontrado.' });
+    // OWNERSHIP: só o responsável exclui.
+    if (row.responsavel !== me) return res.status(403).json({ error: 'Só o responsável pode excluir este compromisso.' });
+    // agenda_participantes tem ON DELETE CASCADE -> some junto.
     const { error } = await db().from('agenda').delete().eq('id', id).eq('empresa_id', empresaId);
     if (error) throw error;
     if (row && row.gcal_event_id) await sincronizarGoogle(empresaId, 'delete', row);

@@ -302,7 +302,7 @@ function CRMBoard() {
   const [loading, setLoading] = React.useState(true);
   React.useEffect(() => { if (phases.length) skelRemember('crm-phases', phases.length); }, [phases]);
 
-  const cardFromApi = (c) => ({ _id: 'c' + c.id, _cardId: c.id, clienteId: c.clienteId, phase: c.faseId, name: c.name, company: c.company, phone: c.phone, email: c.email, value: c.value, foto: c.foto, date: fmtCardDate(c.criadoEm), tags: c.tags || [], tipo: c.tipo || 'cliente', pinned: c.fixado === true, pinnedAt: c.fixado === true ? 1 : null });
+  const cardFromApi = (c) => ({ _id: 'c' + c.id, _cardId: c.id, clienteId: c.clienteId, phase: c.faseId, name: c.name, company: c.company, phone: c.phone, email: c.email, value: c.value, foto: c.foto, date: fmtCardDate(c.criadoEm), tags: c.tags || [], tipo: c.tipo || 'cliente', responsavelId: c.responsavelId || null, responsavelNome: c.responsavelNome || null, pinned: c.fixado === true, pinnedAt: c.fixado === true ? 1 : null });
 
   React.useEffect(() => {
     let alive = true;
@@ -1005,7 +1005,13 @@ function CRMCard({ card, phaseColor, isDragging, floating, floatingX, floatingY,
             <span style={{ color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{card.email || ''}</span>
           </div>
         </div>
-        <div style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.04em', color: 'var(--text-faint)', whiteSpace: 'nowrap', paddingTop: 1, flexShrink: 0 }}>{card.date}</div>
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 3, flexShrink: 0, paddingTop: 1 }}>
+          <span title={card.responsavelNome ? ('Dono: ' + card.responsavelNome) : 'Sem dono (pool do setor)'}
+            style={{ width: 20, height: 20, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, background: card.responsavelNome ? 'var(--accent-soft)' : 'var(--surface-3)', color: card.responsavelNome ? 'var(--accent-700)' : 'var(--text-faint)', border: '1px solid var(--border)' }}>
+            {card.responsavelNome ? card.responsavelNome.split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase() : '∅'}
+          </span>
+          <span style={{ fontSize: 10, fontWeight: 600, letterSpacing: '.04em', color: 'var(--text-faint)', whiteSpace: 'nowrap' }}>{card.date}</span>
+        </div>
       </div>
 
       {/* Tags — altura fixa (igual com/sem tag), sempre 1 linha. Ícone de overflow
@@ -1846,10 +1852,60 @@ function CrmFunilPicker({ mode, card, funis, crmMulti, onClose }) {
     </div>);
 }
 
+// Picker de DONO do card (atribuir/reatribuir/devolver ao pool). Só frontend:
+// usa API.setCardResponsavel (já existente). Backend valida dono/líder/admin.
+function CardOwnerPicker({ cardId, responsavelId, responsavelNome }) {
+  const [resp, setResp] = React.useState({ id: responsavelId || null, nome: responsavelNome || null });
+  const [open, setOpen] = React.useState(false);
+  const [users, setUsers] = React.useState([]);
+  const [saving, setSaving] = React.useState(false);
+  const ref = React.useRef(null);
+  React.useEffect(() => { if (open && !users.length) window.API.getUsuarios().then((r) => setUsers((r.usuarios || []).map((u) => ({ id: u.id, nome: u.nome })))).catch(() => {}); }, [open]);
+  React.useEffect(() => { const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); }; document.addEventListener('mousedown', onDoc); return () => document.removeEventListener('mousedown', onDoc); }, []);
+  const iniciais = (n) => (n || '').split(' ').filter(Boolean).slice(0, 2).map((s) => s[0]).join('').toUpperCase();
+  const atribuir = async (u) => {
+    setSaving(true);
+    try {
+      await window.API.setCardResponsavel(cardId, { responsavelId: u ? u.id : null, responsavelNome: u ? u.nome : null });
+      setResp({ id: u ? u.id : null, nome: u ? u.nome : null });
+      setOpen(false);
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: u ? 'Card atribuído' : 'Devolvido ao pool', descricao: u ? ('Dono: ' + u.nome) : 'Sem dono' });
+    } catch (e) {
+      window.showToast && window.showToast({ tipo: 'erro', titulo: 'Erro ao atribuir', descricao: (e && e.message) || 'Você não pode reatribuir este card.' });
+    } finally { setSaving(false); }
+  };
+  const av = (nome, on) => <span style={{ width: 22, height: 22, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 9, fontWeight: 700, flexShrink: 0, background: nome ? 'var(--accent-soft)' : 'var(--surface-3)', color: nome ? 'var(--accent-700)' : 'var(--text-faint)' }}>{nome ? iniciais(nome) : '∅'}</span>;
+  return (
+    <div ref={ref} style={{ position: 'relative', marginRight: 6 }}>
+      <button onClick={() => setOpen((o) => !o)} disabled={saving} title="Responsável pelo card"
+        style={{ display: 'flex', alignItems: 'center', gap: 8, height: 34, padding: '0 10px', borderRadius: 8, border: '1px solid var(--border)', background: 'var(--surface)', cursor: 'pointer', maxWidth: 220 }}>
+        {av(resp.nome)}
+        <span style={{ fontSize: 'var(--type-sm)', fontWeight: 600, color: resp.nome ? 'var(--text)' : 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{resp.nome || 'Sem dono (pool)'}</span>
+        <Ic name="chevron-down" size={14} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />
+      </button>
+      {open &&
+      <div style={{ position: 'absolute', top: 'calc(100% + 4px)', right: 0, width: 240, zIndex: 40, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: 'var(--shadow-lg)', maxHeight: 300, overflow: 'auto', padding: 4 }}>
+        <div style={{ padding: '6px 10px', fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', color: 'var(--text-faint)' }}>Atribuir responsável</div>
+        <div onClick={() => atribuir(null)} style={{ padding: '8px 10px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--type-sm)', color: 'var(--text-muted)' }} onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-2)'} onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
+          {av(null)} Devolver ao pool
+        </div>
+        {users.map((u) => (
+          <div key={u.id} onClick={() => atribuir(u)} style={{ padding: '8px 10px', borderRadius: 6, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 8, fontSize: 'var(--type-sm)', background: u.id === resp.id ? 'var(--accent-soft)' : 'transparent' }} onMouseEnter={(e) => { if (u.id !== resp.id) e.currentTarget.style.background = 'var(--surface-2)'; }} onMouseLeave={(e) => { if (u.id !== resp.id) e.currentTarget.style.background = 'transparent'; }}>
+            {av(u.nome)}<span style={{ flex: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{u.nome}</span>
+            {u.id === resp.id && <Ic name="check" size={14} style={{ color: 'var(--accent-700)', flexShrink: 0 }} />}
+          </div>
+        ))}
+        {!users.length && <div style={{ padding: '8px 10px', fontSize: 'var(--type-xs)', color: 'var(--text-faint)' }}>Carregando usuários…</div>}
+      </div>}
+    </div>);
+}
+
 function CRMCardDetail({ card, onClose, phases, onMovePhase, onSaved, crmMulti, crmStrip }) {
   const [subtab, setSubtab] = React.useState('perfil');
   const [tab, setTab] = React.useState('historico');
   const clienteId = card.clienteId || card.id || null;
+  // id do crm-clientesfunil (board usa _cardId; chatbot usa _id numérico). null = sem card -> sem picker.
+  const cardId = card._cardId != null ? card._cardId : (typeof card._id === 'number' ? card._id : null);
   const [cliente, setCliente] = React.useState(null);
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState(null);
@@ -1908,6 +1964,7 @@ function CRMCardDetail({ card, onClose, phases, onMovePhase, onSaved, crmMulti, 
       subtitle={view.empresa || card.company}
       onClose={onClose}
       width="70vw"
+      rightHead={cardId != null ? <CardOwnerPicker cardId={cardId} responsavelId={card.responsavelId} responsavelNome={card.responsavelNome} /> : null}
       belowHead={crmStrip ?
       <CrmFunilSelectStrip funis={crmStrip.funis} card={crmStrip.card} onSelectFase={crmStrip.onSelectFase} /> :
       crmMulti ?

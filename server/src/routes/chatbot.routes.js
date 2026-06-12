@@ -810,10 +810,14 @@ chatbotRouter.get('/contatos/:id/historico', async (req, res, next) => {
       const { data: vs } = await A.from('vendas').select('codigo,total,status,created_at').eq('empresa_id', empresaId).eq('cliente_id', clienteId).order('created_at', { ascending: false }).limit(50);
       (vs || []).forEach((v) => ev.push({ kind: 'sale', icon: 'cart', color: '#16a34a', title: 'Venda · R$ ' + (Number(v.total) || 0).toFixed(2).replace('.', ','), desc: [v.codigo ? ('#' + v.codigo) : null, v.status].filter(Boolean).join(' · '), at: v.created_at }));
     } catch (e) {}
-    // 4) Agendamentos do cliente
+    // 4) Agendamentos do cliente — via agenda_participantes (reflete remoção do participante)
     if (clienteId) try {
-      const { data: ags } = await A.from('agenda').select('servico,tipo,data,hora,responsavel,status').eq('empresa_id', empresaId).eq('cliente_id', clienteId).order('data', { ascending: false }).limit(50);
-      (ags || []).forEach((a) => ev.push({ kind: 'schedule', icon: 'agenda', color: 'var(--hue-violet)', title: a.servico || a.tipo || 'Agendamento', desc: [a.responsavel ? ('com ' + a.responsavel) : null, a.status].filter(Boolean).join(' · '), at: a.data ? (a.data + 'T' + (a.hora || '00:00') + ':00') : null }));
+      const { data: aps } = await A.from('agenda_participantes').select('agenda_id').eq('empresa_id', empresaId).eq('cliente_id', clienteId);
+      const agIds = [...new Set((aps || []).map((x) => x.agenda_id).filter(Boolean))];
+      if (agIds.length) {
+        const { data: ags } = await A.from('agenda').select('servico,tipo,data,hora,responsavel,responsavel_nome,status').in('id', agIds).order('data', { ascending: false }).limit(50);
+        (ags || []).forEach((a) => { const quem = a.responsavel_nome || a.responsavel; ev.push({ kind: 'schedule', icon: 'agenda', color: 'var(--hue-violet)', title: a.servico || a.tipo || 'Agendamento', desc: [quem ? ('com ' + quem) : null, a.status].filter(Boolean).join(' · '), at: a.data ? (a.data + 'T' + (a.hora || '00:00') + ':00') : null }); });
+      }
     } catch (e) {}
     ev.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
     res.json({ historico: ev });

@@ -6,7 +6,8 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { requireAuth } from '../middleware/auth.js';
-import { requirePermissao } from '../lib/autorizacao.js';
+import { requirePermissao, temPermissao } from '../lib/autorizacao.js';
+import { deptosDoUsuario, deptosResponsavel, nomeUsuario } from '../lib/escopo.js';
 import { validateBody } from '../middleware/validate.js';
 import { adminClient } from '../lib/supabase.js';
 import { criarNotificacao } from '../lib/notify.js';
@@ -18,7 +19,7 @@ crmRouter.use(requireAuth);
 crmRouter.use((req, res, next) => {
   let perm = 'crm.gerenciar';
   if (req.method === 'GET') perm = 'crm.ver';
-  else if (req.method === 'PATCH' && /\/cards\/[^/]+(\/fixar)?$/.test(req.path)) perm = 'crm.mover';
+  else if (req.method === 'PATCH' && /\/cards\/[^/]+(\/fixar|\/responsavel)?$/.test(req.path)) perm = 'crm.mover';
   return requirePermissao(perm)(req, res, next);
 });
 
@@ -32,6 +33,39 @@ async function getEmpresaId(req) {
   const { data } = await req.supabase.from('empresa_membros').select('empresa_id').limit(1);
   req._empresaId = data && data[0] ? data[0].empresa_id : null;
   return req._empresaId;
+}
+
+// ESCOPO de cards (3 níveis): admin (crm.gerenciar) vê tudo; líder vê o(s) setor(es)
+// que lidera + pool; vendedor vê os seus + pool do seu setor. Devolve o filtro PostgREST
+// pra aplicar em crm-clientesfunil (ou or=null quando é admin = sem filtro).
+async function escopoCards(req) {
+  if (temPermissao(req._auth, 'crm.gerenciar')) return { isAdmin: true, or: null };
+  const me = req.user.id;
+  const meusDeptos = deptosDoUsuario(req);
+  const deptosResp = await deptosResponsavel(req);
+  const ors = [`responsavel_id.eq.${me}`]; // sempre vejo os MEUS
+  if (meusDeptos.length > 0 || deptosResp.length > 0) {
+    ors.push('and(responsavel_id.is.null,departamento_id.is.null)'); // pool global (sem dono e sem setor)
+    if (meusDeptos.length) ors.push(`and(responsavel_id.is.null,departamento_id.in.(${meusDeptos.join(',')}))`); // pool do meu setor
+    if (deptosResp.length) ors.push(`departamento_id.in.(${deptosResp.join(',')})`); // líder: tudo do(s) setor(es) que lidero
+  }
+  return { isAdmin: false, or: ors.join(',') };
+}
+
+// Pode MOVER/REATRIBUIR este card? admin OU dono OU líder-do-setor-do-card OU pool visível.
+async function podeMexerNoCard(req, card) {
+  if (temPermissao(req._auth, 'crm.gerenciar')) return true;          // admin
+  const me = req.user.id;
+  if (card.responsavel_id && card.responsavel_id === me) return true; // dono
+  const deptosResp = await deptosResponsavel(req);
+  const cardDep = card.departamento_id != null ? Number(card.departamento_id) : null;
+  if (cardDep != null && deptosResp.map(Number).includes(cardDep)) return true; // líder do setor do card
+  if (!card.responsavel_id) {                                          // pool: quem vê, pode pegar/mover
+    const meus = deptosDoUsuario(req).map(Number);
+    if (cardDep == null && (meus.length || deptosResp.length)) return true; // pool global
+    if (cardDep != null && meus.includes(cardDep)) return true;             // pool do meu setor
+  }
+  return false;
 }
 
 // crm-clientesfunil + clientes -> card da UI
@@ -51,6 +85,9 @@ function mapCard(rel, cli) {
     tags: withTipoTag(Array.isArray(rel.tags) ? rel.tags : [], rel.tipo === 'lead' ? 'lead' : 'cliente'),
     fixado: rel.fixado === true,        // card fixado no topo (coluna opcional)
     tipo: rel.tipo === 'lead' ? 'lead' : 'cliente', // cliente | lead (coluna opcional)
+    responsavelId: rel.responsavel_id || null,        // dono do card (null = pool)
+    responsavelNome: rel.responsavel_nome || null,
+    departamentoId: rel.departamento_id != null ? rel.departamento_id : null,
   };
 }
 
@@ -100,11 +137,15 @@ function fmtData(iso) {
 // ---- GET /api/crm/funis — lista de funis com estatísticas por fase ----
 crmRouter.get('/funis', async (req, res, next) => {
   try {
+    // ESCOPO 3 níveis: os contadores por fase só contam os cards VISÍVEIS pro usuário.
+    const esc = await escopoCards(req);
+    let relQ = req.supabase.from('crm-clientesfunil').select('id,cliente,fase');
+    if (!esc.isAdmin && esc.or) relQ = relQ.or(esc.or);
     // funis, fases e cards são independentes -> em PARALELO (4 round-trips viram 2).
     const [funisRes, fasesRes, relsRes] = await Promise.all([
       req.supabase.from('crm-funil').select('id,nome,descricao,cor_funil,created_at').order('created_at', { ascending: true }),
       req.supabase.from('crm-fasefunil').select('id,nome,cor_funil,pos,funil'),
-      req.supabase.from('crm-clientesfunil').select('id,cliente,fase'),
+      relQ,
     ]);
     if (funisRes.error) throw funisRes.error;
     const funis = funisRes.data;
@@ -148,7 +189,10 @@ crmRouter.get('/funis/:id', async (req, res, next) => {
     const faseIds = (fases || []).map((f) => f.id);
     let cards = [];
     if (faseIds.length) {
-      const { data: rels } = await req.supabase.from('crm-clientesfunil').select('*').in('fase', faseIds);
+      const esc = await escopoCards(req);
+      let relQ = req.supabase.from('crm-clientesfunil').select('*').in('fase', faseIds);
+      if (!esc.isAdmin && esc.or) relQ = relQ.or(esc.or);
+      const { data: rels } = await relQ;
       const cliIds = [...new Set((rels || []).map((r) => r.cliente).filter(Boolean))];
       const cliById = {};
       if (cliIds.length) { const { data: cls } = await req.supabase.from('clientes').select(SEL_CLI).in('id', cliIds); (cls || []).forEach((c) => { cliById[c.id] = c; }); }
@@ -167,9 +211,35 @@ const moveSchema = z.object({ faseId: z.coerce.number().int() }).strip();
 crmRouter.patch('/cards/:id', validateBody(moveSchema), async (req, res, next) => {
   try {
     const id = Number(req.params.id);
+    const { data: card } = await req.supabase.from('crm-clientesfunil').select('id,responsavel_id,departamento_id').eq('id', id).maybeSingle();
+    if (!card) return res.status(404).json({ error: 'Card não encontrado.' });
+    if (!(await podeMexerNoCard(req, card))) return res.status(403).json({ error: 'Você não pode mover este card (é de outra pessoa).' });
     const { data, error } = await req.supabase.from('crm-clientesfunil').update({ fase: req.body.faseId }).eq('id', id).select('id,fase').single();
     if (error) throw error;
     res.json({ card: { id: data.id, faseId: data.fase } });
+  } catch (err) { next(err); }
+});
+
+// ---- PATCH /api/crm/cards/:id/responsavel — atribuir/reatribuir o dono (dono/líder/admin) ----
+const respCardSchema = z.object({
+  responsavelId: uuid.nullable(),                                  // null = devolve pro pool
+  responsavelNome: z.string().trim().max(120).nullable().optional(),
+  departamentoId: z.union([z.string(), z.number()]).nullable().optional(),
+}).strip();
+crmRouter.patch('/cards/:id/responsavel', validateBody(respCardSchema), async (req, res, next) => {
+  try {
+    const id = Number(req.params.id);
+    const { data: card } = await req.supabase.from('crm-clientesfunil').select('id,responsavel_id,departamento_id').eq('id', id).maybeSingle();
+    if (!card) return res.status(404).json({ error: 'Card não encontrado.' });
+    if (!(await podeMexerNoCard(req, card))) return res.status(403).json({ error: 'Você não pode reatribuir este card.' });
+    const patch = {
+      responsavel_id: req.body.responsavelId || null,
+      responsavel_nome: req.body.responsavelId ? (req.body.responsavelNome || null) : null,
+    };
+    if (req.body.departamentoId !== undefined) patch.departamento_id = req.body.departamentoId || null;
+    const { data, error } = await req.supabase.from('crm-clientesfunil').update(patch).eq('id', id).select('id,responsavel_id,responsavel_nome,departamento_id').single();
+    if (error) throw error;
+    res.json({ card: { id: data.id, responsavelId: data.responsavel_id || null, responsavelNome: data.responsavel_nome || null, departamentoId: data.departamento_id != null ? data.departamento_id : null } });
   } catch (err) { next(err); }
 });
 
@@ -178,8 +248,9 @@ const addCardSchema = z.object({ clienteId: uuid, faseId: z.coerce.number().int(
 crmRouter.post('/cards', validateBody(addCardSchema), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);
+    const meuDep = deptosDoUsuario(req)[0] || null; // card criado no board nasce com dono = você
     const { data, error } = await req.supabase.from('crm-clientesfunil')
-      .insert({ cliente: req.body.clienteId, fase: req.body.faseId, empresa_id: empresaId }).select('id,cliente,fase,created_at').single();
+      .insert({ cliente: req.body.clienteId, fase: req.body.faseId, empresa_id: empresaId, responsavel_id: req.user.id, responsavel_nome: nomeUsuario(req), departamento_id: meuDep }).select('id,cliente,fase,created_at,responsavel_id,responsavel_nome,departamento_id').single();
     if (error) throw error;
     const { data: cli } = await req.supabase.from('clientes').select(SEL_CLI).eq('id', req.body.clienteId).single();
     res.status(201).json({ card: mapCard(data, cli) });
@@ -210,8 +281,9 @@ crmRouter.post('/cards/novo', validateBody(novoCardSchema), async (req, res, nex
       .insert({ nome, empresa: empresa || null, telefone, email, valor, empresa_id: empresaId }).select(SEL_CLI).single();
     if (cliIns.error) throw cliIns.error;
     const cli = cliIns.data;
+    const meuDep = deptosDoUsuario(req)[0] || null; // card criado no board nasce com dono = você
     const relIns = await req.supabase.from('crm-clientesfunil')
-      .insert({ cliente: cli.id, fase: faseId, empresa_id: empresaId }).select('id,cliente,fase,created_at').single();
+      .insert({ cliente: cli.id, fase: faseId, empresa_id: empresaId, responsavel_id: req.user.id, responsavel_nome: nomeUsuario(req), departamento_id: meuDep }).select('id,cliente,fase,created_at,responsavel_id,responsavel_nome,departamento_id').single();
     if (relIns.error) throw relIns.error;
     // tags/tipo: gravação "best-effort" — sempre grava as tags (mínimo a do tipo).
     await req.supabase.from('crm-clientesfunil').update({ tags: finalTags }).eq('id', relIns.data.id);

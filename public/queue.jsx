@@ -5,7 +5,7 @@ function Queue() {
   const { setRoute, tweaks } = useStore();
   const me = tweaks.profile === 'super' ? 'mv' : tweaks.profile === 'atendente' ? 'kz' : 'ph';
 
-  // ------------ derive queue from CONVERSATIONS (enrich with reason / priority / started) ------------
+  // ------------ motivos/cores (usados pelo filtro e pelo chip de motivo — IA liga depois) ------------
   const REASONS = [
   'Agendar consulta',
   'Cliente pediu humano',
@@ -27,55 +27,35 @@ function Queue() {
     'Fora do horário comercial': { c: 'var(--text-faint)', ic: 'clock' }
   };
 
-  const seed = (n) => {
-    const x = Math.sin(n * 13.37) * 10000;
-    return Math.abs(x - Math.floor(x));
-  };
-
-  // Extra simulated queue items (so the page demonstrates a real-world fila volume)
-  const EXTRA_QUEUE = React.useMemo(() => [
-  { id: 'cq1', client: 'Tatiane Oliveira', avatar: 'TO', channel: 'whatsapp', status: 'pendente', lastTime: '17:48', tag: 'PROSPECT', preview: 'Vocês fazem pacote mensal? Preciso de uma proposta hoje', unread: 2, handler: 'queue', waitMin: 4 },
-  { id: 'cq2', client: 'Rogério Bastos', avatar: 'RB', channel: 'instagram', status: 'pendente', lastTime: '17:31', tag: 'PROSPECT', preview: 'Não consegui finalizar o pagamento pelo link', unread: 1, handler: 'queue', waitMin: 9 },
-  { id: 'cq3', client: 'Helena Marques', avatar: 'HM', channel: 'whatsapp', status: 'pendente', lastTime: '17:18', tag: 'CLIENTE', preview: 'Quero remarcar o atendimento de amanhã', unread: 3, handler: 'queue', waitMin: 14 },
-  { id: 'cq4', client: 'Anderson Pires', avatar: 'AP', channel: 'facebook', status: 'pendente', lastTime: '17:02', tag: 'PROSPECT', preview: 'O agente não entendeu minha dúvida sobre garantia', unread: 1, handler: 'queue', waitMin: 18 },
-  { id: 'cq5', client: 'Vanessa Coelho', avatar: 'VC', channel: 'whatsapp', status: 'pendente', lastTime: '16:55', tag: 'CLIENTE', preview: 'Posso parcelar em 6x sem juros? É urgente', unread: 2, handler: 'queue', waitMin: 23 },
-  { id: 'cq6', client: 'Diego Carvalho', avatar: 'DC', channel: 'instagram', status: 'pendente', lastTime: '16:40', tag: 'PROSPECT', preview: 'Quero falar com alguém de verdade, não com robô', unread: 4, handler: 'queue', waitMin: 27 },
-  { id: 'cq7', client: 'Marina Sales', avatar: 'MS', channel: 'whatsapp', status: 'pendente', lastTime: '16:21', tag: 'PROSPECT', preview: 'O pedido tem valor de R$ 7.800, posso fechar?', unread: 1, handler: 'queue', waitMin: 32 },
-  { id: 'cq8', client: 'Felipe Andrade', avatar: 'FA', channel: 'whatsapp', status: 'pendente', lastTime: '16:05', tag: 'PROSPECT', preview: 'Tem desconto para pagamento à vista no Pix?', unread: 1, handler: 'queue', waitMin: 8 },
-  { id: 'cq9', client: 'Camila Ribeiro', avatar: 'CR', channel: 'facebook', status: 'pendente', lastTime: '15:48', tag: 'CLIENTE', preview: 'Recebi o produto errado, preciso de ajuda', unread: 5, handler: 'queue', waitMin: 38 },
-  { id: 'cq10', client: 'Thiago Nogueira', avatar: 'TN', channel: 'whatsapp', status: 'pendente', lastTime: '15:30', tag: 'PROSPECT', preview: 'Vocês atendem fora do horário comercial?', unread: 0, handler: 'queue', waitMin: 11 },
-  { id: 'cq11', client: 'Aline Tavares', avatar: 'AT', channel: 'instagram', status: 'pendente', lastTime: '15:12', tag: 'PROSPECT', preview: 'Não recebi a confirmação por e-mail, ajuda?', unread: 2, handler: 'queue', waitMin: 16 },
-  { id: 'cq12', client: 'Eduardo Macedo', avatar: 'EM', channel: 'whatsapp', status: 'pendente', lastTime: '14:52', tag: 'CLIENTE', preview: 'Solicito reembolso da última cobrança', unread: 1, handler: 'queue', waitMin: 41 },
-  { id: 'cq13', client: 'Larissa Pontes', avatar: 'LP', channel: 'whatsapp', status: 'pendente', lastTime: '14:33', tag: 'PROSPECT', preview: 'Quero agendar uma sessão para sexta à tarde', unread: 0, handler: 'queue', waitMin: 6 },
-  { id: 'cq14', client: 'Otávio Maia', avatar: 'OM', channel: 'facebook', status: 'pendente', lastTime: '14:10', tag: 'PROSPECT', preview: 'A IA respondeu errado, queria confirmar com alguém', unread: 1, handler: 'queue', waitMin: 19 },
-  { id: 'cq15', client: 'Bianca Furlan', avatar: 'BF', channel: 'instagram', status: 'pendente', lastTime: '13:45', tag: 'CLIENTE', preview: 'Está tudo certo? Não vi resposta desde ontem', unread: 2, handler: 'queue', waitMin: 52 }],
-  []);
-
-  const baseQueue = React.useMemo(() => {
-    const fromData = (typeof CONVERSATIONS !== 'undefined' ? CONVERSATIONS : []).
-    filter((c) => c.handler === 'queue' || c.status === 'pendente');
-    const raw = [...fromData, ...EXTRA_QUEUE];
-    return raw.map((c, i) => {
-      const wait = c.waitMin || Math.round(2 + seed(i * 3 + 1) * 40);
-      const reason = REASONS[Math.floor(seed(i * 7 + 3) * REASONS.length)];
-      const priority = wait > 25 ? 'alta' : wait > 10 ? 'media' : 'baixa';
-      const aiSummary = c.aiSummary ||
-      {
-        'Agendar consulta': 'Cliente quer marcar horário e pediu confirmação humana.',
-        'Cliente pediu humano': 'Cliente solicitou explicitamente falar com atendente.',
-        'Reclamação': 'Cliente está insatisfeito — IA detectou tom negativo.',
-        'Pagamento / cobrança': 'Dúvida sobre forma de pagamento e parcelamento.',
-        'Negociação de desconto': 'Cliente solicita desconto fora da política.',
-        'IA não compreendeu': 'Mensagem ambígua — IA não conseguiu responder com confiança.',
-        'Pedido acima de R$ 5.000': 'Valor do pedido excede o limite do agente IA.',
-        'Fora do horário comercial': 'Recebida fora do horário — IA pausou e encaminhou.'
-      }[reason];
-      return { ...c, _wait: wait, reason, priority, _summary: aiSummary };
-    });
+  // ===== Fila REAL — vem de GET /chatbot/contatos (PENDENTES do atendente) =====
+  // O backend já isola por usuário: conversas atribuídas a mim (transferidas pra mim)
+  // + o pool pendente dos meus departamentos. Aqui ficamos só com as PENDENTES.
+  // OBS IA: 'reason' e '_summary' (Resumo da IA) ficam vazios DE PROPÓSITO — a IA
+  //        será ligada depois; o visual/código de IA permanece intacto.
+  const mapContatoToQueue = React.useCallback((c) => {
+    const t = c.ultimaMsg ? new Date(c.ultimaMsg) : null;
+    const wait = t ? Math.max(0, Math.round((Date.now() - t.getTime()) / 60000)) : 0;
+    const priority = wait > 25 ? 'alta' : wait > 10 ? 'media' : 'baixa';
+    const lastTime = t ? `${String(t.getHours()).padStart(2, '0')}:${String(t.getMinutes()).padStart(2, '0')}` : '';
+    const tagNome = (c.tags && c.tags[0] && String(c.tags[0].nome || '').toUpperCase()) || '';
+    return {
+      id: c.id,
+      client: c.nome || 'Contato sem nome',
+      photo: c.foto || null,
+      channel: c.canal || 'whatsapp',
+      status: c.status,
+      lastTime,
+      tag: tagNome,
+      preview: c.ultimaMensagem || '',
+      unread: c.naoLidas || 0,
+      _wait: wait,
+      priority,
+      _raw: c, // contato cru — usado pra abrir a conversa REAL (ConvThread) no mesmo formato do inbox
+    };
   }, []);
 
-  // local mutable queue (so user actions actually remove cards)
-  const [items, setItems] = React.useState(baseQueue);
+  // local mutable queue (as ações removem/atualizam na hora; o back persiste por baixo)
+  const [items, setItems] = React.useState([]);
   const [selectedIds, setSelectedIds] = React.useState([]);
   const [filterChannel, setFilterChannel] = React.useState('all');
   const [filterReason, setFilterReason] = React.useState('all');
@@ -84,17 +64,46 @@ function Queue() {
   const [sort, setSort] = React.useState('wait-desc');
   const [viewMode, setViewMode] = React.useState('list');
   const [tick, setTick] = React.useState(0);
-
-  // ----- skeleton de carregamento (scaffolding pronto pra API real) -----
   const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => { setLoading(false); }, []);
-  React.useEffect(() => { if (sorted.length) skelRemember('fila', sorted.length); }, [loading]);
+  const [resolvedToday, setResolvedToday] = React.useState(0); // saídas da fila NESTA sessão (real)
 
-  // live tick (cosmetic — re-render every 30s; doesn't actually increment wait)
+  // Listas reais p/ transferência (atendentes + departamentos) — popup "Atribuir".
+  const [listas, setListas] = React.useState(null);
+  React.useEffect(() => { API.getTransferenciaListas().then(setListas).catch(() => {}); }, []);
+
+  // Busca a fila real. Filtra os PENDENTES do escopo que o backend já devolve.
+  const refetch = React.useCallback(() => {
+    return API.getContatos()
+      .then((r) => {
+        const fila = (r.contatos || []).filter((c) => c.status === 'pendente').map(mapContatoToQueue);
+        setItems(fila);
+        setTick(0);
+        if (fila.length) skelRemember('fila', fila.length);
+      })
+      .catch((e) => { window.showToast?.({ tipo: 'erro', titulo: 'Erro ao carregar a fila', descricao: e.message || 'Tente recarregar.' }); })
+      .finally(() => setLoading(false));
+  }, [mapContatoToQueue]);
+  React.useEffect(() => { refetch(); }, [refetch]);
+
+  // Polling leve: re-busca a cada 10s quando a aba está visível (igual ao inbox).
   React.useEffect(() => {
-    const id = setInterval(() => setTick((t) => t + 1), 30000);
+    const id = setInterval(() => {
+      if (document.visibilityState === 'visible') { setTick((t) => t + 1); refetch(); }
+    }, 10000);
     return () => clearInterval(id);
-  }, []);
+  }, [refetch]);
+
+  // Mapeia as listas reais p/ os formatos que os popups já esperam.
+  const QUEUE_DEPT_COLORS = ['#16a34a', '#0ea5e9', '#f59e0b', '#a855f7', '#ef4444', '#14b8a6'];
+  const assignTeam = React.useMemo(() => listas ? (listas.atendentes || []).map((u) => ({
+    id: u.id, name: u.nome, role: u.papelNome || 'Atendente', status: u.emPausa ? 'pausa' : 'ativo',
+  })) : null, [listas]);
+  const transferAgents = React.useMemo(() => listas ? (listas.atendentes || []).map((u) => ({
+    id: u.id, name: u.nome, role: u.papelNome || 'Atendente', status: u.emPausa ? 'offline' : 'available', queue: 0,
+  })) : null, [listas]);
+  const transferDepts = React.useMemo(() => listas ? (listas.departamentos || []).map((d, i) => ({
+    id: d.id, name: d.nome, desc: 'Departamento', icon: 'team', color: QUEUE_DEPT_COLORS[i % QUEUE_DEPT_COLORS.length],
+  })) : null, [listas]);
 
   // modals & drawers
   const [assignModal, setAssignModal] = React.useState(null); // conv | { bulk: true }
@@ -128,7 +137,6 @@ function Queue() {
   const longest = items.length ? Math.max(...items.map((c) => c._wait)) : 0;
   const longestC = items.find((c) => c._wait === longest);
   const highPrio = items.filter((c) => c.priority === 'alta').length;
-  const resolvedToday = 24; // mock — would come from real data
 
   // ----- channel counts for chips -----
   const channelCount = (ch) => ch === 'all' ? items.length : items.filter((c) => c.channel === ch).length;
@@ -139,27 +147,47 @@ function Queue() {
     setSelectedIds((prev) => prev.filter((id) => !ids.includes(id)));
   };
 
+  // Assumir = vira dono e a conversa fica 'ativo' (sai da fila). Persiste no back.
   const handleAssume = (conv) => {
     removeIds([conv.id]);
-    window.showToast({ tipo: 'sucesso', titulo: 'Conversa assumida', descricao: `Você assumiu a conversa com ${conv.client}` });
+    setResolvedToday((n) => n + 1);
+    API.assumirContato(conv.id)
+      .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Conversa assumida', descricao: `Você assumiu a conversa com ${conv.client}` }))
+      .catch((e) => { window.showToast({ tipo: 'erro', titulo: 'Erro ao assumir', descricao: e.message || 'Tente novamente.' }); setResolvedToday((n) => Math.max(0, n - 1)); refetch(); });
   };
 
   const handleBulkAssume = () => {
-    const n = selectedIds.length;
-    if (!n) return;
-    removeIds(selectedIds);
-    window.showToast({ tipo: 'sucesso', titulo: 'Conversas assumidas', descricao: `${n} conversa${n > 1 ? 's' : ''} assumida${n > 1 ? 's' : ''}` });
+    const ids = [...selectedIds];
+    if (!ids.length) return;
+    removeIds(ids);
+    Promise.allSettled(ids.map((id) => API.assumirContato(id))).then((rs) => {
+      const ok = rs.filter((r) => r.status === 'fulfilled').length;
+      setResolvedToday((n) => n + ok);
+      window.showToast({ tipo: ok ? 'sucesso' : 'erro', titulo: 'Conversas assumidas', descricao: `${ok} de ${ids.length} assumida${ids.length > 1 ? 's' : ''}` });
+      if (ok < ids.length) refetch();
+    });
   };
 
-  const handleAssign = ({ memberId, memberName, conv, bulk, note }) => {
-    const ids = bulk ? selectedIds : [conv.id];
+  // Atribuir = transfere p/ atendente (kind padrão) ou departamento. Persiste no back.
+  const handleAssign = ({ memberId, memberName, kind, conv, bulk, note }) => {
+    const ids = bulk ? [...selectedIds] : [conv.id];
+    if (!ids.length) return;
+    const dto = kind === 'dept'
+      ? { departamentoId: memberId, departamentoNome: memberName, nota: note || undefined }
+      : { atendenteId: memberId, atendenteNome: memberName, nota: note || undefined };
     removeIds(ids);
-    window.showToast({ tipo: 'sucesso', titulo: 'Conversa atribuída', descricao: ids.length > 1 ?
-    `${ids.length} conversas atribuídas a ${memberName}` :
-    `Conversa atribuída a ${memberName}` });
+    Promise.allSettled(ids.map((id) => API.transferirContato(id, dto))).then((rs) => {
+      const ok = rs.filter((r) => r.status === 'fulfilled').length;
+      setResolvedToday((n) => n + ok);
+      window.showToast({ tipo: ok ? 'sucesso' : 'erro', titulo: 'Conversa atribuída', descricao: ids.length > 1 ?
+      `${ok} de ${ids.length} atribuída(s) a ${memberName}` :
+      `Conversa atribuída a ${memberName}` });
+      if (ok < ids.length) refetch();
+    });
     setAssignModal(null);
   };
 
+  // "Devolver à IA" — INTACTO (visual/local). Será ligado quando a IA entrar.
   const handleReturn = ({ reason, conv, bulk }) => {
     const ids = bulk ? selectedIds : [conv.id];
     removeIds(ids);
@@ -169,9 +197,13 @@ function Queue() {
     setReturnModal(null);
   };
 
+  // Encerrar = statuschat 'finalizado'. Persiste no back.
   const handleClose = ({ label, conv }) => {
     removeIds([conv.id]);
-    window.showToast({ tipo: 'sucesso', titulo: 'Conversa encerrada', descricao: label });
+    setResolvedToday((n) => n + 1);
+    API.setContatoStatus(conv.id, 'finalizado')
+      .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Conversa encerrada', descricao: label }))
+      .catch((e) => { window.showToast({ tipo: 'erro', titulo: 'Erro ao encerrar', descricao: e.message || 'Tente novamente.' }); setResolvedToday((n) => Math.max(0, n - 1)); refetch(); });
     setCloseModal(null);
   };
 
@@ -183,10 +215,10 @@ function Queue() {
   return (
     <Page
       title="Fila de transferências"
-      subtitle={`${items.length} conversa${items.length === 1 ? '' : 's'} aguardando atendimento humano · atualizado há ${tick === 0 ? 'instantes' : `${tick * 30}s`}`}
+      subtitle={`${items.length} conversa${items.length === 1 ? '' : 's'} aguardando atendimento humano · atualizado há ${tick === 0 ? 'instantes' : `${tick * 10}s`}`}
       actions={
       <div className="row" style={{ gap: 6 }}>
-          <button className="btn" onClick={() => setItems(baseQueue)} title="Recarregar">
+          <button className="btn" onClick={() => { setLoading(true); refetch(); }} title="Recarregar">
             <Ic name="history" size={14} /> Recarregar
           </button>
         </div>
@@ -221,7 +253,7 @@ function Queue() {
           label="Atendidas hoje (saídas da fila)"
           value={resolvedToday}
           accent="ai"
-          foot={`${Math.round(resolvedToday / (resolvedToday + items.length) * 100)}% taxa de resolução`} />
+          foot={resolvedToday + items.length ? `${Math.round(resolvedToday / (resolvedToday + items.length) * 100)}% taxa de resolução` : 'nesta sessão'} />
         </>}
       </div>
 
@@ -467,6 +499,7 @@ function Queue() {
       {assignModal &&
       <AssignToColleagueModal
         target={assignModal}
+        team={assignTeam}
         onClose={() => setAssignModal(null)}
         onConfirm={({ memberId, memberName, note }) => {
           if (assignModal.bulk) handleAssign({ memberId, memberName, bulk: true, note });else
@@ -492,19 +525,71 @@ function Queue() {
 
       }
       {previewConv && (
-        <QueuePreviewDrawer
-          conv={previewConv}
-          reasonColor={REASON_COLORS[previewConv.reason]}
+        <QueueConversation
+          raw={previewConv._raw}
           onClose={() => setPreviewConv(null)}
-          onAssume={() => handleAssume(previewConv)}
-          onReturnConfirm={({ reason, keepNotes }) => { handleReturn({ reason, conv: previewConv }); setPreviewConv(null); }}
-          onAssignConfirm={({ kind, target, note }) => { handleAssign({ memberId: target.id, memberName: target.name, conv: previewConv, note }); setPreviewConv(null); }}
-          onCloseConfirm={({ label, outcome, note }) => { handleClose({ label, conv: previewConv }); setPreviewConv(null); }}
-        />
+          onChanged={refetch} />
       )}
 
     </Page>);
 
+}
+
+/* ===================================================================
+   Conversa REAL da fila — reaproveita o MESMO ConvThread do chatbot.
+   Rodapé/composer, transferir, encerrar, emoji, áudio, mídia e respostas
+   rápidas ficam IDÊNTICOS ao inbox (é o mesmo componente). Quando a conversa
+   está pendente, o próprio ConvThread mostra o botão "Atender" (assumir).
+   =================================================================== */
+function QueueConversation({ raw, onClose, onChanged }) {
+  const [composing, setComposing] = React.useState('');
+  const [aiOpen, setAiOpen] = React.useState(false); // a ficha abre POR CIMA do chat -> nasce fechada (cai no bate-papo)
+  const conv = React.useMemo(() => (raw && typeof dbContatoToConv === 'function') ? dbContatoToConv(raw) : null, [raw]);
+  React.useEffect(() => {
+    const onKey = (e) => { if (e.key === 'Escape') onClose && onClose(); };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [onClose]);
+  if (!conv) return null;
+  const leave = () => { onChanged && onChanged(); onClose && onClose(); };
+  return ReactDOM.createPortal(
+    <div style={{ position: 'fixed', inset: 0, zIndex: 200, display: 'flex', justifyContent: 'flex-end', animation: 'popIn .14s ease' }}>
+      <div onClick={onClose} style={{ position: 'absolute', inset: 0, background: 'rgba(15,23,42,.45)' }} />
+      <div style={{
+        position: 'relative', height: '100%', width: 'min(560px, 96vw)',
+        display: 'grid', gridTemplateColumns: 'minmax(0,1fr)', minHeight: 0, overflow: 'hidden',
+        background: 'var(--surface)', boxShadow: '-12px 0 40px rgba(15,23,42,.18)',
+      }}>
+        <ConvThread
+          conv={conv}
+          composing={composing}
+          setComposing={setComposing}
+          onOpenContext={() => setAiOpen(true)}
+          aiOpen={aiOpen}
+          onToggleAI={() => setAiOpen((o) => !o)}
+          onConvChanged={onChanged}
+          onSent={() => {}}
+          onLeave={leave}
+          onBack={onClose} />
+        {/* Ficha do cliente: abre POR CIMA da conversa (mesmo efeito de slide), com X pra
+            fechar e voltar ao bate-papo. Fica clipada fora da tela (translateX) quando fechada. */}
+        <div style={{
+          position: 'absolute', inset: 0, zIndex: 5, background: 'var(--surface)',
+          display: 'flex', flexDirection: 'column', minHeight: 0,
+          transform: aiOpen ? 'translateX(0)' : 'translateX(100%)',
+          transition: 'transform .28s ease',
+          boxShadow: aiOpen ? '-12px 0 40px rgba(15,23,42,.18)' : 'none',
+          pointerEvents: aiOpen ? 'auto' : 'none',
+        }}>
+          <div className="row" style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8, flexShrink: 0, background: 'var(--surface)' }}>
+            <span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>Ficha do cliente</span>
+            <div className="spacer" />
+            <button className="btn btn-ghost btn-icon" onClick={() => setAiOpen(false)} title="Fechar ficha" style={{ width: 30, height: 30 }}><Ic name="x" size={16} /></button>
+          </div>
+          <AIPanel conv={conv} setComposing={setComposing} inline onDataChanged={onChanged} />
+        </div>
+      </div>
+    </div>, document.body);
 }
 
 /* ===================================================================
@@ -762,7 +847,7 @@ function QueueRow({ conv, selected, onToggleSelect, onAssume, onAssign, onReturn
       <Checkbox checked={selected} onChange={onToggleSelect} />
 
       <div style={{ position: 'relative', flexShrink: 0 }}>
-        <Avatar name={conv.client} size="lg" />
+        <Avatar name={conv.client} src={conv.photo} size="lg" />
         <span style={{ position: 'absolute', bottom: -2, right: -2, width: 22, height: 22, borderRadius: '50%', background: 'var(--surface)', border: '2px solid var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
           <ChannelIcon ch={conv.channel} size={13} />
         </span>
@@ -790,15 +875,12 @@ function QueueRow({ conv, selected, onToggleSelect, onAssume, onAssign, onReturn
         <div className="row" style={{ gap: 8, padding: '8px 10px', background: 'var(--ai-soft)', border: '1px solid color-mix(in oklab, var(--ai) 24%, var(--border))', borderRadius: 8 }}>
           <Ic name="sparkles" size={14} style={{ color: 'var(--ai-strong)', flexShrink: 0, marginTop: 2 }} />
           <div style={{ fontSize: 'var(--type-sm)', color: 'var(--ai-strong)', lineHeight: 1.4 }}>
-            <strong>Resumo da IA:</strong> {conv._summary}
+            <strong>Resumo da IA:</strong> AI em breve estará em funcionamento, e aqui você visualizará, o que ela lhe orientará antes do atendimento
           </div>
         </div>
       </div>
 
       <div className="col" style={{ gap: 6, flexShrink: 0, minWidth: 130 }} onClick={(e) => e.stopPropagation()}>
-        <button className="btn btn-primary btn-sm" style={{ justifyContent: 'center' }} onClick={onAssume}>
-          <Ic name="arrow-right" size={13} /> Assumir
-        </button>
         <div className="row" style={{ gap: 4 }}>
           <button className="btn btn-sm" style={{ flex: 1, justifyContent: 'center', padding: '0 8px' }} onClick={onPreview} title="Ver conversa">
             <Ic name="eye" size={13} />
@@ -890,7 +972,7 @@ function QueueCard({ conv, selected, onToggleSelect, onAssume, onAssign, onRetur
       <div className="row" style={{ gap: 10 }}>
         <Checkbox checked={selected} onChange={onToggleSelect} />
         <div style={{ position: 'relative' }}>
-          <Avatar name={conv.client} size="lg" />
+          <Avatar name={conv.client} src={conv.photo} size="lg" />
           <span style={{ position: 'absolute', bottom: -2, right: -2, width: 22, height: 22, borderRadius: '50%', background: 'var(--surface)', border: '2px solid var(--surface)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
             <ChannelIcon ch={conv.channel} size={13} />
           </span>
@@ -914,15 +996,12 @@ function QueueCard({ conv, selected, onToggleSelect, onAssume, onAssign, onRetur
       <div className="row" style={{ gap: 8, padding: '8px 10px', background: 'var(--ai-soft)', border: '1px solid color-mix(in oklab, var(--ai) 24%, var(--border))', borderRadius: 8 }}>
         <Ic name="sparkles" size={12} style={{ color: 'var(--ai-strong)', flexShrink: 0, marginTop: 2 }} />
         <div style={{ fontSize: 'var(--type-xs)', color: 'var(--ai-strong)', lineHeight: 1.4 }}>
-          {conv._summary}
+          AI em breve estará em funcionamento, e aqui você visualizará, o que ela lhe orientará antes do atendimento
         </div>
       </div>
 
       <div className="row" style={{ gap: 6, marginTop: 'auto' }} onClick={(e) => e.stopPropagation()}>
-        <button className="btn btn-primary btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={onAssume}>
-          <Ic name="arrow-right" size={13} /> Assumir
-        </button>
-        <button className="btn btn-sm" onClick={onAssign} title="Atribuir">
+        <button className="btn btn-sm" style={{ flex: 1, justifyContent: 'center' }} onClick={onAssign} title="Atribuir">
           <Ic name="team" size={13} />
         </button>
         <ActionMenu items={[
@@ -940,13 +1019,14 @@ function QueueCard({ conv, selected, onToggleSelect, onAssume, onAssign, onRetur
    Modals
    =================================================================== */
 
-function AssignToColleagueModal({ target, onClose, onConfirm }) {
+function AssignToColleagueModal({ target, onClose, onConfirm, team: propTeam }) {
   const bulk = target && target.bulk;
   const [selected, setSelected] = React.useState(null);
   const [note, setNote] = React.useState('');
   const [q, setQ] = React.useState('');
 
-  const team = (typeof TEAM !== 'undefined' ? TEAM : []).
+  // Lista real (vinda da API) quando disponível; senão cai no mock TEAM.
+  const team = (propTeam || (typeof TEAM !== 'undefined' ? TEAM : [])).
   filter((m) => m.status === 'ativo' && m.role !== 'Administrador');
 
   const filtered = q ?
@@ -1106,7 +1186,7 @@ function CloseQueueConvModal({ conv, onClose, onConfirm }) {
 
 }
 
-function QueuePreviewDrawer({ conv, reasonColor, onClose, onAssume, onReturnConfirm, onAssignConfirm, onCloseConfirm }) {
+function QueuePreviewDrawer({ conv, reasonColor, transferAgents, transferDepts, onClose, onAssume, onReturnConfirm, onAssignConfirm, onCloseConfirm }) {
   const [assumed, setAssumed] = React.useState(false);
   const [showContact, setShowContact] = React.useState(false);
   const [contactClosing, setContactClosing] = React.useState(false);
@@ -1220,7 +1300,7 @@ function QueuePreviewDrawer({ conv, reasonColor, onClose, onAssume, onReturnConf
         }
         width={560}
         onClose={onClose}
-        leftHead={<Avatar name={conv.client} />}
+        leftHead={<Avatar name={conv.client} src={conv.photo} />}
         footer={
           <div style={{ position: 'relative', width: '100%', zIndex: 5 }}>
             {/* Inline popovers anchored above the footer */}
@@ -1235,6 +1315,8 @@ function QueuePreviewDrawer({ conv, reasonColor, onClose, onAssume, onReturnConf
             {popover === 'assign' && (
               <TransferPopover
                 anchor={assumed ? 'left-2' : 'left-2'}
+                agents={transferAgents}
+                depts={transferDepts}
                 onClose={() => setPopover(null)}
                 onConfirm={(payload) => { setPopover(null); onAssignConfirm?.(payload); }}
               />
@@ -1380,7 +1462,7 @@ function QueuePreviewDrawer({ conv, reasonColor, onClose, onAssume, onReturnConf
               <span style={{ fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.05em', color: 'var(--ai-strong)', textTransform: 'uppercase' }}>Resumo da IA</span>
             </div>
             <div style={{ fontSize: 'var(--type-sm)', color: 'var(--ai-strong)', lineHeight: 1.5 }}>
-              {conv._summary}
+              AI em breve estará em funcionamento, e aqui você visualizará, o que ela lhe orientará antes do atendimento
             </div>
           </div>
 
@@ -1780,7 +1862,9 @@ const QUEUE_TRANSFER_DEPTS = [
   { id: 'd4', name: 'Pós-venda',  desc: 'Acompanhamento, fidelização',    icon: 'star',       color: '#a855f7' },
 ];
 
-function TransferPopover({ onClose, onConfirm }) {
+function TransferPopover({ onClose, onConfirm, agents, depts }) {
+  const AGENTS = agents || QUEUE_TRANSFER_AGENTS; // listas reais quando disponíveis; senão mock
+  const DEPTS = depts || QUEUE_TRANSFER_DEPTS;
   const [tab, setTab] = React.useState('agent');
   const [selected, setSelected] = React.useState(null);
   const [note, setNote] = React.useState('');
@@ -1836,7 +1920,7 @@ function TransferPopover({ onClose, onConfirm }) {
 
         {/* list */}
         <div className="col" style={{ gap: 4, maxHeight: 200, overflow: 'auto', margin: '0 -2px', padding: '0 2px' }}>
-          {tab === 'agent' && QUEUE_TRANSFER_AGENTS.map(a => {
+          {tab === 'agent' && AGENTS.map(a => {
             const on = selected?.id === a.id;
             const dot = a.status === 'available' ? '#16a34a' : a.status === 'busy' ? '#f59e0b' : '#9ca3af';
             const disabled = a.status === 'offline';
@@ -1865,7 +1949,7 @@ function TransferPopover({ onClose, onConfirm }) {
               </div>
             );
           })}
-          {tab === 'dept' && QUEUE_TRANSFER_DEPTS.map(d => {
+          {tab === 'dept' && DEPTS.map(d => {
             const on = selected?.id === d.id;
             return (
               <div

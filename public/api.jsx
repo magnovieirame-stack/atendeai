@@ -99,6 +99,7 @@ const API = {
   moveCard(cardId, faseId) { return this._json('/crm/cards/' + cardId, 'PATCH', { faseId }); },
   addCardCliente(faseId, dados) { return this._json('/crm/cards/novo', 'POST', { faseId, ...dados }); },
   toggleCardFixar(cardId, fixado) { return this._json('/crm/cards/' + cardId + '/fixar', 'PATCH', { fixado }); },
+  setCardResponsavel(cardId, dto) { return this._json('/crm/cards/' + cardId + '/responsavel', 'PATCH', dto); }, // dto: { responsavelId, responsavelNome, departamentoId }
   deleteCard(cardId) { return this._req('/crm/cards/' + cardId, { method: 'DELETE' }); },
   addFase(funilId, nome, cor_funil) { return this._json('/crm/funis/' + funilId + '/fases', 'POST', { nome, cor_funil }); },
   updateFase(id, patch) { return this._json('/crm/fases/' + id, 'PATCH', patch); },
