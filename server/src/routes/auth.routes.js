@@ -142,6 +142,15 @@ authRouter.get('/auth/me', requireAuth, async (req, res, next) => {
   try {
     // Papel e permissões REAIS (de empresa_membros), não mais de metadados vazios.
     const auth = await carregarAutorizacao(req);
+    // É responsável por algum departamento? (gate da aba "Atendente" no filtro do inbox)
+    let ehResponsavel = false;
+    try {
+      if (auth.empresaId) {
+        const { data: respDeps } = await adminClient()
+          .from('departamentos').select('id').eq('empresa', auth.empresaId).eq('responsavel_id', req.user.id).limit(1);
+        ehResponsavel = !!(respDeps && respDeps.length);
+      }
+    } catch (e) { /* best-effort */ }
     res.json({
       user: {
         ...publicUser(req.user),
@@ -152,6 +161,7 @@ authRouter.get('/auth/me', requireAuth, async (req, res, next) => {
         papel: auth.papel,            // ex.: 'admin_loja' | 'atendente' | 'super_admin'
         papelNome: auth.papelNome,    // ex.: 'Admin da Loja'
         permissoes: Array.from(auth.permissoes), // ex.: ['catalogo.ver', ...]
+        ehResponsavel,                // responsável por algum departamento (supervisor)
       },
     });
   } catch (err) { next(err); }

@@ -120,7 +120,7 @@ function Provider({ children }) {
   React.useEffect(() => { if (route === 'login' && demo) setDemo(false); }, [route, demo]);
   // ...e zera TODO o cache de leitura (o "Sair" do menu só faz go('login'), sem
   // passar pela API.logout) — pra nunca mostrar dado da sessão/loja anterior.
-  React.useEffect(() => { if (route === 'login') { try { window.clearQueryCache && window.clearQueryCache(); } catch (e) {} } }, [route]);
+  React.useEffect(() => { if (route === 'login') { try { window.clearQueryCache && window.clearQueryCache(); } catch (e) {} try { window.__resetInboxSession && window.__resetInboxSession(); } catch (e) {} } }, [route]);
   // Espelha o fim do demo na flag global: ao sair do demo, volta ao fluxo REAL
   // (rede liberada, zero mock). Entrar é feito sincronamente em enterDemo.
   React.useEffect(() => { if (!demo) window.__DEMO__ = false; }, [demo]);
@@ -133,7 +133,7 @@ function Provider({ children }) {
     return window.API.me()
       .then((r) => {
         const u = (r && r.user) || {};
-        setAuth({ papel: u.papel || null, papelNome: u.papelNome || null, cargo: u.cargo || null, empresaId: (u.empresa && u.empresa.id) || u.empresaId || null, empresaNome: (u.empresa && u.empresa.nome) || null, nome: u.name || null, email: u.email || null, foto: u.fotoUrl || null, departamentoId: (u.departamentoId != null ? u.departamentoId : null), permissoes: new Set(u.permissoes || []), preferencias: (u.preferencias && typeof u.preferencias === 'object') ? u.preferencias : null, loaded: true });
+        setAuth({ papel: u.papel || null, papelNome: u.papelNome || null, cargo: u.cargo || null, empresaId: (u.empresa && u.empresa.id) || u.empresaId || null, empresaNome: (u.empresa && u.empresa.nome) || null, nome: u.name || null, email: u.email || null, foto: u.fotoUrl || null, departamentoId: (u.departamentoId != null ? u.departamentoId : null), ehResponsavel: !!u.ehResponsavel, permissoes: new Set(u.permissoes || []), preferencias: (u.preferencias && typeof u.preferencias === 'object') ? u.preferencias : null, loaded: true });
         return u.papel || null;
       })
       .catch(() => { setAuth((a) => ({ ...a, loaded: true })); return null; });

@@ -99,7 +99,10 @@ function AwayBadge({ away, onResume }) {
 
 }
 
-function FilterPopover({ filter, tags, phases, selectedTags, selectedPhases, onToggleTag, onTogglePhase, onClear, onClose }) {
+function FilterPopover({ filter, tags, phases, atendentes, departamentos, podeVerAtendentes, selectedTags, selectedPhases, selectedAtendentes = [], selectedDepartamentos = [], onToggleTag, onTogglePhase, onToggleAtendente, onToggleDepartamento, onClear, onClose }) {
+  // abas: TAGS, FUNIL e (só p/ Admin de Loja / responsável de depto) ATENDENTE + DEPTO
+  const TABS = [['tags', 'TAGS'], ['phases', 'FUNIL']];
+  if (podeVerAtendentes) { TABS.push(['atendentes', 'ATENDENTE']); TABS.push(['departamentos', 'DEPTO']); }
   const [tab, setTab] = React.useState('tags');
   const ref = React.useRef(null);
   React.useEffect(() => {
@@ -108,17 +111,19 @@ function FilterPopover({ filter, tags, phases, selectedTags, selectedPhases, onT
     return () => {clearTimeout(t);document.removeEventListener('mousedown', onDoc);};
   }, [onClose]);
   const filterName = { alert: 'Alertas', ai: 'IA', active: 'Ativas', pending: 'Pendentes', closed: 'Encerradas' }[filter] || 'todas';
-  const totalSel = selectedTags.length + selectedPhases.length;
+  const totalSel = selectedTags.length + selectedPhases.length + selectedAtendentes.length + selectedDepartamentos.length;
+  const cols = TABS.length;
+  const tabIdx = Math.max(0, TABS.findIndex((t) => t[0] === tab));
   return (
-    <div ref={ref} style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: 260, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 10px 32px rgba(0,0,0,.18)', zIndex: 60, animation: 'popIn .18s ease', overflow: 'hidden' }}>
+    <div ref={ref} style={{ position: 'absolute', top: 'calc(100% + 8px)', right: 0, width: cols >= 4 ? 320 : 260, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 10px 32px rgba(0,0,0,.18)', zIndex: 60, animation: 'popIn .18s ease', overflow: 'hidden' }}>
       <div style={{ padding: '10px 12px 0' }}>
         <div className="muted" style={{ fontSize: 'var(--type-xs)' }}>Filtrando aba <strong style={{ color: 'var(--text)' }}>{filterName}</strong></div>
       </div>
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', borderBottom: '1px solid var(--border)', marginTop: 8, position: 'relative' }}>
-        {[['tags', 'TAGS'], ['phases', 'FUNIL']].map(([id, l]) =>
+      <div style={{ display: 'grid', gridTemplateColumns: `repeat(${cols}, 1fr)`, borderBottom: '1px solid var(--border)', marginTop: 8, position: 'relative' }}>
+        {TABS.map(([id, l]) =>
         <div key={id} onClick={() => setTab(id)} style={{ padding: '10px 0', textAlign: 'center', fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.06em', color: tab === id ? 'var(--text)' : 'var(--text-muted)', cursor: 'default', transition: 'color .15s' }}>{l}</div>
         )}
-        <div style={{ position: 'absolute', bottom: -1, height: 2, width: '50%', left: tab === 'tags' ? '0%' : '50%', background: 'var(--accent)', transition: 'left .25s cubic-bezier(.5,1.4,.4,1)' }} />
+        <div style={{ position: 'absolute', bottom: -1, height: 2, width: `${100 / cols}%`, left: `${(tabIdx * 100) / cols}%`, background: 'var(--accent)', transition: 'left .25s cubic-bezier(.5,1.4,.4,1)' }} />
       </div>
       <div className="scroll" style={{ maxHeight: 280, overflow: 'auto', padding: 6 }}>
         {tab === 'tags' && (tags.length === 0 ? <div className="muted" style={{ padding: 16, fontSize: 'var(--type-sm)', textAlign: 'center' }}>Nenhuma tag</div> :
@@ -142,6 +147,32 @@ function FilterPopover({ filter, tags, phases, selectedTags, selectedPhases, onT
             </div>);
 
         })}
+        {tab === 'atendentes' && ((atendentes || []).length === 0 ? <div className="muted" style={{ padding: 16, fontSize: 'var(--type-sm)', textAlign: 'center' }}>Nenhum atendente</div> :
+        atendentes.map((a) => {
+          const on = selectedAtendentes.includes(a.id);
+          return (
+            <div key={a.id} className="filter-row" onClick={() => onToggleAtendente(a.id)}>
+              <span className="cb" data-on={on}>{on && <Ic name="check" size={12} />}</span>
+              <span style={{ width: 16, height: 16, borderRadius: '50%', background: 'var(--surface-3)', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name="user" size={10} /></span>
+              <span style={{ flex: 1, fontSize: 'var(--type-sm)', fontWeight: on ? 600 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{a.nome}</span>
+            </div>);
+
+        }))
+        }
+        {tab === 'departamentos' && ((departamentos || []).length === 0 ? <div className="muted" style={{ padding: 16, fontSize: 'var(--type-sm)', textAlign: 'center' }}>Nenhum departamento</div> :
+        departamentos.map((d) => {
+          const on = selectedDepartamentos.includes(d.id);
+          const liberado = d.podeFiltrar; // responsável só filtra os que lidera; admin filtra todos
+          return (
+            <div key={d.id} className="filter-row" data-off={liberado ? undefined : 'true'} onClick={() => liberado && onToggleDepartamento(d.id)} title={liberado ? '' : 'Você não é responsável por este departamento'} style={{ opacity: liberado ? 1 : 0.5, cursor: liberado ? 'default' : 'not-allowed' }}>
+              <span className="cb" data-on={on}>{on && <Ic name="check" size={12} />}</span>
+              <span style={{ width: 16, height: 16, borderRadius: 4, background: 'var(--surface-3)', color: 'var(--text-muted)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name="folder" size={10} /></span>
+              <span style={{ flex: 1, fontSize: 'var(--type-sm)', fontWeight: on ? 600 : 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{d.nome}</span>
+              {!liberado && <Ic name="lock" size={12} style={{ color: 'var(--text-faint)', flexShrink: 0 }} />}
+            </div>);
+
+        }))
+        }
       </div>
       {totalSel > 0 &&
       <div style={{ borderTop: '1px solid var(--border)', padding: 8, display: 'flex', justifyContent: 'space-between', alignItems: 'center', background: 'var(--surface-2)' }}>
@@ -153,16 +184,14 @@ function FilterPopover({ filter, tags, phases, selectedTags, selectedPhases, onT
 
 }
 
-function InboxHeader({ available, away, onSetAway, onResume, filter, tags, phases, selectedTags, selectedPhases, onToggleTag, onTogglePhase, onClear }) {
-  const [showFilter, setShowFilter] = React.useState(false);
-  const totalSel = selectedTags.length + selectedPhases.length;
+function InboxHeader({ available, away, onSetAway, onResume, onConfig, podeConfig }) {
   return (
     <div style={{ padding: '10px 14px 12px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', flexDirection: 'column', height: "80px" }}>
-      <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
         <div style={{ width: 34, height: 34, borderRadius: '50%', background: 'linear-gradient(135deg, #0EFF9B 0%, #C0FF33 100%)', color: '#0a3a1f', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, boxShadow: '0 2px 6px rgba(14,255,155,.25)' }}>
           <Ic name="inbox" size={16} />
         </div>
-        <div style={{ flex: 1, minWidth: 0, fontWeight: 600, letterSpacing: '-0.01em', paddingTop: 7, fontSize: "18px" }}>The List Bate Papo</div>
+        <div style={{ flex: 1, minWidth: 0, fontWeight: 600, letterSpacing: '-0.01em', fontSize: "18px" }}>The List Bate Papo</div>
         <button onClick={() => available ? onSetAway() : onResume()} className={`switch ${available ? 'on' : 'off'}`} title={available ? 'Disponível para receber novas conversas' : `Indisponível: ${away?.label || ''}`}>
           <span className="switch-track">
             <span className="switch-text switch-on">ON</span>
@@ -170,25 +199,12 @@ function InboxHeader({ available, away, onSetAway, onResume, filter, tags, phase
             <span className="switch-knob" />
           </span>
         </button>
-        <div style={{ position: 'relative' }}>
-          <button className="btn btn-icon btn-sm" onClick={() => setShowFilter((s) => !s)} style={{ height: 24, width: 28, padding: 0, background: totalSel > 0 ? 'var(--accent-soft)' : 'transparent', borderColor: totalSel > 0 ? 'var(--accent)' : 'var(--border)', color: totalSel > 0 ? 'var(--accent-700)' : 'var(--text-muted)', position: 'relative' }}>
-            <Ic name="filter" size={13} />
-            {totalSel > 0 && <span style={{ position: 'absolute', top: -5, right: -5, background: 'var(--accent)', color: 'white', borderRadius: 999, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', border: '2px solid var(--surface)' }}>{totalSel}</span>}
-          </button>
-          {showFilter &&
-          <FilterPopover
-            filter={filter}
-            tags={tags}
-            phases={phases}
-            selectedTags={selectedTags}
-            selectedPhases={selectedPhases}
-            onToggleTag={onToggleTag}
-            onTogglePhase={onTogglePhase}
-            onClear={onClear}
-            onClose={() => setShowFilter(false)} />
-
-          }
-        </div>
+        {/* botão de Configurações do chatbot — só Admin de Loja / quem tem a permissão */}
+        {podeConfig && <button onClick={onConfig} title="Configurações do chatbot" style={{ height: 32, width: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'default', flexShrink: 0, transition: 'background .15s, border-color .15s, color .15s' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.color = 'var(--text)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+          <Ic name="settings" size={15} />
+        </button>}
       </div>
       <div className="muted" style={{ fontSize: 11, letterSpacing: '.01em', marginTop: 6, paddingLeft: 2 }}></div>
     </div>);
@@ -203,24 +219,30 @@ function FilterPills({ filter, setFilter, counts }) {
   ['pending', 'Pendentes', null, counts.pending, 'Aguardando atendimento'],
   ['closed', 'Encerradas', null, null, 'Encerradas']];
 
-  const refs = React.useRef([]);
+  const wrapRef = React.useRef(null);
+  const refs = React.useRef([]);          // células (clique)
+  const contentRefs = React.useRef([]);   // conteúdo (a "fonte") — referência da pílula
   const [pos, setPos] = React.useState({ left: 0, width: 0 });
   const idx = items.findIndex((it) => it[0] === filter);
   React.useLayoutEffect(() => {
-    const el = refs.current[idx];
-    if (!el) return;
-    setPos({ left: el.offsetLeft, width: el.offsetWidth });
-  }, [idx, filter]);
+    const wrap = wrapRef.current, content = contentRefs.current[idx];
+    if (!wrap || !content) return;
+    const wr = wrap.getBoundingClientRect(), cr = content.getBoundingClientRect();
+    // pílula = largura do CONTEÚDO (a fonte) + 8px de margem em cada lado.
+    setPos({ left: cr.left - wr.left - 8, width: cr.width + 16 });
+  }, [idx, filter, counts.alert, counts.ai, counts.pending]);
   return (
-    <div style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 0, marginTop: 8, padding: 4, background: 'var(--surface-2)', borderRadius: 8 }}>
+    <div ref={wrapRef} style={{ position: 'relative', display: 'grid', gridTemplateColumns: 'repeat(5, 1fr)', gap: 0, marginTop: 8, padding: 4, background: 'var(--surface-2)', borderRadius: 8 }}>
       <div style={{ position: 'absolute', top: 4, bottom: 4, left: pos.left, width: pos.width, background: '#E7F4E9', borderRadius: 6, transition: 'left .32s cubic-bezier(.5,1.4,.4,1), width .32s cubic-bezier(.5,1.4,.4,1)', boxShadow: '0 1px 2px rgba(15,23,42,.08)', pointerEvents: 'none' }} />
       {items.map(([id, label, icon, badge, title], i) => {
         const on = filter === id;
         return (
-          <div key={id} ref={(el) => refs.current[i] = el} title={title} onClick={() => setFilter(id)} style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 5, padding: '5px 10px', borderRadius: 6, fontSize: 'var(--type-xs)', fontWeight: 600, cursor: 'default', color: on ? 'var(--accent-700)' : 'var(--text-muted)', transition: 'color .2s ease', zIndex: 1, whiteSpace: 'nowrap' }}>
-            {icon && <Ic name={icon} size={14} style={{ color: id === 'alert' ? '#dc2626' : 'var(--ai)' }} />}
-            {label}
-            {badge ? <span style={{ background: id === 'alert' ? '#dc2626' : id === 'ai' ? 'var(--ai)' : 'var(--accent)', color: 'white', borderRadius: 999, padding: '0 5px', fontSize: 9, lineHeight: '14px', fontWeight: 700, minWidth: 14, textAlign: 'center' }}>{badge}</span> : null}
+          <div key={id} ref={(el) => refs.current[i] = el} title={title} onClick={() => setFilter(id)} style={{ position: 'relative', display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '5px 10px', borderRadius: 6, fontSize: 'var(--type-xs)', fontWeight: 600, cursor: 'default', color: on ? 'var(--accent-700)' : 'var(--text-muted)', transition: 'color .2s ease', zIndex: 1, whiteSpace: 'nowrap' }}>
+            <span ref={(el) => contentRefs.current[i] = el} style={{ display: 'inline-flex', alignItems: 'center', gap: 5 }}>
+              {icon && <Ic name={icon} size={14} style={{ color: id === 'alert' ? '#dc2626' : 'var(--ai)' }} />}
+              {label}
+              {badge ? <span style={{ background: id === 'alert' ? '#dc2626' : id === 'ai' ? 'var(--ai)' : 'var(--accent)', color: 'white', borderRadius: 999, padding: '0 5px', fontSize: 9, lineHeight: '14px', fontWeight: 700, minWidth: 14, textAlign: 'center' }}>{badge}</span> : null}
+            </span>
           </div>);
 
       })}
@@ -336,20 +358,20 @@ function ContactsPanel({ open, onClose, onStartConv }) {
         <span className="muted" style={{ fontSize: 11, marginLeft: 'auto' }}>{list.length} {list.length === 1 ? 'contato' : 'contatos'}</span>
       </div>
       {/* Search + new conv */}
-      <div style={{ padding: '12px 14px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center' }}>
+      <div style={{ padding: '12px 12px', borderBottom: '1px solid var(--border)', display: 'flex', gap: 8, alignItems: 'center' }}>
         <div style={{ position: 'relative', flex: 1 }}>
-          <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)' }}><Ic name="search" size={14} /></span>
+          <span style={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(calc(-50% + 2px))', color: 'var(--text-faint)' }}><Ic name="search" size={14} /></span>
           <input
             className="input"
             autoFocus
             placeholder="Pesquisar nome ou número…"
             value={q}
             onChange={(e) => setQ(e.target.value)}
-            style={{ paddingLeft: 34, height: 38, borderRadius: 999, fontSize: 'var(--type-sm)' }} />
-          
+            style={{ paddingLeft: 30, height: 38, borderRadius: 999, fontSize: 'var(--type-sm)' }} />
+
           {q && <button onClick={() => setQ('')} className="btn btn-ghost btn-icon" style={{ position: 'absolute', right: 4, top: '50%', transform: 'translateY(-50%)', width: 28, height: 28 }}><Ic name="x" size={14} /></button>}
         </div>
-        <FabNovo size="mini" label="Nova conversa" onClick={() => setShowNew(true)} title="Iniciar nova conversa" />
+        <FabNovo size="sm" iconOnly label="Nova conversa" onClick={() => setShowNew(true)} title="Iniciar nova conversa" />
       </div>
       {/* List */}
       <div className="scroll" style={{ flex: 1, overflow: 'auto' }}>
@@ -364,22 +386,6 @@ function ContactsPanel({ open, onClose, onStartConv }) {
         <ContactRow key={c.id} c={c} onStart={() => onStartConv(c)} />
         )}
       </div>
-      {/* Floating "new conversation" FAB inside panel (matches reference) */}
-      <button
-        onClick={() => setShowNew(true)}
-        className="fab-mini"
-        title="Nova conversa"
-        style={{
-          position: 'absolute', bottom: 4, right: 4,
-          width: 44, height: 44, borderRadius: '50%',
-          background: 'transparent', border: 0, padding: 0, cursor: 'default',
-          color: 'var(--accent)',
-          display: 'flex', alignItems: 'center', justifyContent: 'center',
-          opacity: 0.7, transition: 'opacity .15s, transform .15s'
-        }}
-        onMouseEnter={(e) => {e.currentTarget.style.opacity = '1';e.currentTarget.style.transform = 'scale(1.08)';}}
-        onMouseLeave={(e) => {e.currentTarget.style.opacity = '0.7';e.currentTarget.style.transform = 'scale(1)';}}>
-        <Ic name="plus-circle" size={26} /></button>
       {showNew && <NewConversationDialog onClose={() => setShowNew(false)} onStart={(payload) => {setShowNew(false);onStartConv(payload);}} />}
     </div>);
 
@@ -395,10 +401,7 @@ function ContactRow({ c, onStart }) {
     onMouseEnter={(e) => e.currentTarget.style.background = 'var(--surface-2)'}
     onMouseLeave={(e) => e.currentTarget.style.background = 'transparent'}>
       
-      <div style={{ position: 'relative' }}>
-        <Avatar name={c.name} src={c.foto} />
-        <span style={{ position: 'absolute', left: -2, top: '50%', transform: 'translateY(-50%)', width: 3, height: 22, background: c.tag === 'CLIENTE' ? '#10b981' : 'var(--hue-violet)', borderRadius: 2 }} />
-      </div>
+      <Avatar name={c.name} src={c.foto} style={{ width: 40, height: 40, fontSize: 14 }} />
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontWeight: 700, fontSize: 'var(--type-sm)', letterSpacing: '.01em', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', textTransform: 'uppercase' }}>{c.name}</div>
         <div className="muted" style={{ fontSize: 11, marginTop: 2 }}>{c.phone}</div>
@@ -463,10 +466,22 @@ function NewConversationDialog({ onClose, onStart }) {
 
 }
 
+// Sessão do inbox (vive enquanto logado; some no logout via window.__resetInboxSession).
+// 1ª visita ao chatbot na sessão -> nenhuma conversa (tela orientativa). Depois guarda a
+// última aberta pra restaurar ao navegar e voltar.
+let _inboxSession = { visited: false, lastConvId: null };
+if (typeof window !== 'undefined') window.__resetInboxSession = () => { _inboxSession = { visited: false, lastConvId: null }; };
+
 function Inbox() {
-  const { tweaks, routeParam, route } = useStore();
-  const [selectedId, setSelectedId] = React.useState('c1');
+  const { tweaks, routeParam, route, auth, can } = useStore();
+  // 1ª visita = null (tela orientativa); retorno na mesma sessão = restaura a última.
+  const [selectedId, setSelectedId] = React.useState(() => (_inboxSession.visited ? (_inboxSession.lastConvId || null) : null));
+  React.useEffect(() => { _inboxSession.visited = true; }, []);
+  React.useEffect(() => { _inboxSession.lastConvId = selectedId; }, [selectedId]);
   const [showContacts, setShowContacts] = React.useState(false);
+  const [showConfig, setShowConfig] = React.useState(false);
+  // só Admin de Loja (ou quem tem a permissão de gerenciar atendimento) vê as Configurações.
+  const podeConfig = auth.papel === 'admin_loja' || (can && can('atendimento.gerenciar'));
   const [extraConvs, setExtraConvs] = React.useState([]);
   // Conversas reais (API). null = ainda carregando.
   const [dbConvs, setDbConvs] = React.useState(null);
@@ -514,6 +529,12 @@ function Inbox() {
       .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Conversa apagada' }))
       .catch(() => window.showToast({ tipo: 'erro', titulo: 'Erro ao apagar', descricao: 'Não foi possível apagar a conversa.' }));
   };
+  // FECHAR = apenas FECHA a conversa aberta (cai na tela orientativa). O cartão CONTINUA
+  // na lista; não encerra, não apaga, não chama o backend.
+  const fecharConv = (id) => { setSelectedId((sid) => sid === id ? null : sid); };
+  // Abrir uma conversa = LER: zera o badge verde de não-lidas na hora (otimista).
+  // O backend zera de fato ao buscar as mensagens (GET .../mensagens); o poll mantém em 0.
+  const marcarLida = (id) => setDbConvs((cs) => (cs || []).map((x) => (x.id === id && x.unread) ? { ...x, unread: 0 } : x));
   // Ao enviar qualquer mensagem: atualiza hora e joga a conversa pro topo na hora
   // (a ordenação fixados-primeiro mantém as fixadas acima). Depois sincroniza com o back.
   const onConvSent = (id) => {
@@ -534,10 +555,15 @@ function Inbox() {
   // funis REAIS da empresa (para o filtro por fase/coluna) — cada funil traz suas colunas com id.
   const [funis, setFunis] = React.useState([]);
   React.useEffect(() => { API.getFunis().then((r) => setFunis(r.funis || [])).catch(() => {}); }, []);
-  // Seleciona a primeira conversa real assim que carregar.
-  React.useEffect(() => {
-    if (dbConvs && dbConvs.length && selectedId === 'c1') setSelectedId(dbConvs[0].id);
-  }, [dbConvs]);
+  // atendentes da empresa (aba "Atendente" do filtro) — só Admin de Loja / responsável de depto.
+  const podeVerAtendentes = auth.papel === 'admin_loja' || !!auth.ehResponsavel;
+  const [atendentesList, setAtendentesList] = React.useState([]);
+  React.useEffect(() => { if (!podeVerAtendentes) return; API.getAtendentesFiltro().then((r) => setAtendentesList(r.atendentes || [])).catch(() => {}); }, [podeVerAtendentes]);
+  // departamentos (aba "Departamento" do filtro) — vêm com flag podeFiltrar (admin=todos / responsável=os dele).
+  const [departamentosList, setDepartamentosList] = React.useState([]);
+  React.useEffect(() => { if (!podeVerAtendentes) return; API.getDepartamentosFiltro().then((r) => setDepartamentosList(r.departamentos || [])).catch(() => {}); }, [podeVerAtendentes]);
+  // (Sem auto-seleção: na 1ª visita mostramos a tela orientativa; nas demais, restauramos
+  // a última conversa pela sessão acima — nunca caímos numa conversa que o usuário não escolheu.)
   const startConvWith = React.useCallback(async (payload) => {
     setShowContacts(false);
     try {
@@ -564,7 +590,10 @@ function Inbox() {
   }, [route, routeParam, startConvWith]);
 
   const [filter, setFilter] = React.useState('active'); // abre em Ativas (em atendimento)
-  const [showAI, setShowAI] = React.useState(tweaks.showAIPanel);
+  const [showAI, setShowAI] = React.useState(true); // coluna 3 nasce VISÍVEL
+  // Abrir/fechar = animar a LARGURA das colunas: a do meio (2) e a 3 se movem JUNTAS
+  // (transition no grid-template-columns). Nada de slide separado que dessincroniza.
+  const toggleAI = () => setShowAI((s) => !s);
   const [composing, setComposing] = React.useState('');
   const [available, setAvailable] = React.useState(true);
   const [away, setAway] = React.useState(null);
@@ -595,6 +624,10 @@ function Inbox() {
   };
   const [selectedTags, setSelectedTags] = React.useState([]);
   const [selectedPhases, setSelectedPhases] = React.useState([]);
+  const [selectedAtendentes, setSelectedAtendentes] = React.useState([]); // filtro por dono da conversa
+  const [selectedDepartamentos, setSelectedDepartamentos] = React.useState([]); // filtro por departamento da conversa
+  const [busca, setBusca] = React.useState('');             // pesquisa de conversa por nome/telefone
+  const [showFilter, setShowFilter] = React.useState(false); // popover de filtro (tag/funil), agora ao lado da busca
   const singlePane = useIsMobile(900);     // <=900 (celular + tablet retrato): um painel por vez
   const isNarrow = useIsMobile(1100);      // 901–1100 (tablet paisagem): lista + conversa, sem a 3ª coluna (IA)
   // Quando single-pane, mostramos um painel por vez: 'list' (conversas) | 'thread' (chat) | 'ai' (contexto).
@@ -614,6 +647,10 @@ function Inbox() {
     // filtra pela fase REAL do CRM: a conversa traz faseIds (pode estar em vários funis);
     // casa se QUALQUER uma das fases dela estiver entre as selecionadas (comparação por string p/ tolerar tipo).
     if (selectedPhases.length && !(c.faseIds || []).some((id) => selectedPhases.some((s) => String(s) === String(id)))) return false;
+    // filtro por atendente (dono da conversa)
+    if (selectedAtendentes.length && !selectedAtendentes.some((a) => String(a) === String(c.ownerId))) return false;
+    // filtro por departamento da conversa
+    if (selectedDepartamentos.length && !selectedDepartamentos.some((d) => String(d) === String(c.departamentoId))) return false;
     return true;
   };
   const SOURCE = dbConvs || []; // fonte real de conversas
@@ -622,9 +659,18 @@ function Inbox() {
   // colunas homônimas de funis diferentes.
   const allPhases = (funis || []).flatMap((fu) => (fu.columns || []).map((col) => ({ id: col.id, label: (funis.length > 1 ? (fu.name + ' · ') : '') + col.label, color: col.color })));
   const ALL_CONVS = [...extraConvs, ...SOURCE];
+  const totalSel = selectedTags.length + selectedPhases.length + selectedAtendentes.length + selectedDepartamentos.length; // qtd de filtros ativos
+  // Busca por NOME (e telefone) — acento-insensível. Aplica dentro da aba ativa.
+  const _normBusca = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');
+  const buscaTermo = _normBusca(busca.trim());
+  const buscaDig = busca.replace(/\D/g, '');
+  const matchesBusca = (c) => !buscaTermo ? true : (_normBusca(c.client).includes(buscaTermo) || (!!buscaDig && (c.phone || '').replace(/\D/g, '').includes(buscaDig)));
   // fixados primeiro (igual CRM); sort estável preserva a ordem por recência dentro de cada grupo.
-  const list = empty ? [] : ALL_CONVS.filter((c) => matchesFilter(c) && matchesRefine(c)).sort((a, b) => (b.fixado ? 1 : 0) - (a.fixado ? 1 : 0));
-  const conv = ALL_CONVS.find((c) => c.id === selectedId) || ALL_CONVS[0];
+  const list = empty ? [] : ALL_CONVS.filter((c) => matchesFilter(c) && matchesRefine(c) && matchesBusca(c)).sort((a, b) => (b.fixado ? 1 : 0) - (a.fixado ? 1 : 0));
+  const conv = ALL_CONVS.find((c) => c.id === selectedId) || null; // sem dono -> NÃO cai em outra conversa (mostra a tela vazia)
+  // Rede de segurança: se a conversa selecionada saiu da lista (transferida/encerrada/
+  // apagada), zera a seleção -> tela orientativa. NUNCA cai em outra que não foi escolhida.
+  React.useEffect(() => { if (selectedId && dbConvs !== null && !conv) setSelectedId(null); }, [conv, selectedId, dbConvs]);
   const counts = {
     alert: SOURCE.filter((c) => c.unread > 0).length,
     ai: 0,
@@ -634,7 +680,7 @@ function Inbox() {
   return (
     <div className="screen" style={{ height: '100%' }}>
       <Topbar title="Mensagens" subtitle="Inbox completo do Whatsapp, Instagram e Facebook" />
-      <div style={{ display: 'grid', gridTemplateColumns: singlePane ? '1fr' : (showAI && !isNarrow ? '370px 1fr 350px' : '340px 1fr'), flex: 1, minHeight: 0 }}>
+      <div style={{ display: 'grid', gridTemplateColumns: singlePane ? '1fr' : (conv && !isNarrow ? ('350px 1fr ' + (showAI ? '350px' : '0px')) : '350px 1fr'), transition: 'grid-template-columns .28s ease', flex: 1, minHeight: 0 }}>
         {/* LEFT: list (no mobile só aparece quando mobilePane==='list') */}
         {(!singlePane || mobilePane === 'list') && (
         <div style={{ borderRight: '1px solid var(--border)', display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface)', position: 'relative', overflow: 'hidden' }}>
@@ -643,20 +689,45 @@ function Inbox() {
             away={away}
             onSetAway={() => setShowAwayModal(true)}
             onResume={resumir}
-            filter={filter}
-            tags={allTags}
-            phases={allPhases}
-            selectedTags={selectedTags}
-            selectedPhases={selectedPhases}
-            onToggleTag={(t) => setSelectedTags((s) => s.includes(t) ? s.filter((x) => x !== t) : [...s, t])}
-            onTogglePhase={(p) => setSelectedPhases((s) => s.includes(p) ? s.filter((x) => x !== p) : [...s, p])}
-            onClear={() => {setSelectedTags([]);setSelectedPhases([]);}} />
+            podeConfig={podeConfig}
+            onConfig={() => setShowConfig(true)} />
           
           {!available && away && <AwayBadge away={away} onResume={resumir} />}
           <div style={{ padding: '10px 12px', borderBottom: '1px solid var(--border)' }}>
-            <div style={{ position: 'relative' }}>
-              <span style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)' }}><Ic name="search" size={14} /></span>
-              <input className="input" placeholder="Buscar conversas..." style={{ paddingLeft: 40, height: 32, fontSize: 'var(--type-sm)' }} />
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+              <div style={{ position: 'relative', flex: 1, minWidth: 0 }}>
+                <span style={{ position: 'absolute', left: 4, top: '50%', transform: 'translateY(calc(-50% + 2px))', color: 'var(--text-faint)' }}><Ic name="search" size={14} /></span>
+                <input className="input" value={busca} onChange={(e) => setBusca(e.target.value)} placeholder="Buscar conversas pelo nome..." style={{ paddingLeft: 30, paddingRight: 12, height: 32, fontSize: 'var(--type-sm)', width: '100%' }} />
+              </div>
+              {/* filtro tag/funil — agora à direita da busca (mesma altura, ícone quadrado 32x32, hover) */}
+              <div style={{ position: 'relative', flexShrink: 0 }}>
+                <button onClick={() => setShowFilter((s) => !s)} title="Filtrar por tag / funil"
+                  style={{ height: 32, width: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, border: '1px solid ' + (totalSel > 0 ? 'var(--accent)' : 'var(--border)'), background: totalSel > 0 ? 'var(--accent-soft)' : 'transparent', color: totalSel > 0 ? 'var(--accent-700)' : 'var(--text-muted)', cursor: 'default', position: 'relative', transition: 'background .15s, border-color .15s, color .15s' }}
+                  onMouseEnter={(e) => { if (totalSel === 0) { e.currentTarget.style.background = 'var(--surface-2)'; e.currentTarget.style.color = 'var(--text)'; } }}
+                  onMouseLeave={(e) => { if (totalSel === 0) { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-muted)'; } }}>
+                  <Ic name="filter" size={15} />
+                  {totalSel > 0 && <span style={{ position: 'absolute', top: -5, right: -5, background: 'var(--accent)', color: 'white', borderRadius: 999, minWidth: 14, height: 14, fontSize: 9, fontWeight: 700, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '0 3px', border: '2px solid var(--surface)' }}>{totalSel}</span>}
+                </button>
+                {showFilter &&
+                <FilterPopover
+                  filter={filter}
+                  tags={allTags}
+                  phases={allPhases}
+                  atendentes={atendentesList}
+                  departamentos={departamentosList}
+                  podeVerAtendentes={podeVerAtendentes}
+                  selectedTags={selectedTags}
+                  selectedPhases={selectedPhases}
+                  selectedAtendentes={selectedAtendentes}
+                  selectedDepartamentos={selectedDepartamentos}
+                  onToggleTag={(t) => setSelectedTags((s) => s.includes(t) ? s.filter((x) => x !== t) : [...s, t])}
+                  onTogglePhase={(p) => setSelectedPhases((s) => s.includes(p) ? s.filter((x) => x !== p) : [...s, p])}
+                  onToggleAtendente={(a) => setSelectedAtendentes((s) => s.includes(a) ? s.filter((x) => x !== a) : [...s, a])}
+                  onToggleDepartamento={(d) => setSelectedDepartamentos((s) => s.includes(d) ? s.filter((x) => x !== d) : [...s, d])}
+                  onClear={() => {setSelectedTags([]);setSelectedPhases([]);setSelectedAtendentes([]);setSelectedDepartamentos([]);}}
+                  onClose={() => setShowFilter(false)} />
+                }
+              </div>
             </div>
             <FilterPills filter={filter} setFilter={setFilter} counts={counts} />
           </div>
@@ -664,8 +735,8 @@ function Inbox() {
             {dbConvs === null ? <ConvListSkeleton count={skelCount('inbox-convs', 6)} /> :
              convError ? <EmptyState icon="inbox" title="Erro ao carregar" desc={convError} /> :
              list.length === 0 ? <EmptyState icon="inbox" title="Sem conversas" desc="Conecte um canal para começar." /> : list.map((c) =>
-            <ConvRow key={c.id} c={c} active={c.id === selectedId} onClick={() => { setSelectedId(c.id); refetchContatos(); if (singlePane) setMobilePane('thread'); }}
-              onFixar={(v) => fixarConv(c.id, v)} onBloquear={(v) => bloquearConv(c.id, v)} onLimpar={() => limparConv(c.id)} onApagar={() => apagarConv(c.id)} />
+            <ConvRow key={c.id} c={c} active={c.id === selectedId} onClick={() => { setSelectedId(c.id); marcarLida(c.id); if (singlePane) setMobilePane('thread'); }}
+              onFixar={(v) => fixarConv(c.id, v)} onBloquear={(v) => bloquearConv(c.id, v)} onLimpar={() => limparConv(c.id)} onApagar={() => apagarConv(c.id)} onFechar={() => fecharConv(c.id)} />
             )}
           </div>
           {/* Floating action button — open contacts */}
@@ -702,21 +773,122 @@ function Inbox() {
         )}
 
         {/* CENTER: thread (no mobile só aparece quando mobilePane==='thread') */}
-        {conv && (!singlePane || mobilePane === 'thread') && <ConvThread conv={conv} composing={composing} setComposing={setComposing} onOpenContext={() => { setShowAI(true); if (singlePane) setMobilePane('ai'); }} onConvChanged={refetchContatos} onSent={onConvSent} onBack={singlePane ? () => setMobilePane('list') : null} />}
+        {conv && (!singlePane || mobilePane === 'thread') && <ConvThread conv={conv} composing={composing} setComposing={setComposing} onOpenContext={() => { setShowAI(true); if (singlePane) setMobilePane('ai'); }} aiOpen={showAI} onToggleAI={toggleAI} onConvChanged={refetchContatos} onSent={onConvSent} onLeave={() => setSelectedId(null)} onBack={singlePane ? () => setMobilePane('list') : null} />}
 
-        {/* RIGHT: AI panel or context (desktop: showAI; mobile: mobilePane==='ai') */}
-        {conv && ((!singlePane && showAI && !isNarrow) || (singlePane && mobilePane === 'ai')) && <AIPanel conv={conv} setComposing={setComposing} inline={true} onDataChanged={refetchContatos} onBack={singlePane ? () => setMobilePane('thread') : null} />}
+        {/* Tela vazia (nenhuma conversa selecionada — ex.: após transferir/sair) */}
+        {!conv && (!singlePane || mobilePane === 'thread') && (
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', background: 'var(--surface-2)', padding: 32, animation: 'popIn .28s ease' }}>
+          <div style={{ position: 'relative', width: 138, height: 138, marginBottom: 12 }}>
+            <div style={{ position: 'absolute', inset: 0, borderRadius: '50%', background: 'var(--accent-soft)' }} />
+            <div style={{ position: 'absolute', inset: 20, borderRadius: '50%', background: 'linear-gradient(135deg, #0EFF9B 0%, #C0FF33 100%)', display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#0a3a1f', boxShadow: '0 14px 32px rgba(14,255,155,.32)' }}>
+              <Ic name="chat" size={52} />
+            </div>
+            <div style={{ position: 'absolute', right: 4, top: 6, width: 38, height: 38, borderRadius: '50%', background: 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-sm)' }}><Ic name="sparkles" size={17} style={{ color: 'var(--accent)' }} /></div>
+            <div style={{ position: 'absolute', left: 2, bottom: 10, width: 28, height: 28, borderRadius: '50%', background: 'var(--surface)', border: '1px solid var(--border)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: 'var(--shadow-sm)' }}><Ic name="smile" size={13} style={{ color: 'var(--text-muted)' }} /></div>
+          </div>
+          <div style={{ fontSize: 30, fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text)' }}>Tela de Bate Papo</div>
+          <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 8, maxWidth: 340, lineHeight: 1.5 }}>Escolha um contato e clique para iniciar uma nova conversa</div>
+        </div>
+        )}
+
+        {/* RIGHT (desktop): col3 SEMPRE montada quando há conversa — a LARGURA do grid anima
+            (abre/fecha) e o painel (350px fixo, ancorado à direita) é revelado/empurrado, sem reflow. */}
+        {conv && !singlePane && !isNarrow &&
+        <div style={{ overflow: 'hidden', minWidth: 0, position: 'relative' }}>
+          <div style={{ position: 'absolute', top: 0, right: 0, bottom: 0, width: 350, display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+            <AIPanel conv={conv} setComposing={setComposing} inline={true} onDataChanged={refetchContatos} />
+          </div>
+        </div>}
+        {conv && singlePane && mobilePane === 'ai' && <AIPanel conv={conv} setComposing={setComposing} inline={true} onDataChanged={refetchContatos} onBack={() => setMobilePane('thread')} />}
       </div>
       {showAwayModal && <AwayModal onClose={() => setShowAwayModal(false)} onConfirm={pausar} />}
+      {showConfig && <ChatbotConfigDrawer onClose={() => setShowConfig(false)} />}
     </div>);
 
 }
 
-function ConvRow({ c, active, onClick, onFixar, onBloquear, onLimpar, onApagar }) {
+// ───────── Drawer de Configuração do Chatbot (60% da tela, só visual por enquanto) ─────────
+// Reaproveita o <Drawer> global (slide-in/out embutido). 8 abas no estilo do perfil,
+// com barra de destaque deslizante e efeito lateral ao trocar de aba.
+const CHATBOT_CFG_TABS = [
+  { id: 'alerta',       label: 'Regras de Alerta',        icon: 'alert',        desc: 'O que faz uma conversa cair na aba de Alerta.', long: 'Defina o gatilho do alerta: mensagem não-lida, tempo de espera (SLA), tag de urgência, canal ou nº mínimo de não-lidas.' },
+  { id: 'pausas',       label: 'Tempos de Pausa',          icon: 'pause',        desc: 'Duração de cada motivo de pausa e retorno automático.', long: 'Configure os minutos de almoço, descanso e emergência, e se a pessoa volta a ficar disponível automaticamente ao fim do tempo.' },
+  { id: 'atualizacao',  label: 'Atualização (Polling)',    icon: 'refresh',      desc: 'De quanto em quanto tempo a lista e as mensagens atualizam.', long: 'Ajuste o intervalo de atualização das conversas e mensagens — mais rápido para alto volume, mais lento para economizar requisições.' },
+  { id: 'expediente',   label: 'Horário de Expediente',    icon: 'clock',        desc: 'Dias e horas de funcionamento do atendimento.', long: 'Fora do horário, envie uma mensagem automática e/ou direcione direto para a IA. Define quando há atendimento humano.' },
+  { id: 'roteamento',   label: 'Roteamento',               icon: 'bot',          desc: 'Para onde vai a conversa nova: IA ou departamento.', long: 'Configure o destino inicial do contato e a distribuição automática entre atendentes (rodízio, por carga ou por tag).' },
+  { id: 'mensagens',    label: 'Mensagens Automáticas',    icon: 'chat',         desc: 'Saudação, fora do horário, transferência.', long: 'Padronize o primeiro contato: mensagem de boas-vindas, aviso de fora do horário e aviso de "transferido para um atendente".' },
+  { id: 'encerramento', label: 'Encerramento Automático',  icon: 'check-double', desc: 'Encerrar conversas paradas após X dias.', long: 'Limpe a fila automaticamente: conversas sem interação por um período definido são encerradas sozinhas.' },
+  { id: 'abas',         label: 'Abas Visíveis',            icon: 'columns',      desc: 'Quais abas aparecem e em que ordem.', long: 'Esconda ou reordene as abas (Alerta, IA, Ativas, Pendentes, Encerradas) conforme a operação da loja.' },
+];
+function ChatbotConfigDrawer({ onClose }) {
+  const [tab, setTab] = React.useState(CHATBOT_CFG_TABS[0].id);
+  const idx = Math.max(0, CHATBOT_CFG_TABS.findIndex((t) => t.id === tab));
+  const atual = CHATBOT_CFG_TABS[idx];
+  const STRIDE = 48; // altura (44) + gap (4) de cada aba
+  return (
+    <Drawer title="Configuração de Chatbot" subtitle="Ajustes do atendimento · somente Admin" width="60vw" onClose={onClose}>
+      <div style={{ display: 'flex', height: '100%', minHeight: 0 }}>
+        {/* nav lateral das abas */}
+        <div style={{ width: 250, flexShrink: 0, borderRight: '1px solid var(--border)', padding: 10, position: 'relative', overflow: 'auto', background: 'var(--surface-2)' }}>
+          {/* barra de destaque deslizante (cartão claro atrás da aba ativa) */}
+          <div style={{ position: 'absolute', left: 10, right: 10, height: 44, top: 10 + idx * STRIDE, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 10, boxShadow: '0 1px 2px rgba(15,23,42,.06)', transition: 'top .28s cubic-bezier(.5,1.4,.4,1)', pointerEvents: 'none' }} />
+          {/* barrinha accent à esquerda */}
+          <div style={{ position: 'absolute', left: 12, width: 3, height: 22, top: 10 + idx * STRIDE + 11, background: 'var(--accent)', borderRadius: 2, transition: 'top .28s cubic-bezier(.5,1.4,.4,1)', pointerEvents: 'none' }} />
+          {CHATBOT_CFG_TABS.map((t) => {
+            const on = t.id === tab;
+            return (
+              <div key={t.id} onClick={() => setTab(t.id)} style={{ position: 'relative', zIndex: 1, height: 44, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 10, padding: '0 12px', borderRadius: 10, cursor: 'default', color: on ? 'var(--text)' : 'var(--text-muted)', fontWeight: on ? 600 : 500, fontSize: 'var(--type-sm)' }}>
+                <Ic name={t.icon} size={16} style={{ color: on ? 'var(--accent)' : 'var(--text-faint)', flexShrink: 0 }} />
+                <span style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{t.label}</span>
+              </div>);
+          })}
+        </div>
+        {/* conteúdo da aba — efeito lateral ao trocar (key={tab}) */}
+        <div style={{ flex: 1, minWidth: 0, overflow: 'auto', padding: 24 }}>
+          <div key={tab} className="cfg-pane">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 4 }}>
+              <span style={{ width: 38, height: 38, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name={atual.icon} size={18} /></span>
+              <div style={{ minWidth: 0 }}>
+                <div style={{ fontWeight: 700, fontSize: 'var(--type-lg)' }}>{atual.label}</div>
+                <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>{atual.desc}</div>
+              </div>
+            </div>
+            <div style={{ height: 1, background: 'var(--border)', margin: '16px 0' }} />
+            <div style={{ padding: '48px 24px', textAlign: 'center', border: '1px dashed var(--border)', borderRadius: 12, background: 'var(--surface-2)' }}>
+              <span style={{ width: 52, height: 52, borderRadius: 14, background: 'var(--surface)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', color: 'var(--text-faint)' }}><Ic name={atual.icon} size={24} /></span>
+              <div style={{ fontWeight: 700, marginTop: 12 }}>Em breve</div>
+              <div className="muted" style={{ fontSize: 'var(--type-sm)', marginTop: 6, maxWidth: 460, marginLeft: 'auto', marginRight: 'auto', lineHeight: 1.5 }}>{atual.long}</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </Drawer>);
+}
+
+function ConvRow({ c, active, onClick, onFixar, onBloquear, onLimpar, onApagar, onFechar }) {
   const [hover, setHover] = React.useState(false);
   const [menu, setMenu] = React.useState(null);     // {top,left} | null
   const [confirm, setConfirm] = React.useState(null); // 'limpar' | 'apagar' | null
   const btnRef = React.useRef(null);
+  // tags em 1 LINHA só (altura fixa). Quando estouram a largura, aparece uma seta;
+  // cada clique rola lateralmente até o próximo tag (e volta ao início ao chegar no fim).
+  const tagsRef = React.useRef(null);
+  const [tagOv, setTagOv] = React.useState({ over: false, atEnd: false });
+  const measureTags = React.useCallback(() => {
+    const el = tagsRef.current; if (!el) return;
+    setTagOv({ over: el.scrollWidth - el.clientWidth > 2, atEnd: el.scrollLeft + el.clientWidth >= el.scrollWidth - 1 });
+  }, []);
+  React.useEffect(() => { measureTags(); }, [measureTags, (c.tags || []).length]);
+  const scrollTags = (e) => {
+    e.stopPropagation();
+    const el = tagsRef.current; if (!el) return;
+    if (el.scrollLeft + el.clientWidth >= el.scrollWidth - 1) { el.scrollTo({ left: 0, behavior: 'smooth' }); } // no fim -> volta ao início
+    else {
+      const next = Array.from(el.children).find((k) => k.offsetLeft > el.scrollLeft + 1); // próximo tag ainda escondido
+      el.scrollTo({ left: next ? next.offsetLeft : el.scrollLeft + 64, behavior: 'smooth' });
+    }
+    setTimeout(measureTags, 280);
+  };
   const openMenu = (e) => {
     e.stopPropagation();
     const r = btnRef.current.getBoundingClientRect();
@@ -731,18 +903,15 @@ function ConvRow({ c, active, onClick, onFixar, onBloquear, onLimpar, onApagar }
       onClick={onClick}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
-      style={{ padding: '10px 12px 10px 9px', borderLeft: '3px solid ' + (c.fixado ? '#16A872' : 'transparent'), borderBottom: '1px solid var(--border)', cursor: 'default', background: bg, display: 'flex', gap: 10, position: 'relative', transition: 'background .12s ease' }}>
+      style={{ padding: '10px 12px 4px 10px', borderLeft: '4px solid ' + (c.fixado ? '#16A872' : '#AEB7C2'), borderBottom: '1px solid var(--border)', cursor: 'default', background: bg, display: 'flex', gap: 10, position: 'relative', transition: 'background .12s ease, border-color .12s ease' }}>
 
       <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', flexShrink: 0 }}>
         <div style={{ position: 'relative' }}>
-          <Avatar name={c.client} src={c.photo} />
-          <span style={{ position: 'absolute', bottom: -3, right: -3, background: 'var(--surface)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1px solid var(--surface)', lineHeight: 0, height: 16, width: 16, boxSizing: 'border-box' }}>
-            <ChannelIcon ch={c.channel} size={12} />
+          <Avatar name={c.client} src={c.photo} style={{ width: 46, height: 46, fontSize: 17 }} />
+          <span style={{ position: 'absolute', bottom: -2, right: -2, background: 'var(--surface)', borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', border: '1.5px solid var(--surface)', lineHeight: 0, height: 21, width: 21, boxSizing: 'border-box' }}>
+            <ChannelIcon ch={c.channel} size={15} />
           </span>
         </div>
-        <div style={{ flex: 1, minHeight: 8 }} />
-        {/* ícone sob o avatar, alinhado à linha das tags: IA (sparkles) ou humano (user) */}
-        <Ic name={c.aiHandled ? 'sparkles' : 'user'} className="conv-handler-ic" title={c.aiHandled ? 'Conduzida pela IA' : 'Conduzida por humano'} style={{ color: c.aiHandled ? 'var(--ai)' : 'var(--text-faint)', flexShrink: 0 }} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
         {/* Linha 1: nome + data/hora */}
@@ -754,31 +923,34 @@ function ConvRow({ c, active, onClick, onFixar, onBloquear, onLimpar, onApagar }
           <span className="muted" style={{ fontSize: 11, flexShrink: 0 }}>{c.lastTime}</span>
         </div>
         {/* Linha 2: prévia + (não-lidas e seta, abaixo da data/hora) */}
-        <div className="row" style={{ gap: 4, marginTop: 2 }}>
-          {c.sentByMe && c.preview && <Ic name={c.delivered ? 'check-double' : 'check'} size={16} style={{ color: c.delivered ? '#53BDEB' : 'var(--text-faint)', flexShrink: 0 }} />}
+        <div className="row" style={{ gap: 4, marginTop: 2, height: 18, alignItems: 'center' }}>
+          {c.sentByMe && c.preview && <Ic name={c.delivered ? 'check-double' : 'check'} size={14} style={{ color: c.delivered ? '#53BDEB' : 'var(--text-faint)', flexShrink: 0 }} />}
           {c.midiaTipo && <Ic name={{ imagem: 'image', audio: 'mic', video: 'video', arquivo: 'file-text' }[c.midiaTipo] || 'file'} className="conv-midia-ic" style={{ color: 'var(--text-muted)', flexShrink: 0 }} />}
           {c.blocked && <Ic name="lock" size={12} style={{ color: '#b45309', flexShrink: 0 }} />}
           <span className="muted" style={{ fontSize: 'var(--type-xs)', flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{c.preview}</span>
           {c.unread > 0 && <span style={{ background: 'var(--accent)', color: 'white', minWidth: 16, height: 16, borderRadius: 999, fontSize: 10, fontWeight: 700, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', padding: '0 5px', boxSizing: 'border-box', flexShrink: 0 }}>{c.unread}</span>}
         </div>
-        {/* Linha 3: tags + seta do menu (seta alinhada à direita, em coluna com data/hora e badge) */}
-        <div className="row" style={{ marginTop: 6, gap: 4, alignItems: 'center' }}>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, flex: 1, minWidth: 0 }}>
-            {/* tags do atendente e do departamento removidas — só as tags reais do contato */}
-            {(c.tags || []).map((t) => { const col = t.cor || '#64748b'; return <span key={t.id} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 999, background: `${col}1A`, color: col, border: `1px solid ${col}33`, whiteSpace: 'nowrap' }}>{t.nome}</span>; })}
+        {/* Linha 3 (altura FIXA): ícone humano/IA + tags em 1 linha (com seta de rolagem
+            quando estouram a largura) + seta do menu. */}
+        <div className="row" style={{ marginTop: 6, gap: 4, alignItems: 'center', height: 20 }}>
+          <div ref={tagsRef} onScroll={measureTags} style={{ display: 'flex', flexWrap: 'nowrap', gap: 4, flex: 1, minWidth: 0, overflow: 'hidden', alignItems: 'center', transform: 'translateY(-2px)' }}>
+            {/* tags reais do contato (atendente/departamento já removidos) */}
+            {(c.tags || []).map((t) => { const col = t.cor || '#64748b'; return <span key={t.id} style={{ fontSize: 9, fontWeight: 700, letterSpacing: '.04em', textTransform: 'uppercase', padding: '2px 6px', borderRadius: 999, background: `${col}1A`, color: col, border: `1px solid ${col}33`, whiteSpace: 'nowrap', flexShrink: 0 }}>{t.nome}</span>; })}
           </div>
-          <button ref={btnRef} onClick={openMenu} title="Opções" style={{ background: 'transparent', border: 0, padding: 0, cursor: 'default', color: 'var(--text-faint)', display: 'flex', alignItems: 'center', flexShrink: 0, opacity: (hover || menu) ? 1 : 0, transition: 'opacity .12s ease' }}>
-            <Ic name="chevron-down" size={16} />
+          {tagOv.over && <button onClick={scrollTags} title="Ver mais tags" style={{ background: 'var(--surface-2)', border: 0, cursor: 'default', color: 'var(--text-muted)', padding: '1px 2px', display: 'flex', alignItems: 'center', borderRadius: 5, flexShrink: 0 }}><Ic name={tagOv.atEnd ? 'chevron-left' : 'chevron-right'} size={14} /></button>}
+          <button ref={btnRef} onClick={openMenu} title="Opções" className="conv-menu-btn" style={{ border: 0, cursor: 'default', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, opacity: (hover || menu) ? 1 : 0, transition: 'opacity .12s ease, background .14s ease' }}>
+            <Ic name="chevron-down" size={26} className="conv-menu-ic" />
           </button>
         </div>
       </div>
       {menu && ReactDOM.createPortal(
         <>
           <div onClick={(e) => { e.stopPropagation(); closeMenu(); }} style={{ position: 'fixed', inset: 0, zIndex: 999 }} />
-          <div className="sale-menu" style={{ top: menu.top, left: menu.left, width: 180 }} onClick={(e) => e.stopPropagation()}>
+          <div className="sale-menu conv-row-menu" style={{ top: menu.top, left: menu.left, width: 180 }} onClick={(e) => e.stopPropagation()}>
             <button className="sale-menu-item" onClick={(e) => act(e, () => onFixar(!c.fixado))}><Ic name={c.fixado ? 'pin-off' : 'pin'} size={16} /> {c.fixado ? 'Desafixar' : 'Fixar'}</button>
             <button className="sale-menu-item" onClick={(e) => act(e, () => onBloquear(!c.blocked))}><Ic name="lock" size={16} /> {c.blocked ? 'Desbloquear' : 'Bloquear'}</button>
             <button className="sale-menu-item" onClick={(e) => act(e, () => setConfirm('limpar'))}><Ic name="refresh" size={16} /> Limpar</button>
+            <button className="sale-menu-item" onClick={(e) => act(e, () => onFechar())}><Ic name="check-double" size={16} /> Fechar</button>
             <div className="sale-menu-sep" />
             <button className="sale-menu-item danger" onClick={(e) => act(e, () => setConfirm('apagar'))}><Ic name="trash" size={16} /> Apagar</button>
           </div>
@@ -861,6 +1033,25 @@ const ATTACH_OPTS = [
 { id: 'contato', label: 'Contato', desc: 'Compartilhar um cartão', icon: 'card-id', color: '#16a34a' }];
 
 
+// Detecta emojis que a fonte do sistema NÃO renderiza (viram "tofu"/quadradinho) —
+// desenha no canvas e compara com um caractere garantidamente inexistente.
+let _emojiCheck = null;
+function emojiRenderizavel(ch) {
+  try {
+    if (!_emojiCheck) {
+      const cv = document.createElement('canvas'); cv.width = cv.height = 18;
+      const ctx = cv.getContext('2d', { willReadFrequently: true });
+      ctx.textBaseline = 'top';
+      ctx.font = '16px "Segoe UI Emoji","Apple Color Emoji","Noto Color Emoji","Twemoji Mozilla",sans-serif';
+      const desenha = (s) => { ctx.clearRect(0, 0, 18, 18); ctx.fillText(s, 0, 0); return ctx.getImageData(0, 0, 18, 18).data.join(','); };
+      const tofu = desenha('􏿿'); // U+10FFFF: sempre "tofu"
+      const branco = desenha(' ');
+      _emojiCheck = (s) => { const r = desenha(s); return r !== tofu && r !== branco; };
+    }
+    return _emojiCheck(ch);
+  } catch (e) { return true; }
+}
+
 function EmojiPicker({ onPick, onClose }) {
   const ref = React.useRef(null);
   const [tab, setTab] = React.useState('smileys');
@@ -872,6 +1063,8 @@ function EmojiPicker({ onPick, onClose }) {
   }, [onClose]);
   const active = EMOJI_CATEGORIES.find((c) => c.id === tab) || EMOJI_CATEGORIES[1];
   const tabIdx = EMOJI_CATEGORIES.findIndex((c) => c.id === tab);
+  // esconde os emojis que a fonte do sistema não consegue desenhar (apareciam como quadradinho)
+  const emojisVisiveis = React.useMemo(() => (active.emojis || []).filter(emojiRenderizavel), [active]);
   return (
     <div ref={ref} style={{ position: 'absolute', bottom: 'calc(100% + 8px)', left: 0, width: 372, height: 380, background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: 12, boxShadow: '0 12px 36px rgba(0,0,0,.20)', zIndex: 60, animation: 'popIn .18s ease', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
       {/* Tab bar */}
@@ -891,7 +1084,7 @@ function EmojiPicker({ onPick, onClose }) {
       {/* Emoji grid */}
       <div className="scroll" style={{ flex: 1, overflow: 'auto', padding: '4px 12px 12px' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(8, 1fr)', gap: 2 }}>
-          {active.emojis.map((e, i) =>
+          {emojisVisiveis.map((e, i) =>
           <button
             key={`${tab}-${i}`}
             onClick={() => onPick(e)}
@@ -947,11 +1140,26 @@ function ContactPickerModal({ onClose, onPick }) {
   const inputRef = React.useRef(null);
   React.useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const list = (typeof CONTACTS !== 'undefined' ? CONTACTS : []);
+  // Lista REAL de contatos da empresa (com telefone). null = ainda carregando.
+  const [list, setList] = React.useState(null);
+  React.useEffect(() => {
+    window.API.getContatos()
+      .then((r) => setList((r.contatos || [])
+        .map((x) => ({
+          id: x.id,
+          name: x.nome || 'Contato sem nome',
+          phone: x.telefone || '',
+          channel: x.canal || 'whatsapp',
+          tag: (x.tags && x.tags[0] && String(x.tags[0].nome || x.tags[0].label || '').toUpperCase()) || '',
+        }))
+        .filter((x) => x.phone)))   // sem telefone n\u00e3o d\u00e1 pra mandar cart\u00e3o
+      .catch(() => setList([]));
+  }, []);
   const norm = (s) => (s || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const base = list || [];
   const filtered = q
-    ? list.filter(c => norm(c.name).includes(norm(q)) || norm(c.phone).includes(norm(q)))
-    : list;
+    ? base.filter(c => norm(c.name).includes(norm(q)) || norm(c.phone).includes(norm(q)))
+    : base;
 
   const send = (c) => onPick(c);
 
@@ -982,11 +1190,16 @@ function ContactPickerModal({ onClose, onPick }) {
       </div>
 
       <div className="scroll" style={{ maxHeight: 360, overflow: 'auto', margin: '0 -4px', padding: '0 4px' }}>
-        {filtered.length === 0 ? (
+        {list === null ? (
           <div className="empty" style={{ padding: '32px 8px' }}>
             <div className="empty-icon"><Ic name="user" size={22} /></div>
-            <div style={{ fontWeight: 600, color: 'var(--text)' }}>Nenhum contato encontrado</div>
-            <div style={{ fontSize: 'var(--type-sm)' }}>Tente outro termo de busca.</div>
+            <div style={{ fontWeight: 600, color: 'var(--text)' }}>Carregando contatos…</div>
+          </div>
+        ) : filtered.length === 0 ? (
+          <div className="empty" style={{ padding: '32px 8px' }}>
+            <div className="empty-icon"><Ic name="user" size={22} /></div>
+            <div style={{ fontWeight: 600, color: 'var(--text)' }}>{base.length === 0 ? 'Nenhum contato com telefone' : 'Nenhum contato encontrado'}</div>
+            <div style={{ fontSize: 'var(--type-sm)' }}>{base.length === 0 ? 'Cadastre contatos com telefone para enviar.' : 'Tente outro termo de busca.'}</div>
           </div>
         ) : filtered.map(c => {
           const isSel = selected?.id === c.id;
@@ -1283,7 +1496,29 @@ function EncerrarModal({ conv, onClose, onConfirm }) {
 
 }
 
-function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChanged, onSent, onBack }) {
+// Opções de tempo de fixação (estilo WhatsApp). ms = duração da fixação.
+const PIN_DURATIONS = [
+  { label: '24 horas', ms: 24 * 36e5, color: '#165EEE' },
+  { label: '7 dias', ms: 7 * 864e5, color: '#16a34a' },
+  { label: '15 dias', ms: 15 * 864e5, color: '#FF8B30' },
+  { label: '30 dias', ms: 30 * 864e5, color: '#a855f7' },
+  { label: '60 dias', ms: 60 * 864e5, color: '#ec4899' },
+  { label: '90 dias', ms: 90 * 864e5, color: '#0ea5e9' },
+];
+
+// Botão da barra de seleção: 32x32 cinza (padrão config/filtro), hover na cor da ação.
+function SelIconBtn({ icon, color, title, onClick, disabled }) {
+  return (
+    <button onClick={onClick} disabled={disabled} title={title}
+      style={{ height: 32, width: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: disabled ? 'default' : 'pointer', flexShrink: 0, opacity: disabled ? .4 : 1, transition: 'background .15s, border-color .15s, color .15s' }}
+      onMouseEnter={(e) => { if (disabled) return; e.currentTarget.style.background = 'color-mix(in oklab, ' + color + ' 12%, transparent)'; e.currentTarget.style.borderColor = color; e.currentTarget.style.color = color; }}
+      onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+      <Ic name={icon} size={15} />
+    </button>);
+}
+
+function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChanged, onSent, onBack, aiOpen, onToggleAI, onLeave }) {
+  const { auth } = useStore(); // p/ o avatar/nome do atendente nas bolhas
   const [messages, setMessages] = React.useState([]);
   const [loadingMsgs, setLoadingMsgs] = React.useState(false);
   const fileRef = React.useRef(null);
@@ -1305,11 +1540,20 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
   const scrollToBottom = React.useCallback(() => { const el = scrollRef.current; if (el) el.scrollTop = el.scrollHeight; }, []);
   const onScrollMsgs = () => { const el = scrollRef.current; if (el) atBottomRef.current = (el.scrollHeight - el.scrollTop - el.clientHeight) < 80; };
   const [qrIndex, setQrIndex] = React.useState(0); // item realçado na lista de respostas rápidas (modo "/")
+  const [replyingTo, setReplyingTo] = React.useState(null); // mensagem sendo respondida (citação)
+  const [selecting, setSelecting] = React.useState(false);  // modo seleção (checkbox nas bolhas)
+  const [selectedIds, setSelectedIds] = React.useState([]); // ids selecionados
+  const [pinIdx, setPinIdx] = React.useState(0);            // índice da fixada atual (ciclo estilo WhatsApp)
+  const [confirmApagar, setConfirmApagar] = React.useState(null); // { msg } (uma) | { bulk:true } (selecionadas)
+  const [pinDurMsg, setPinDurMsg] = React.useState(null);   // mensagem aguardando escolha do tempo de fixação
+  const [lightbox, setLightbox] = React.useState(null);     // mídia (imagem/vídeo) aberta no popup
+  // só mensagens REAIS (com id do banco) aceitam fixar/favoritar/apagar.
+  const isRealMsg = (m) => m && m._id && !/^(tmp-|mk-|up-)/.test(String(m._id));
 
   React.useEffect(() => {
     setLocalStatus(conv.status);
     setLocalHandler(conv.handler);
-    setMenu(null);setRecording(false);setModal(null);setToast(null);
+    setMenu(null);setRecording(false);setModal(null);setToast(null);setReplyingTo(null);setSelecting(false);setSelectedIds([]);setPinIdx(0);setConfirmApagar(null);setPinDurMsg(null);setLightbox(null);
     if (conv._db) {
       // conversa real: busca as mensagens na API
       setLoadingMsgs(true);
@@ -1371,18 +1615,26 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
 
   const now = () => {const d = new Date();return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;};
   const addAgentMessage = (m) => setMessages((prev) => [...prev, { from: 'agent', time: now(), ...m }]);
+  // Marcador OTIMISTA (início/transferência/encerramento): aparece na hora; o poll de 4s
+  // reconcilia com o registro real do backend (os ids não batem -> substitui sem duplicar).
+  const addMarcador = (kind, marca) => {
+    const iso = new Date().toISOString();
+    setMessages((prev) => [...prev, { _id: 'mk-' + Date.now() + '-' + Math.random().toString(36).slice(2, 6), from: 'agent', kind, marca, text: (marca && marca.nota) || '', origem: (marca && marca.de && marca.de.dept) || null, autor: (marca && (marca.por || marca.atend)) || (auth.nome || 'Você'), data: fmtDataMarcador(iso), horaMarcador: fmtHoraMarcador(iso), time: now() }]);
+  };
 
   const handleSend = async () => {
     const t = composing.trim();
     if (!t) return;
     setComposing('');
-    if (!conv._db) { addAgentMessage({ kind: 'text', text: t }); return; }
+    const rep = replyingTo; setReplyingTo(null);                  // Responder: citação
+    const repId = rep && isRealMsg(rep) ? rep._id : null;
+    if (!conv._db) { addAgentMessage({ kind: 'text', text: t, respondeA: repId }); return; }
     // Otimista: mostra na hora (sem esperar o backend/Meta). Depois reconcilia.
     const tempId = 'tmp-' + Date.now();
-    setMessages((prev) => [...prev, { _id: tempId, from: 'agent', kind: 'text', text: t, time: now(), _pending: true }]);
+    setMessages((prev) => [...prev, { _id: tempId, from: 'agent', kind: 'text', text: t, time: now(), _pending: true, respondeA: repId }]);
     if (onSent) onSent(conv.id); // joga a conversa pro topo + atualiza a hora
     try {
-      const r = await API.sendTexto(conv.id, t);
+      const r = await API.sendTexto(conv.id, t, repId || undefined);
       // troca a provisória pela definitiva (com _id real) — sem duplicar
       setMessages((prev) => prev.map((m) => m._id === tempId ? dbMsgToUi(r.mensagem) : m));
     } catch (e) {
@@ -1390,6 +1642,64 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       setComposing(t); // devolve o texto pro campo
       window.showToast({ tipo: 'erro', titulo: 'Falha ao enviar', descricao: e.message || 'Não foi possível enviar a mensagem.' });
     }
+  };
+
+  // ---- Ações do popup por mensagem (Copiar/Baixar/Responder/Selecionar/Fixar/Favoritar/Apagar) ----
+  const baixarMidia = (m) => {
+    if (!m.mediaUrl) { window.showToast({ tipo: 'aviso', titulo: 'Sem arquivo para baixar' }); return; }
+    baixarMidiaUrl(m.mediaUrl, m.filename);
+  };
+  const toggleFlag = (m, field) => {
+    if (!conv._db || !isRealMsg(m)) { window.showToast({ tipo: 'aviso', titulo: 'Aguarde a mensagem ser enviada' }); return; }
+    const novo = !m[field];
+    if (field === 'fixada' && novo && messages.filter((x) => x.fixada).length >= 5) { window.showToast({ tipo: 'aviso', titulo: 'Limite de 5 fixadas', descricao: 'Desafixe uma para fixar outra.' }); return; }
+    setMessages((prev) => prev.map((x) => x._id === m._id ? { ...x, [field]: novo } : x));
+    API.patchMensagem(conv.id, m._id, field === 'fixada' ? { fixada: novo } : { favoritada: novo })
+      .catch(() => { setMessages((prev) => prev.map((x) => x._id === m._id ? { ...x, [field]: !novo } : x)); window.showToast({ tipo: 'erro', titulo: 'Não foi possível atualizar' }); });
+  };
+  const apagarMsg = (m) => {
+    if (!conv._db || !isRealMsg(m)) { window.showToast({ tipo: 'aviso', titulo: 'Aguarde a mensagem ser enviada' }); return; }
+    setMessages((prev) => prev.map((x) => x._id === m._id ? { ...x, apagado: true } : x));
+    API.patchMensagem(conv.id, m._id, { apagada: true })
+      .catch(() => { setMessages((prev) => prev.map((x) => x._id === m._id ? { ...x, apagado: false } : x)); window.showToast({ tipo: 'erro', titulo: 'Não foi possível apagar' }); });
+  };
+  const onMsgAction = (id, m) => {
+    if (id === 'copiar') { const txt = m.text || m.filename || ''; if (navigator.clipboard && txt) navigator.clipboard.writeText(txt).then(() => window.showToast({ tipo: 'sucesso', titulo: 'Copiado' })).catch(() => {}); return; }
+    if (id === 'baixar') { baixarMidia(m); return; }
+    if (id === 'responder') { setReplyingTo(m); setTimeout(() => inputRef.current && inputRef.current.focus(), 0); return; }
+    if (id === 'selecionar') { setSelecting(true); setSelectedIds((s) => s.includes(m._id) ? s : [...s, m._id]); return; }
+    if (id === 'fixar') { if (ativaFix(m)) toggleFlag(m, 'fixada'); else setPinDurMsg(m); return; }
+    if (id === 'favoritar') { toggleFlag(m, 'favoritada'); return; }
+    if (id === 'apagar') { setConfirmApagar({ msg: m }); return; }
+  };
+  const apagarSelecionadas = () => {
+    const ids = selectedIds.slice(); setSelecting(false); setSelectedIds([]);
+    ids.forEach((mid) => { const m = messages.find((x) => x._id === mid); if (m && isRealMsg(m)) apagarMsg(m); });
+  };
+  // Fixada ATIVA = fixada, não apagada e dentro do prazo (fixada_ate no futuro, ou sem prazo).
+  const agoraMs = Date.now();
+  const ativaFix = (m) => m.fixada && !m.apagado && (!m.fixadaAte || new Date(m.fixadaAte).getTime() > agoraMs);
+  const fixadas = messages.filter(ativaFix); // faixa de fixadas (só as não-expiradas)
+  // Fixar com PRAZO (24h/7d/.../90d): grava fixada + data de expiração.
+  const fixarComPrazo = (m, ms) => {
+    if (!conv._db || !isRealMsg(m)) { window.showToast({ tipo: 'aviso', titulo: 'Aguarde a mensagem ser enviada' }); return; }
+    if (messages.filter(ativaFix).length >= 5) { window.showToast({ tipo: 'aviso', titulo: 'Limite de 5 fixadas', descricao: 'Desafixe uma para fixar outra.' }); return; }
+    const ate = new Date(Date.now() + ms).toISOString();
+    setMessages((prev) => prev.map((x) => x._id === m._id ? { ...x, fixada: true, fixadaAte: ate } : x));
+    API.patchMensagem(conv.id, m._id, { fixada: true, fixadaAte: ate })
+      .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Mensagem fixada' }))
+      .catch(() => { setMessages((prev) => prev.map((x) => x._id === m._id ? { ...x, fixada: false, fixadaAte: null } : x)); window.showToast({ tipo: 'erro', titulo: 'Não foi possível fixar' }); });
+  };
+  const pinIdxSafe = fixadas.length ? (pinIdx % fixadas.length) : 0;
+  const pinAtual = fixadas[pinIdxSafe] || null; // fixada exibida na faixa (ciclo ao clicar)
+  const copiarSelecionadas = () => {
+    const txt = selectedIds.map((mid) => messages.find((x) => x._id === mid)).filter(Boolean).map((m) => m.text || m.filename || '').filter(Boolean).join('\n');
+    if (txt && navigator.clipboard) navigator.clipboard.writeText(txt).then(() => window.showToast({ tipo: 'sucesso', titulo: 'Copiado' })).catch(() => {});
+    setSelecting(false); setSelectedIds([]);
+  };
+  const favoritarSelecionadas = () => {
+    const ids = selectedIds.slice(); setSelecting(false); setSelectedIds([]);
+    ids.forEach((mid) => { const m = messages.find((x) => x._id === mid); if (m && isRealMsg(m) && !m.favoritada) toggleFlag(m, 'favoritada'); });
   };
   // --- Respostas rápidas estilo WhatsApp Web: digitar "/" abre a lista; o texto após
   // a barra filtra pelo TÍTULO; clicar/Enter joga a mensagem completa no campo. ---
@@ -1418,20 +1728,64 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
   // dispara o seletor de arquivo do sistema
   const triggerFile = (accept) => { setPendingAccept(accept); setTimeout(() => fileRef.current && fileRef.current.click(), 0); };
   // faz upload do arquivo escolhido (ou áudio gravado) via API
-  const enviarArquivo = async (file) => {
+  // Envia mídia com PRÉVIA + barra de progresso (%) + cancelar. Usa XHR pra ter o
+  // progresso de upload (o fetch não expõe). A bolha "enviando" aparece na hora —
+  // assim a pessoa vê que foi enviado e não manda 2x.
+  const enviarArquivo = (file) => {
     if (!file) return;
     if (!conv._db) { addAgentMessage({ kind: 'doc', filename: file.name || 'arquivo', meta: fmtTamanho(file.size) }); return; }
-    setToast({ kind: 'success', text: 'Enviando…' });
+    const tempId = 'up-' + Date.now() + '-' + Math.random().toString(36).slice(2, 7);
+    const mime = file.type || '';
+    const kind = mime.startsWith('image/') ? 'image' : mime.startsWith('video/') ? 'video' : mime.startsWith('audio/') ? 'audio' : 'doc';
+    const localUrl = (kind === 'image' || kind === 'video') ? URL.createObjectURL(file) : null;
+    const xhr = new XMLHttpRequest();
+    // bolha otimista de upload (prévia + progresso + cancelar)
+    setMessages((prev) => [...prev, { _id: tempId, from: 'agent', kind, _uploading: true, _progress: 0, _xhr: xhr, _localUrl: localUrl, mediaUrl: localUrl, filename: file.name || 'arquivo', meta: fmtTamanho(file.size), time: now() }]);
+    const cleanup = () => { if (localUrl) { try { URL.revokeObjectURL(localUrl); } catch (e) {} } };
+    xhr.open('POST', '/api/chatbot/contatos/' + conv.id + '/midia');
+    xhr.withCredentials = true;
+    xhr.upload.onprogress = (e) => {
+      if (!e.lengthComputable) return;
+      const pct = Math.round((e.loaded / e.total) * 100);
+      setMessages((prev) => prev.map((m) => m._id === tempId ? { ...m, _progress: pct } : m));
+    };
+    xhr.onload = () => {
+      if (xhr.status >= 200 && xhr.status < 300) {
+        let data = null; try { data = JSON.parse(xhr.responseText); } catch (e) {}
+        const real = data && data.mensagem ? dbMsgToUi(data.mensagem) : null;
+        setMessages((prev) => prev.map((m) => m._id === tempId ? (real || { ...m, _uploading: false }) : m));
+        cleanup();
+        if (onSent) onSent(conv.id);
+      } else {
+        let msg = 'Não foi possível enviar a mídia.';
+        try { const d = JSON.parse(xhr.responseText); if (d && d.error) msg = d.error; } catch (e) {}
+        if (xhr.status === 413 && !/grande/i.test(msg)) msg = 'Arquivo muito grande para enviar.';
+        setMessages((prev) => prev.filter((m) => m._id !== tempId)); cleanup();
+        window.showToast({ tipo: 'erro', titulo: 'Falha no upload', descricao: msg });
+      }
+    };
+    xhr.onerror = () => { setMessages((prev) => prev.filter((m) => m._id !== tempId)); cleanup(); window.showToast({ tipo: 'erro', titulo: 'Falha no upload', descricao: 'Erro de conexão.' }); };
+    xhr.onabort = () => { setMessages((prev) => prev.filter((m) => m._id !== tempId)); cleanup(); };
+    const fd = new FormData(); fd.append('arquivo', file, file.name || 'arquivo');
+    xhr.send(fd);
+  };
+  // Envia um cartão de contato (otimista + backend, igual ao texto/mídia).
+  const enviarContato = async (c) => {
+    const card = { nome: c.name || c.nome || 'Contato', telefone: c.phone || c.telefone || '' };
+    if (!conv._db) { addAgentMessage({ kind: 'contact', contactName: card.nome, contactPhone: card.telefone, contactChannel: c.channel }); return; }
+    const tempId = 'tmp-' + Date.now();
+    setMessages((prev) => [...prev, { _id: tempId, from: 'agent', kind: 'contact', contactName: card.nome, contactPhone: card.telefone, contactChannel: c.channel, time: now(), _pending: true }]);
+    if (onSent) onSent(conv.id);
     try {
-      const r = await API.sendMidia(conv.id, file, file.name);
-      setMessages((prev) => [...prev, dbMsgToUi(r.mensagem)]);
-      setToast(null);
-      if (onSent) onSent(conv.id); // joga a conversa pro topo + atualiza a hora
+      const r = await API.sendContato(conv.id, card);
+      setMessages((prev) => prev.map((m) => m._id === tempId ? dbMsgToUi(r.mensagem) : m));
+      if (r && r.aviso) window.showToast({ tipo: 'aviso', titulo: 'Contato enviado, mas não entregue', descricao: r.aviso });
     } catch (e) {
-      setToast(null);
-      window.showToast({ tipo: 'erro', titulo: 'Falha no upload', descricao: e.message || 'Não foi possível enviar a mídia.' });
+      setMessages((prev) => prev.filter((m) => m._id !== tempId));
+      window.showToast({ tipo: 'erro', titulo: 'Erro ao enviar contato', descricao: e.message || 'Não foi possível enviar o contato.' });
     }
   };
+
   const onPickAttach = (o) => {
     setMenu(null);
     if (o.id === 'foto') triggerFile('image/*');
@@ -1459,33 +1813,74 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
   const assumir = async (titulo) => {
     setLocalStatus('em-andamento'); setLocalHandler('human');
     if (!conv._db) { window.showToast({ tipo: 'sucesso', titulo }); return; }
+    addMarcador('inicio', { dept: conv.dept || null, atend: auth.nome || 'Você' });
     try { await API.assumirContato(conv.id); window.showToast({ tipo: 'sucesso', titulo }); if (onConvChanged) onConvChanged(); }
     catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao iniciar', descricao: e.message || 'Não foi possível assumir a conversa.' }); }
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface-2)', position: 'relative' }}>
+    <div className="conv-mid" style={{ display: 'flex', flexDirection: 'column', minHeight: 0, background: 'var(--surface-2)', position: 'relative' }}>
       <div onClick={onOpenContext} title="Abrir contexto do cliente" style={{ padding: '12px 16px', borderBottom: '1px solid var(--border)', background: 'var(--surface)', cursor: 'default', transition: 'background .12s', height: "80px" }} className="row conv-head">
         {onBack && <button className="btn btn-ghost btn-icon" onClick={(e) => { e.stopPropagation(); onBack(); }} title="Voltar" style={{ width: "30px", height: "30px", marginRight: 2, flexShrink: 0 }}><Ic name="arrow-left" size={18} /></button>}
         <Avatar name={conv.client} src={conv.photo} />
         <div style={{ flex: 1, marginLeft: 10, minWidth: 0 }}>
           <div className="row" style={{ gap: 8 }}><span style={{ fontWeight: 600 }}>{conv.client}</span><ChannelIcon ch={conv.channel} size={13} /></div>
-          <div className="row" style={{ gap: 6, marginTop: 1, flexWrap: 'wrap' }}>
-            <span className="muted" style={{ fontSize: 'var(--type-xs)' }}>{conv.tag || 'PROSPECT'}</span>
-            {conv.owner && <span className="muted" style={{ fontSize: 'var(--type-xs)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>· <Ic name="user" size={10} />{conv.owner}</span>}
-            {conv.dept && <span className="muted" style={{ fontSize: 'var(--type-xs)', display: 'inline-flex', alignItems: 'center', gap: 3 }}>· <Ic name="folder" size={10} />{conv.dept}</span>}
+          <div className="row" style={{ gap: 6, marginTop: 2, alignItems: 'center', color: 'var(--text-muted)', fontSize: 'var(--type-xs)' }}>
+            {/* 1º humano/IA · 2º DEPARTAMENTO (caixa alta) · 3º Atendente — tudo na mesma cor cinza */}
+            <Ic name={conv.aiHandled ? 'sparkles' : 'user'} size={12} style={{ color: 'var(--text-muted)', flexShrink: 0 }} />
+            {[(conv.dept || '').toUpperCase(), conv.owner].filter(Boolean).map((txt, i) =>
+            <span key={i} style={{ whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>· {txt}</span>
+            )}
           </div>
         </div>
         {handler === 'agent' && <span className="badge badge-ai"><Ic name="sparkles" size={11} /> IA respondendo</span>}
         {handler === 'queue' && <span className="badge badge-warning"><Ic name="clock" size={11} /> Aguardando há {conv.waitMin || 3} min</span>}
         {handler === 'human' && <span className="badge badge-success"><Ic name="user" size={11} /> Você atendendo</span>}
-        <button className="btn btn-ghost btn-icon" onClick={(e) => e.stopPropagation()} style={{ width: "30px", height: "30px" }}><Ic name="phone" size={15} /></button>
-        <button className="btn btn-ghost btn-icon" onClick={(e) => e.stopPropagation()} style={{ width: "30px", height: "30px" }}><Ic name="user" size={15} /></button>
+        {/* Ligação (hover verde) e Ligação de vídeo (hover vermelho) — visual no formato do botão de config; sem função ainda */}
+        <button title="Ligação" onClick={(e) => e.stopPropagation()} style={{ height: 32, width: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'default', flexShrink: 0, transition: 'background .15s, border-color .15s, color .15s' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-soft)'; e.currentTarget.style.borderColor = 'var(--accent)'; e.currentTarget.style.color = 'var(--accent-700)'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+          <Ic name="phone" size={15} />
+        </button>
+        <button title="Ligação de vídeo" onClick={(e) => e.stopPropagation()} style={{ height: 32, width: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'default', flexShrink: 0, transition: 'background .15s, border-color .15s, color .15s' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in oklab, #FF452A 12%, transparent)'; e.currentTarget.style.borderColor = '#FF452A'; e.currentTarget.style.color = '#FF452A'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+          <Ic name="video" size={15} />
+        </button>
+        {/* abrir/fechar a coluna 3 (painel) — a seta muda de lado; fechar = vermelho, abrir = azul */}
+        <button title={aiOpen ? 'Fechar painel' : 'Abrir painel'} onClick={(e) => { e.stopPropagation(); onToggleAI && onToggleAI(); }} style={{ height: 32, width: 32, padding: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', borderRadius: 8, border: '1px solid var(--border)', background: 'transparent', color: 'var(--text-muted)', cursor: 'default', flexShrink: 0, transition: 'background .15s, border-color .15s, color .15s' }}
+          onMouseEnter={(e) => { const c = aiOpen ? '#FF452A' : '#165EEE'; e.currentTarget.style.background = 'color-mix(in oklab, ' + c + ' 12%, transparent)'; e.currentTarget.style.borderColor = c; e.currentTarget.style.color = c; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.borderColor = 'var(--border)'; e.currentTarget.style.color = 'var(--text-muted)'; }}>
+          <Ic name={aiOpen ? 'panel-right-close' : 'panel-right-open'} size={17} />
+        </button>
       </div>
+      {/* Faixa de FIXADA (estilo WhatsApp): hover muda a cor; clica -> rola até ela e cicla pra próxima */}
+      {!selecting && pinAtual &&
+      <div onClick={() => { scrollToMessage(pinAtual._id); if (fixadas.length > 1) setPinIdx((i) => (i + 1) % fixadas.length); }} title="Ir para a mensagem fixada"
+        style={{ borderBottom: '1px solid var(--border)', background: 'var(--surface)', padding: '7px 16px', display: 'flex', alignItems: 'center', gap: 10, flexShrink: 0, cursor: 'pointer', transition: 'background .12s' }}
+        onMouseEnter={(e) => { e.currentTarget.style.background = 'var(--accent-soft)'; }}
+        onMouseLeave={(e) => { e.currentTarget.style.background = 'var(--surface)'; }}>
+        <Ic name="pin" size={14} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent-700)', letterSpacing: '.03em' }}>FIXADA{fixadas.length > 1 ? ` ${pinIdxSafe + 1}/${fixadas.length}` : ''}</div>
+          <div style={{ fontSize: 'var(--type-xs)', color: 'var(--text-muted)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}><strong style={{ color: 'var(--text)' }}>{pinAtual.from === 'client' ? conv.client : (auth.nome || 'Você')}: </strong>{pinAtual.kind === 'text' ? (pinAtual.text || '') : (pinAtual.kind === 'image' ? '📷 Foto' : pinAtual.kind === 'video' ? '🎬 Vídeo' : pinAtual.kind === 'audio' ? '🎙️ Áudio' : '📄 ' + (pinAtual.filename || 'Documento'))}</div>
+        </div>
+        <button onClick={(e) => { e.stopPropagation(); toggleFlag(pinAtual, 'fixada'); }} title="Desafixar"
+          style={{ border: 'none', background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer', width: 28, height: 28, borderRadius: '50%', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, transition: 'background .15s, color .15s' }}
+          onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in oklab, #FF452A 16%, transparent)'; e.currentTarget.style.color = '#FF452A'; }}
+          onMouseLeave={(e) => { e.currentTarget.style.background = 'transparent'; e.currentTarget.style.color = 'var(--text-faint)'; }}>
+          <Ic name="x" size={14} />
+        </button>
+      </div>}
       <div ref={scrollRef} onScroll={onScrollMsgs} className="scroll" style={{ flex: 1, overflow: 'auto', padding: '18px 24px', display: 'flex', flexDirection: 'column', gap: 14 }}>
         {loadingMsgs ? <ChatSkeleton /> :
          bubbles.length === 0 ? <div className="muted" style={{ margin: 'auto' }}>Nenhuma mensagem ainda.</div> :
-         bubbles.map((m, i) => <Bubble key={m._id || i} m={m} client={conv.client} clientPhoto={conv.photo} />)}
+         bubbles.map((m, i) => <Bubble key={m._id || i} m={m} client={conv.client} clientPhoto={conv.photo} agentName={auth.nome || 'Você'} agentPhoto={auth.foto || null}
+           quoted={m.respondeA ? messages.find((x) => String(x._id) === String(m.respondeA)) : null}
+           onAction={onMsgAction}
+           selecting={selecting} selected={selectedIds.includes(m._id)}
+           onToggleSelect={() => setSelectedIds((s) => s.includes(m._id) ? s.filter((x) => x !== m._id) : [...s, m._id])}
+           onOpenMedia={(mm) => setLightbox(mm)} />)}
       </div>
       {slashOpen && qrList.length > 0 &&
       <div className="qr-slash">
@@ -1503,7 +1898,15 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
       </div>
       }
       <div style={{ padding: '12px 16px', borderTop: '1px solid var(--border)', background: 'var(--surface)' }}>
-        {isPending ?
+        {selecting ?
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <button onClick={() => { setSelecting(false); setSelectedIds([]); }} title="Cancelar" style={{ border: 'none', background: 'transparent', color: 'var(--text-muted)', cursor: 'pointer', display: 'flex', padding: 0, marginRight: 4 }}><Ic name="x" size={18} /></button>
+          <span style={{ fontWeight: 600, flex: 1 }}>{selectedIds.length} selecionada{selectedIds.length === 1 ? '' : 's'}</span>
+          <SelIconBtn icon="copy" color="#165EEE" title="Copiar" onClick={copiarSelecionadas} disabled={!selectedIds.length} />
+          <SelIconBtn icon="star" color="#16a34a" title="Favoritar" onClick={favoritarSelecionadas} disabled={!selectedIds.length} />
+          <SelIconBtn icon="trash" color="#FF452A" title="Apagar" onClick={() => selectedIds.length && setConfirmApagar({ bulk: true })} disabled={!selectedIds.length} />
+        </div>
+        : isPending ?
         (ultimaTransf ?
           <ReceivedCard m={ultimaTransf}>
             <div className="row" style={{ justifyContent: 'flex-end', alignItems: 'center', gap: 10, marginTop: 2 }}>
@@ -1529,6 +1932,15 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
               <div className="spacer" />
               <button className="btn btn-sm btn-ghost" onClick={() => setModal('encerrar')}><Ic name="check" size={13} /> Encerrar</button>
             </div>
+            {replyingTo && !selecting &&
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', marginBottom: 6, background: 'var(--surface-2)', borderLeft: '3px solid var(--accent)', borderRadius: 8 }}>
+              <Ic name="reply" size={15} style={{ color: 'var(--accent)', flexShrink: 0 }} />
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-700)' }}>Respondendo a {replyingTo.from === 'client' ? conv.client : (auth.nome || 'Você')}</div>
+                <div className="muted" style={{ fontSize: 'var(--type-xs)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{replyingTo.kind === 'text' ? (replyingTo.text || '') : (replyingTo.kind === 'image' ? '📷 Foto' : replyingTo.kind === 'video' ? '🎬 Vídeo' : replyingTo.kind === 'audio' ? '🎙️ Áudio' : '📄 ' + (replyingTo.filename || 'Documento'))}</div>
+              </div>
+              <button onClick={() => setReplyingTo(null)} title="Cancelar resposta" style={{ border: 'none', background: 'transparent', color: 'var(--text-faint)', cursor: 'pointer', padding: 2, display: 'flex', flexShrink: 0 }}><Ic name="x" size={15} /></button>
+            </div>}
             <div className="row" style={{ gap: 6, alignItems: 'center' }}>
               <div style={{ position: 'relative' }}>
                 <button className="btn btn-ghost btn-icon" data-on={menu === 'emoji'} onClick={() => setMenu(menu === 'emoji' ? null : 'emoji')} style={{ background: menu === 'emoji' ? 'var(--accent-soft)' : 'transparent', color: menu === 'emoji' ? 'var(--accent)' : undefined, width: "30px", height: "30px" }}><Ic name="smile" size={17} /></button>
@@ -1557,18 +1969,54 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
         setModal(null);
         if (!conv._db) { setLocalStatus('pendente'); setLocalHandler('queue'); window.showToast({ tipo: 'sucesso', titulo: 'Conversa transferida', descricao: `Transferida para ${target.name}` }); return; }
         try {
+          const notaTxt = (note || '').trim();             // nota é OPCIONAL: vazia -> não envia (sem erro)
           const dto = kind === 'agent'
-            ? { atendenteId: target.id, atendenteNome: target.name, departamentoId: target.departamentoId != null ? target.departamentoId : null, departamentoNome: target.departamentoNome || null, nota: note } // a conversa segue o setor do dono
-            : { departamentoId: target.id, departamentoNome: target.name, atendenteId: null, nota: note }; // depto -> volta pro pool do setor
+            ? { atendenteId: target.id, atendenteNome: target.name, departamentoId: target.departamentoId != null ? target.departamentoId : null, departamentoNome: target.departamentoNome || null, ...(notaTxt ? { nota: notaTxt } : {}) } // a conversa segue o setor do dono
+            : { departamentoId: target.id, departamentoNome: target.name, atendenteId: null, ...(notaTxt ? { nota: notaTxt } : {}) }; // depto -> volta pro pool do setor
           await API.transferirContato(conv.id, dto);
-          window.showToast({ tipo: 'sucesso', titulo: 'Conversa transferida', descricao: `Transferida para ${target.name}` });
+          addMarcador('nota', { de: { dept: conv.dept || null, atend: conv.owner || null }, para: { dept: kind === 'agent' ? (target.departamentoNome || null) : (target.name || null), atend: kind === 'agent' ? (target.name || null) : null }, nota: notaTxt || null, por: auth.nome || 'Você' });
+          window.showToast({ tipo: 'sucesso', titulo: 'Transferência feita com sucesso', descricao: `Transferida para ${target.name}` });
           if (onConvChanged) onConvChanged(); // re-busca a lista (a conversa pode sair da minha visão pelo isolamento)
+          if (onLeave) onLeave(); // deseleciona -> cai na "Tela de Bate Papo" (sem pular pra outra)
         } catch (e) {
           window.showToast({ tipo: 'erro', titulo: 'Falha ao transferir', descricao: e.message || 'Não foi possível transferir.' });
         }
       }} />}
-      {modal === 'encerrar' && <EncerrarModal conv={conv} onClose={() => setModal(null)} onConfirm={({ label }) => {setModal(null);setLocalStatus('encerrada');mudarStatus('finalizado');window.showToast({ tipo: 'sucesso', titulo: 'Conversa encerrada', descricao: label });}} />}
-      {showContactPicker && <ContactPickerModal onClose={() => setShowContactPicker(false)} onPick={(c) => { setShowContactPicker(false); addAgentMessage({ kind: 'contact', contactName: c.name, contactPhone: c.phone, contactTag: c.tag, contactChannel: c.channel }); }} /> }
+      {modal === 'encerrar' && <EncerrarModal conv={conv} onClose={() => setModal(null)} onConfirm={({ label }) => {setModal(null);setLocalStatus('encerrada');addMarcador('encerramento', { dept: conv.dept || null, atend: conv.owner || auth.nome || 'Você' });mudarStatus('finalizado');window.showToast({ tipo: 'sucesso', titulo: 'Conversa encerrada', descricao: label });}} />}
+      {confirmApagar && ReactDOM.createPortal(
+        <Modal title={confirmApagar.bulk ? 'Apagar mensagens' : 'Apagar mensagem'} size="sm" onClose={() => setConfirmApagar(null)} footer={(close) => <>
+          <button className="btn fin-btn-back" onClick={() => close()}>Voltar</button>
+          <button className="btn btn-delete" onClick={() => close(() => { if (confirmApagar.bulk) apagarSelecionadas(); else if (confirmApagar.msg) apagarMsg(confirmApagar.msg); })}><Ic name="trash" size={12} /> Apagar</button>
+        </>}>
+          <div style={{ fontSize: 'var(--type-sm)' }}>{confirmApagar.bulk ? `Apagar ${selectedIds.length} mensagem${selectedIds.length === 1 ? '' : 's'} selecionada${selectedIds.length === 1 ? '' : 's'}?` : 'Tem certeza que deseja apagar esta mensagem?'} Ela será marcada como <strong>apagada</strong> para todos.</div>
+        </Modal>, document.body)}
+      {pinDurMsg && ReactDOM.createPortal(
+        <Modal title="Fixar mensagem" size="sm" onClose={() => setPinDurMsg(null)} footer={(close) => <button className="btn fin-btn-back" onClick={() => close()}>Cancelar</button>}>
+          <div style={{ fontSize: 'var(--type-sm)', color: 'var(--text-muted)', marginBottom: 12 }}>Por quanto tempo deseja fixar esta mensagem?</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
+            {PIN_DURATIONS.map((d) => <button key={d.label} onClick={() => { const msg = pinDurMsg; setPinDurMsg(null); fixarComPrazo(msg, d.ms); }}
+              style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 7, padding: '13px 10px', borderRadius: 12, border: '1.5px solid ' + d.color, background: 'color-mix(in oklab, ' + d.color + ' 12%, transparent)', color: d.color, fontWeight: 700, fontSize: 'var(--type-sm)', cursor: 'pointer', transition: 'background .15s, transform .1s' }}
+              onMouseEnter={(e) => { e.currentTarget.style.background = 'color-mix(in oklab, ' + d.color + ' 24%, transparent)'; e.currentTarget.style.transform = 'translateY(-1px)'; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = 'color-mix(in oklab, ' + d.color + ' 12%, transparent)'; e.currentTarget.style.transform = 'none'; }}>
+              <Ic name="pin" size={15} /> {d.label}
+            </button>)}
+          </div>
+        </Modal>, document.body)}
+      {lightbox && ReactDOM.createPortal(
+        <div onClick={() => setLightbox(null)} style={{ position: 'fixed', inset: 0, zIndex: 9998, background: 'rgba(0,0,0,.82)', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', gap: 16, animation: 'popIn .18s ease' }}>
+          <div onClick={(e) => e.stopPropagation()} style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', maxWidth: '90vw', maxHeight: '78vh' }}>
+            {lightbox.kind === 'image'
+              ? <img src={lightbox.mediaUrl} alt={lightbox.filename || ''} style={{ maxWidth: '90vw', maxHeight: '78vh', borderRadius: 10, objectFit: 'contain', boxShadow: '0 12px 48px rgba(0,0,0,.5)' }} />
+              : <video src={lightbox.mediaUrl} controls autoPlay playsInline style={{ maxWidth: '90vw', maxHeight: '78vh', borderRadius: 10, background: '#000' }} />}
+          </div>
+          {/* rodapé (56px) com os botões — cinza, hover colorido */}
+          <div onClick={(e) => e.stopPropagation()} style={{ height: 56, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 12, background: 'var(--surface)', borderRadius: 14, padding: '0 18px', boxShadow: 'var(--shadow-lg)' }}>
+            <SelIconBtn icon="download" color="#16a34a" title="Baixar" onClick={() => baixarMidiaUrl(lightbox.mediaUrl, lightbox.filename)} />
+            <SelIconBtn icon="trash" color="#FF452A" title="Apagar" onClick={() => { const m = lightbox; setLightbox(null); setConfirmApagar({ msg: m }); }} />
+            <SelIconBtn icon="x" color="#165EEE" title="Fechar" onClick={() => setLightbox(null)} />
+          </div>
+        </div>, document.body)}
+      {showContactPicker && <ContactPickerModal onClose={() => setShowContactPicker(false)} onPick={(c) => { setShowContactPicker(false); enviarContato(c); }} /> }
 
       <input ref={fileRef} type="file" accept={pendingAccept} style={{ display: 'none' }} onChange={(e) => { const f = e.target.files && e.target.files[0]; e.target.value = ''; enviarArquivo(f); }} />
 
@@ -1669,22 +2117,103 @@ function ReceivedCard({ m, children }) {
     </div>);
 }
 
-function Bubble({ m, client, clientPhoto }) {
-  // Registro de transferência ("Conversa Recebida") — card no histórico (entra com efeito).
-  if (m.kind === 'nota') {
+// Rola até a mensagem citada (pelo data-msg-id) e dá um "flash" de destaque.
+function scrollToMessage(id) {
+  if (!id) return;
+  const key = (window.CSS && CSS.escape) ? CSS.escape(String(id)) : String(id);
+  const el = document.querySelector('[data-msg-id="' + key + '"]');
+  if (!el) return;
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  el.classList.remove('msg-flash'); void el.offsetWidth; el.classList.add('msg-flash'); // reinicia a animação
+  setTimeout(() => el.classList.remove('msg-flash'), 1500);
+}
+
+// Baixa a mídia VIA SERVIDOR (force attachment) -> download direto no PC, sem CORS.
+function baixarMidiaUrl(url, nome) {
+  if (!url) return;
+  const u = '/api/chatbot/midia/download?url=' + encodeURIComponent(url) + '&nome=' + encodeURIComponent(nome || 'arquivo');
+  const a = document.createElement('a'); a.href = u; a.download = nome || 'arquivo'; a.rel = 'noopener';
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+const MSG_MENU_ITEMS = [
+  { id: 'responder', label: 'Responder', icon: 'reply' },
+  { id: 'copiar', label: 'Copiar', icon: 'copy' },
+  { id: 'fixar', label: 'Fixar', icon: 'pin' },
+  { id: 'favoritar', label: 'Favoritar', icon: 'star' },
+  { sep: true },
+  { id: 'selecionar', label: 'Selecionar', icon: 'check-square' },
+  { id: 'baixar', label: 'Baixar', icon: 'download' },
+  { sep: true },
+  { id: 'apagar', label: 'Apagar', icon: 'trash', danger: true },
+];
+// Popup renderizado via PORTAL (acima de tudo) e POSICIONADO em coordenadas fixas, com
+// CLAMP dentro da coluna do meio (.conv-mid): nunca ultrapassa laterais/topo/rodapé.
+function MessageMenu({ anchorRect, side, kind, onPick, onClose }) {
+  const ref = React.useRef(null);
+  const [pos, setPos] = React.useState(null);
+  const isMedia = kind === 'image' || kind === 'video' || kind === 'audio' || kind === 'doc';
+  const items = MSG_MENU_ITEMS.filter((it) => it.sep ? true : (it.id === 'baixar' ? isMedia : it.id === 'copiar' ? kind === 'text' : true));
+  React.useLayoutEffect(() => {
+    const el = ref.current; if (!el || !anchorRect) return;
+    const menu = el.getBoundingClientRect();
+    const midEl = document.querySelector('.conv-mid');
+    const mid = midEl ? midEl.getBoundingClientRect() : { left: 0, right: window.innerWidth, top: 0, bottom: window.innerHeight };
+    const W = menu.width || 214, H = menu.height || 290, PAD = 8;
+    let left = side === 'right' ? (anchorRect.right - W) : anchorRect.left;
+    let top = anchorRect.bottom + 4;                       // abre pra BAIXO do ícone
+    if (top + H > mid.bottom - PAD) top = anchorRect.top - H - 4; // sem espaço embaixo -> abre pra CIMA
+    left = Math.min(Math.max(left, mid.left + PAD), mid.right - W - PAD);  // clamp lateral
+    top = Math.min(Math.max(top, mid.top + PAD), mid.bottom - H - PAD);    // clamp vertical
+    setPos({ left, top });
+  }, [anchorRect, side]);
+  React.useEffect(() => {
+    const onDoc = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
+    const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('mousedown', onDoc); document.removeEventListener('keydown', onKey); };
+  }, [onClose]);
+  return ReactDOM.createPortal(
+    <div ref={ref} className="msg-menu" onClick={(e) => e.stopPropagation()}
+      style={{ position: 'fixed', zIndex: 9999, left: pos ? pos.left : (anchorRect ? anchorRect.left : 0), top: pos ? pos.top : (anchorRect ? anchorRect.bottom + 4 : 0), visibility: pos ? 'visible' : 'hidden' }}>
+      {items.map((it, i) => it.sep ?
+      <div key={'s' + i} className="msg-menu-sep" /> :
+      <button key={it.id} className={'msg-menu-item' + (it.danger ? ' danger' : '')} onClick={() => onPick(it.id)}>
+        <Ic name={it.icon} size={17} />{it.label}
+      </button>)}
+    </div>,
+    document.body);
+}
+
+function Bubble({ m, client, clientPhoto, agentName, agentPhoto, quoted, onAction, selecting, selected, onToggleSelect, onOpenMedia }) {
+  const [hover, setHover] = React.useState(false);   // mostra o ícone de opções no hover do balão
+  const [menuAnchor, setMenuAnchor] = React.useState(null); // rect do botão (abre o popup) | null
+  // ---- Marcadores de sistema (centrados): início · transferência · encerramento ----
+  if (m.kind === 'nota' || m.kind === 'inicio' || m.kind === 'encerramento') {
+    const chip = { fontSize: 'var(--type-xs)', padding: '5px 12px', borderRadius: 999, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', gap: 6, textAlign: 'center', maxWidth: '92%', lineHeight: 1.4 };
+    if (m.kind === 'nota') {
+      // TRANSFERÊNCIA: de DEPTO (Atendente) para DEPTO (Atendente) · data às hora.
+      // Mensagens antigas (sem JSON) caem no card "Conversa Recebida".
+      if (!m.marca) {
+        return (<div style={{ display: 'flex', justifyContent: 'center' }}><div style={{ maxWidth: '92%', width: '100%', animation: 'recebidaIn .42s cubic-bezier(.34,1.56,.64,1)' }}><ReceivedCard m={m} /></div></div>);
+      }
+      const parte = (p) => `${((p && p.dept) || '—').toUpperCase()}${(p && p.atend) ? ' (' + p.atend + ')' : ''}`;
+      return (
+        <div style={{ display: 'flex', justifyContent: 'center' }}>
+          <span className="muted" style={chip}>
+            <Ic name="refresh" size={12} style={{ color: 'var(--text-muted)', flexShrink: 0 }} /> Atendimento Transferido de {parte(m.marca.de)} para {parte(m.marca.para)} · {m.data} às {m.horaMarcador}
+          </span>
+        </div>);
+    }
+    // INÍCIO / ENCERRAMENTO: mesmo formato — data · Às hora · DEPTO (Atendente).
+    const dept = m.marca && m.marca.dept;
+    const atend = (m.marca && m.marca.atend) || m.autor;
+    const ini = m.kind === 'inicio';
     return (
       <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <div style={{ maxWidth: '92%', width: '100%', animation: 'recebidaIn .42s cubic-bezier(.34,1.56,.64,1)' }}>
-          <ReceivedCard m={m} />
-        </div>
-      </div>);
-  }
-  // Marcador "Atendimento iniciado às HH:MM" — fica registrado no histórico.
-  if (m.kind === 'inicio') {
-    return (
-      <div style={{ display: 'flex', justifyContent: 'center' }}>
-        <span className="muted" style={{ fontSize: 'var(--type-xs)', padding: '5px 12px', borderRadius: 999, background: 'var(--surface-2)', border: '1px solid var(--border)', display: 'inline-flex', alignItems: 'center', gap: 6 }}>
-          <Ic name="check" size={12} style={{ color: 'var(--accent)' }} /> Atendimento iniciado às {m.time}{m.autor ? ' · ' + m.autor : ''}
+        <span className="muted" style={chip}>
+          <Ic name={ini ? 'check' : 'check-double'} size={12} style={{ color: ini ? 'var(--accent)' : 'var(--text-muted)', flexShrink: 0 }} /> {ini ? 'Atendimento iniciado' : 'Atendimento encerrado'} {m.data} · Às {m.horaMarcador}{dept ? ' · ' + (dept || '').toUpperCase() : ''}{atend ? ' (' + atend + ')' : ''}
         </span>
       </div>);
   }
@@ -1693,19 +2222,61 @@ function Bubble({ m, client, clientPhoto }) {
   const bgClient = 'var(--surface)';
   const bgAgent = isAI ? 'linear-gradient(135deg, var(--ai), color-mix(in oklab, var(--ai) 65%, var(--accent)))' : 'var(--accent)';
   return (
-    <div style={{ display: 'flex', flexDirection: isClient ? 'row' : 'row-reverse', gap: 8, alignItems: 'flex-end' }}>
-      {isClient ? <Avatar name={client} size="sm" /> : isAI ? <div className="avatar avatar-sm" style={{ background: 'linear-gradient(135deg, var(--ai), var(--accent))' }}><Ic name="sparkles" size={12} /></div> : <Avatar name="Você" size="sm" />}
+    <div data-msg-id={m._id} onMouseEnter={() => setHover(true)} onMouseLeave={() => setHover(false)} onClick={selecting ? onToggleSelect : undefined} style={{ display: 'flex', flexDirection: isClient ? 'row' : 'row-reverse', gap: 8, alignItems: 'flex-end', cursor: selecting ? 'pointer' : 'default', background: selecting && selected ? 'var(--accent-soft)' : 'transparent', borderRadius: 10, padding: selecting ? '3px 4px' : 0, transition: 'background .12s' }}>
+      {selecting && <span style={{ width: 22, height: 22, borderRadius: '50%', border: '2px solid ' + (selected ? 'var(--accent)' : 'var(--border)'), background: selected ? 'var(--accent)' : 'transparent', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0, alignSelf: 'center' }}>{selected && <Ic name="check" size={13} />}</span>}
+      {isClient ? <Avatar name={client} src={clientPhoto} size="sm" /> : isAI ? <div className="avatar avatar-sm" style={{ background: 'linear-gradient(135deg, var(--ai), var(--accent))' }}><Ic name="sparkles" size={12} /></div> : <Avatar name={agentName || 'Você'} src={agentPhoto} size="sm" />}
       <div style={{ maxWidth: '70%' }}>
         {!isClient && isAI && <div style={{ fontSize: 10, fontWeight: 600, color: 'var(--ai-strong)', marginBottom: 3, letterSpacing: '.04em' }}>JÚLIA · IA</div>}
-        <div style={{ padding: '10px 14px', borderRadius: 14, borderBottomRightRadius: !isClient ? 4 : 14, borderBottomLeftRadius: isClient ? 4 : 14, background: isClient ? bgClient : bgAgent, color: isClient ? 'var(--text)' : 'white', fontSize: 'var(--type-sm)', boxShadow: isClient ? 'var(--shadow-sm)' : 'none', border: isClient ? '1px solid var(--border)' : 'none' }}>
+        <div style={{ position: 'relative', padding: '10px 14px', borderRadius: 14, borderBottomRightRadius: !isClient ? 4 : 14, borderBottomLeftRadius: isClient ? 4 : 14, background: isClient ? bgClient : bgAgent, color: isClient ? 'var(--text)' : 'white', fontSize: 'var(--type-sm)', boxShadow: isClient ? 'var(--shadow-sm)' : 'none', border: isClient ? '1px solid var(--border)' : 'none', pointerEvents: selecting ? 'none' : undefined }}>
+          {/* botão de opções (invisível; aparece no hover do balão) — escondido em apagada/seleção */}
+          {!selecting && !m.apagado && <button onClick={(e) => { e.stopPropagation(); const r = e.currentTarget.getBoundingClientRect(); setMenuAnchor((a) => a ? null : r); }} title="Opções da mensagem" aria-label="Opções da mensagem"
+            style={{ position: 'absolute', top: -8, [isClient ? 'left' : 'right']: -8, zIndex: 2, width: 26, height: 26, borderRadius: '50%', border: '1px solid var(--border)', background: 'var(--surface)', color: 'var(--text-muted)', boxShadow: 'var(--shadow-sm)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'pointer', padding: 0, opacity: hover || menuAnchor ? 1 : 0, transform: hover || menuAnchor ? 'scale(1)' : 'scale(.8)', pointerEvents: hover || menuAnchor ? 'auto' : 'none', transition: 'opacity .15s ease, transform .15s ease' }}>
+            <Ic name="chevron-down" size={14} />
+          </button>}
+          {menuAnchor && <MessageMenu anchorRect={menuAnchor} side={isClient ? 'left' : 'right'} kind={m.kind} onPick={(id) => { setMenuAnchor(null); onAction && onAction(id, m); }} onClose={() => setMenuAnchor(null)} />}
+          {m.apagado ?
+          <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontStyle: 'italic', opacity: .8 }}><Ic name="x-circle" size={14} /> Esta mensagem foi apagada</div>
+          : m._uploading ?
+          /* PRÉVIA DE UPLOAD: miniatura + barra de progresso (%) + cancelar */
+          <div style={{ position: 'relative', minWidth: 200 }}>
+            {(m.kind === 'image' || m.kind === 'video') && m._localUrl ?
+            <div style={{ position: 'relative', borderRadius: 8, overflow: 'hidden', maxWidth: 240 }}>
+              {m.kind === 'image'
+              ? <img src={m._localUrl} alt="" style={{ maxWidth: 240, maxHeight: 240, display: 'block', filter: 'brightness(.62)' }} />
+              : <video src={m._localUrl} muted style={{ maxWidth: 240, maxHeight: 240, display: 'block', filter: 'brightness(.62)' }} />}
+              <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <button onClick={() => m._xhr && m._xhr.abort()} title="Cancelar envio" style={{ width: 46, height: 46, borderRadius: '50%', border: '3px solid rgba(255,255,255,.9)', background: 'rgba(0,0,0,.35)', color: 'white', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'default' }}><Ic name="x" size={18} /></button>
+              </div>
+            </div> :
+            <div className="row" style={{ gap: 10, alignItems: 'center', minWidth: 220 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 8, background: 'rgba(255,255,255,.2)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name={m.kind === 'audio' ? 'mic' : 'file-text'} size={18} /></div>
+              <div style={{ minWidth: 0, flex: 1 }}><div style={{ fontWeight: 600, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.filename}</div><div style={{ fontSize: 11, opacity: .8 }}>{m.meta}</div></div>
+              <button onClick={() => m._xhr && m._xhr.abort()} title="Cancelar envio" style={{ width: 28, height: 28, borderRadius: '50%', border: '1px solid rgba(255,255,255,.6)', background: 'transparent', color: 'inherit', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'default', flexShrink: 0 }}><Ic name="x" size={13} /></button>
+            </div>
+            }
+            <div style={{ marginTop: 8 }}>
+              <div style={{ height: 5, borderRadius: 999, background: 'rgba(255,255,255,.3)', overflow: 'hidden' }}><div style={{ height: '100%', width: (m._progress || 0) + '%', background: 'white', borderRadius: 999, transition: 'width .15s ease' }} /></div>
+              <div style={{ fontSize: 10, opacity: .9, marginTop: 3, textAlign: 'right' }}>{m._progress || 0}%</div>
+            </div>
+          </div>
+          :
+          <>
+          {quoted && <div onClick={(e) => { e.stopPropagation(); scrollToMessage(quoted._id); }} title="Ir para a mensagem" style={{ cursor: 'pointer', borderLeft: '3px solid ' + (isClient ? 'var(--accent)' : 'rgba(255,255,255,.85)'), background: isClient ? 'var(--surface-2)' : 'rgba(255,255,255,.18)', borderRadius: 6, padding: '4px 8px', marginBottom: 6, maxWidth: 250 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, opacity: .95 }}>{quoted.from === 'client' ? client : (agentName || 'Você')}</div>
+            <div style={{ fontSize: 11, opacity: .82, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{quoted.apagado ? 'Mensagem apagada' : (quoted.kind === 'text' ? (quoted.text || '') : (quoted.kind === 'image' ? '📷 Foto' : quoted.kind === 'video' ? '🎬 Vídeo' : quoted.kind === 'audio' ? '🎙️ Áudio' : '📄 ' + (quoted.filename || 'Documento')))}</div>
+          </div>}
           {m.kind === 'text' && <div style={{ whiteSpace: 'pre-wrap' }}>{m.text}</div>}
           {m.kind === 'image' && m.mediaUrl &&
-          <a href={m.mediaUrl} target="_blank" rel="noreferrer" style={{ display: 'block' }}>
-              <img src={m.mediaUrl} alt={m.filename || 'imagem'} style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, display: 'block' }} />
-            </a>
+          <img src={m.mediaUrl} alt={m.filename || 'imagem'} onClick={() => onOpenMedia && onOpenMedia(m)} style={{ maxWidth: 240, maxHeight: 240, borderRadius: 8, display: 'block', cursor: 'pointer' }} />
+          }
+          {m.kind === 'video' && m.mediaUrl &&
+          <div onClick={() => onOpenMedia && onOpenMedia(m)} style={{ position: 'relative', cursor: 'pointer', display: 'inline-block', borderRadius: 8, overflow: 'hidden', background: '#000' }}>
+            <video src={m.mediaUrl} muted playsInline preload="metadata" style={{ maxWidth: 260, maxHeight: 320, display: 'block' }} />
+            <span style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', pointerEvents: 'none' }}><span style={{ width: 46, height: 46, borderRadius: '50%', background: 'rgba(0,0,0,.5)', color: '#fff', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name="play" size={20} /></span></span>
+          </div>
           }
           {m.kind === 'audio' && (m.mediaUrl ?
-          <AudioPlayer src={m.mediaUrl} isClient={isClient} avatarName={isClient ? client : 'Você'} avatarSrc={isClient ? clientPhoto : null} /> :
+          <AudioPlayer src={m.mediaUrl} isClient={isClient} avatarName={isClient ? client : (agentName || 'Você')} avatarSrc={isClient ? clientPhoto : agentPhoto} /> :
           <div className="row" style={{ gap: 8 }}>
               <div style={{ width: 28, height: 28, borderRadius: '50%', background: 'rgba(255,255,255,.25)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name="play" size={12} /></div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 2, flex: 1 }}>
@@ -1739,8 +2310,9 @@ function Bubble({ m, client, clientPhoto }) {
               <Ic name="zap" size={10} /> {m.flag}
             </div>
           }
+          </>}
         </div>
-        <div style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 4, textAlign: isClient ? 'left' : 'right' }}>{m.time} {!isClient && '· '}{!isClient && <Ic name="check-double" size={10} style={{ verticalAlign: 'middle' }} />}</div>
+        <div style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 4, textAlign: isClient ? 'left' : 'right' }}>{m.fixada && <Ic name="pin" size={11} style={{ verticalAlign: 'middle', color: 'var(--accent)', marginRight: 3 }} />}{m.favoritada && <Ic name="star" size={11} style={{ verticalAlign: 'middle', color: '#f59e0b', marginRight: 3 }} />}{!isAI ? (isClient ? client : (agentName || 'Você')) + ' - ' : ''}{m.time}{!isClient && ' '}{!isClient && <Ic name="check-double" size={14} style={{ verticalAlign: 'middle' }} />}</div>
       </div>
     </div>);
 
@@ -1924,7 +2496,8 @@ function ActionButtons({ conv, currentUser, inline, onAppointmentRequest }) {
           onSave={(dto) => { API.createAppt(dto)
             .then(() => window.showToast({ tipo: 'sucesso', titulo: 'Agendamento criado' }))
             .catch((e) => window.showToast({ tipo: 'erro', titulo: 'Erro ao agendar', descricao: e.message || 'Não foi possível criar o agendamento.' })); setShowNewAppt(false); }}
-          defaultResponsible={currentUser || ''} />}
+          defaultResponsible={currentUser || ''}
+          lockResponsible={true} />}
     </div>);
 
 }
@@ -1994,6 +2567,7 @@ function TabFicha({ conv }) {
   const [editing, setEditing] = React.useState(false);
   const [draft, setDraft] = React.useState({});
   const [saving, setSaving] = React.useState(false);
+  const [origens, setOrigens] = React.useState([]); // lista p/ o dropdown de Origem
 
   React.useEffect(() => {
     let alive = true;
@@ -2005,6 +2579,7 @@ function TabFicha({ conv }) {
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [conv.clienteId]);
+  React.useEffect(() => { API.getOrigensLista().then((r) => setOrigens(r.origens || [])).catch(() => setOrigens([])); }, []);
 
   // [chave do DTO, rótulo, editável]
   const campos = [
@@ -2014,9 +2589,32 @@ function TabFicha({ conv }) {
   ];
   // chave do DTO -> coluna do banco (só as editáveis)
   const COL = { nome: 'nome', telefone: 'telefone', email: 'email', empresa: 'empresa', cargo: 'cargo', produtoInteresse: 'produtointeresse', origemLead: 'origemlead' };
+  const fmtTelefone = (v) => {
+    let d = (v || '').replace(/\D/g, '');
+    if (!d) return '—';
+    if (d.length > 11 && d.startsWith('55')) d = d.slice(2); // tira o +55
+    if (d.length === 11) return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`; // celular c/ DDD
+    if (d.length === 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`; // fixo c/ DDD
+    if (d.length === 9) return `${d.slice(0, 5)}-${d.slice(5)}`;                     // celular s/ DDD
+    if (d.length === 8) return `${d.slice(0, 4)}-${d.slice(4)}`;                     // fixo s/ DDD
+    return v;
+  };
+  // Máscara AO VIVO p/ o input (limita a 11 dígitos: DDD + 9 e formata enquanto digita).
+  const maskTelefone = (v) => {
+    let d = (v || '').replace(/\D/g, '');
+    if (d.length > 11 && d.startsWith('55')) d = d.slice(2); // tira o +55 colado
+    d = d.slice(0, 11);                                       // teto: 2 (DDD) + 9 dígitos
+    if (!d) return '';
+    if (d.length <= 2) return `(${d}`;
+    if (d.length <= 6) return `(${d.slice(0, 2)}) ${d.slice(2)}`;
+    if (d.length <= 10) return `(${d.slice(0, 2)}) ${d.slice(2, 6)}-${d.slice(6)}`;
+    return `(${d.slice(0, 2)}) ${d.slice(2, 7)}-${d.slice(7)}`;
+  };
   const fmtVal = (k, v) => {
     if (k === 'valor') return v != null ? 'R$ ' + Number(v).toLocaleString('pt-BR') : '—';
     if (k === 'criadoEm') return v ? new Date(v).toLocaleDateString('pt-BR') : '—';
+    if (k === 'telefone') return fmtTelefone(v);
+    if (k === 'email') return v ? String(v).trim().toLowerCase() : '—';
     return v || '—';
   };
   const save = async () => {
@@ -2056,7 +2654,19 @@ function TabFicha({ conv }) {
           editing && editable ? (
             <div key={k} style={{ display: 'grid', gridTemplateColumns: '90px 1fr', gap: 8, padding: '6px 0', alignItems: 'center', borderBottom: '1px solid var(--border)' }}>
               <div className="muted" style={{ fontSize: 'var(--type-xs)' }}>{label}</div>
-              <input className="input" style={{ height: 28, fontSize: 'var(--type-sm)' }} value={draft[k] || ''} onChange={e => setDraft(d => ({ ...d, [k]: e.target.value }))} />
+              {k === 'origemLead' ? (
+                <select className="input" style={{ height: 28, fontSize: 'var(--type-sm)' }} value={draft[k] || ''} onChange={e => setDraft(d => ({ ...d, [k]: e.target.value }))}>
+                  <option value="">— Selecione —</option>
+                  {origens.map((o) => <option key={o.id} value={o.nome}>{o.nome}</option>)}
+                  {draft[k] && !origens.some((o) => o.nome === draft[k]) && <option value={draft[k]}>{draft[k]}</option>}
+                </select>
+              ) : k === 'telefone' ? (
+                <input className="input" style={{ height: 28, fontSize: 'var(--type-sm)' }} value={draft[k] || ''} inputMode="tel" maxLength={16} placeholder="(00) 00000-0000" onChange={e => setDraft(d => ({ ...d, telefone: maskTelefone(e.target.value) }))} />
+              ) : k === 'email' ? (
+                <input className="input" style={{ height: 28, fontSize: 'var(--type-sm)' }} type="email" value={draft[k] || ''} onChange={e => setDraft(d => ({ ...d, [k]: e.target.value }))} onBlur={e => setDraft(d => ({ ...d, email: e.target.value.trim().toLowerCase() }))} />
+              ) : (
+                <input className="input" style={{ height: 28, fontSize: 'var(--type-sm)' }} value={draft[k] || ''} onChange={e => setDraft(d => ({ ...d, [k]: e.target.value }))} />
+              )}
             </div>
           ) : (
             <FichaRow key={k} label={label} value={fmtVal(k, cliente[k])} />
@@ -2216,29 +2826,34 @@ function TabTags({ conv, onManage, inline, onDataChanged }) {
   return (
     <div style={{ padding: '14px 16px' }}>
       <div className="row">
-        <span style={{ fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.06em', color: 'var(--text-faint)' }}>TAGS DO CLIENTE</span>
+        <span style={{ fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.06em', color: 'var(--text-faint)' }}>TAGS</span>
         <div className="spacer" />
-        <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setShowManage(true)} title="Gerenciar tags">
+        <button className="btn btn-sm btn-ghost" style={{ padding: '4px 8px' }} onClick={() => setShowManage(true)} title="Criar / gerenciar tags">
           <Ic name="plus" size={13} />
         </button>
       </div>
 
-      {/* Tags do cliente (cores estilo CRM) */}
+      {/* UMA lista COLETIVA: TODAS as tags da empresa. As ativas (no contato) ficam preenchidas;
+          clique numa tag para adicionar/remover do contato. */}
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 10 }}>
-        {clientTags.map(name => {
-          const color = colorOf(name);
+        {allTags.length === 0 && (
+          <div className="muted" style={{ fontSize: 'var(--type-sm)', padding: 14, textAlign: 'center', border: '1px dashed var(--border-strong)', borderRadius: 8, width: '100%' }}>
+            Nenhuma tag cadastrada · clique em + para criar
+          </div>
+        )}
+        {allTags.map(t => {
+          const isOn = clientTags.includes(t.name);
           return (
-            <span key={name} style={chip(color)}>
-              {name}
-              <Ic name="x" size={11} style={{ opacity: .8, cursor: 'pointer' }} onClick={() => removeFromClient(name)} />
+            <span key={t.id} onClick={() => isOn ? removeFromClient(t.name) : addToClient(t.name)} title={isOn ? 'Remover do contato' : 'Adicionar ao contato'}
+              onMouseEnter={(e) => { e.currentTarget.style.background = isOn ? `${t.color}2E` : `${t.color}14`; }}
+              onMouseLeave={(e) => { e.currentTarget.style.background = isOn ? `${t.color}1A` : 'transparent'; }}
+              style={{ cursor: 'pointer', padding: '4px 10px', borderRadius: 999, fontSize: 'var(--type-xs)', fontWeight: 700, display: 'inline-flex', alignItems: 'center', gap: 6, lineHeight: 1.4, background: isOn ? `${t.color}1A` : 'transparent', color: isOn ? t.color : 'var(--text-muted)', border: `1.5px solid ${isOn ? t.color + '55' : 'var(--border)'}`, transition: 'background .12s, color .12s' }}>
+              <span style={{ width: 8, height: 8, borderRadius: '50%', background: isOn ? t.color : 'transparent', border: `1.5px solid ${t.color}`, flexShrink: 0 }} />
+              {t.name}
+              {isOn && <Ic name="x" size={11} style={{ opacity: .8 }} />}
             </span>
           );
         })}
-        {clientTags.length === 0 && (
-          <div className="muted" style={{ fontSize: 'var(--type-sm)', padding: 14, textAlign: 'center', border: '1px dashed var(--border-strong)', borderRadius: 8, width: '100%' }}>
-            Nenhuma tag · clique em + para gerenciar
-          </div>
-        )}
       </div>
 
       {/* Modal "Gerenciar tags" — cadastra/apaga no catálogo e seleciona p/ adicionar ao contato */}
@@ -2313,33 +2928,36 @@ function TabMidias({ conv }) {
          sub === 'foto' ?
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 6 }}>
             {items.map((m) =>
-              <a key={m._id} href={m.midiaUrl} target="_blank" rel="noreferrer" style={{ aspectRatio: '1', borderRadius: 8, overflow: 'hidden', position: 'relative', background: 'var(--surface-2)', display: 'block' }}>
+              <div key={m._id} className="midia-item" onClick={() => scrollToMessage(m._id)} title="Ir para a mensagem" style={{ aspectRatio: '1', borderRadius: 8, overflow: 'hidden', background: 'var(--surface-2)' }}>
                 <img src={m.midiaUrl} alt={m.filename} style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
                 <span style={{ position: 'absolute', bottom: 6, left: 6, fontSize: 10, color: 'rgba(0,0,0,.6)', background: 'rgba(255,255,255,.7)', padding: '1px 5px', borderRadius: 3, fontWeight: 500 }}>{m.time}</span>
-              </a>
+                <button className="midia-dl" title="Baixar" onClick={(e) => { e.stopPropagation(); baixarMidiaUrl(m.midiaUrl, m.filename); }}><Ic name="download" size={14} /></button>
+              </div>
             )}
           </div> :
          sub === 'video' ?
           <div className="col" style={{ gap: 8 }}>
             {items.map((m) =>
-              <a key={m._id} href={m.midiaUrl} target="_blank" rel="noreferrer" className="row" style={{ gap: 10, padding: 10, background: 'var(--surface-2)', borderRadius: 8, color: 'inherit', textDecoration: 'none' }}>
-                <div style={{ width: 54, height: 40, background: '#0a0a0a', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white' }}><Ic name="play" size={14} /></div>
+              <div key={m._id} className="midia-item row" onClick={() => scrollToMessage(m._id)} title="Ir para a mensagem" style={{ gap: 10, padding: 10, background: 'var(--surface-2)', borderRadius: 8 }}>
+                <div style={{ width: 54, height: 40, background: '#0a0a0a', borderRadius: 6, display: 'flex', alignItems: 'center', justifyContent: 'center', color: 'white', flexShrink: 0 }}><Ic name="play" size={14} /></div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 'var(--type-sm)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.filename}</div>
                   <div className="muted" style={{ fontSize: 'var(--type-xs)' }}>{m.meta || m.time}</div>
                 </div>
-              </a>
+                <button className="midia-dl" title="Baixar" onClick={(e) => { e.stopPropagation(); baixarMidiaUrl(m.midiaUrl, m.filename); }}><Ic name="download" size={14} /></button>
+              </div>
             )}
           </div> :
           <div className="col" style={{ gap: 6 }}>
             {items.map((m) =>
-              <a key={m._id} href={m.midiaUrl} target="_blank" rel="noreferrer" download className="row" style={{ gap: 10, padding: 10, border: '1px solid var(--border)', borderRadius: 8, color: 'inherit', textDecoration: 'none' }}>
-                <div style={{ width: 32, height: 32, borderRadius: 6, background: 'var(--accent-soft)', color: 'var(--accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center' }}><Ic name="file" size={15} /></div>
+              <div key={m._id} className="midia-item row" onClick={() => scrollToMessage(m._id)} title="Ir para a mensagem" style={{ gap: 10, padding: 10, border: '1px solid var(--border)', borderRadius: 8 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 6, background: 'var(--accent-soft)', color: 'var(--accent-700)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name="file" size={15} /></div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={{ fontSize: 'var(--type-sm)', fontWeight: 500, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{m.filename}</div>
                   <div className="muted" style={{ fontSize: 'var(--type-xs)' }}>{m.meta || m.time}</div>
                 </div>
-              </a>
+                <button className="midia-dl" title="Baixar" onClick={(e) => { e.stopPropagation(); baixarMidiaUrl(m.midiaUrl, m.filename); }}><Ic name="download" size={14} /></button>
+              </div>
             )}
           </div>
         }
@@ -2348,25 +2966,41 @@ function TabMidias({ conv }) {
 
 }
 
-function TabHistorico() {
+function TabHistorico({ conv }) {
+  const [hist, setHist] = React.useState(null); // null = carregando
+  React.useEffect(() => {
+    let alive = true;
+    if (!conv || !conv._db) { setHist([]); return; }
+    setHist(null);
+    API.getHistorico(conv.id).then((r) => { if (alive) setHist(r.historico || []); }).catch(() => { if (alive) setHist([]); });
+    return () => { alive = false; };
+  }, [conv && conv.id]);
+  const fmtWhen = (at) => {
+    if (!at) return '';
+    const d = new Date(at); if (isNaN(d)) return '';
+    const dd = String(d.getDate()).padStart(2, '0'), mm = String(d.getMonth() + 1).padStart(2, '0'), yy = String(d.getFullYear()).slice(2);
+    const hh = String(d.getHours()).padStart(2, '0'), mi = String(d.getMinutes()).padStart(2, '0');
+    return (d.toDateString() === new Date().toDateString() ? 'Hoje' : (dd + '/' + mm + '/' + yy)) + ' · ' + hh + 'h' + mi;
+  };
   return (
     <div style={{ padding: '14px 16px' }}>
       <div style={{ fontSize: 'var(--type-xs)', fontWeight: 700, letterSpacing: '.06em', color: 'var(--text-faint)' }}>LINHA DO TEMPO</div>
+      {hist === null ? <div className="muted" style={{ padding: 14, textAlign: 'center' }}>Carregando…</div> :
+       hist.length === 0 ? <div className="muted" style={{ padding: 18, textAlign: 'center', fontSize: 'var(--type-sm)' }}>Sem histórico ainda.</div> :
       <div style={{ marginTop: 14, position: 'relative', paddingLeft: 24 }}>
         <div style={{ position: 'absolute', left: 9, top: 0, bottom: 0, width: 2, background: 'var(--border)' }} />
-        {CLIENT_HISTORY.map((h, i) =>
+        {hist.map((h, i) =>
         <div key={i} style={{ position: 'relative', paddingBottom: 14 }}>
             <div style={{ position: 'absolute', left: -21, top: 1, width: 20, height: 20, borderRadius: '50%', background: `color-mix(in oklab, ${h.color} 18%, var(--surface))`, color: h.color, display: 'flex', alignItems: 'center', justifyContent: 'center', border: '2px solid var(--surface)' }}>
               <Ic name={h.icon} size={11} />
             </div>
             <div style={{ fontSize: 'var(--type-sm)', fontWeight: 600 }}>{h.title}</div>
-            <div className="muted" style={{ fontSize: 'var(--type-xs)', marginTop: 1 }}>{h.desc}</div>
-            <div style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 3, fontWeight: 500 }}>{h.when}</div>
+            {h.desc && <div className="muted" style={{ fontSize: 'var(--type-xs)', marginTop: 1 }}>{h.desc}</div>}
+            <div style={{ fontSize: 10, color: 'var(--text-faint)', marginTop: 3, fontWeight: 500 }}>{fmtWhen(h.at)}</div>
           </div>
         )}
-      </div>
+      </div>}
     </div>);
-
 }
 
 function NewQuickReplyModal({ onClose }) {
@@ -2426,12 +3060,13 @@ function TagsManagerModal({ onClose }) {
 }
 
 function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChanged, onBack }) {
-  const { tweaks } = useStore();
-  const currentUser = tweaks.profile === 'super'
+  const { tweaks, auth } = useStore();
+  // Responsável = usuário REAL logado (auth.nome). Fallback p/ os nomes do modo demo.
+  const currentUser = (auth && auth.nome) || (tweaks.profile === 'super'
     ? 'Magno Vieira'
     : tweaks.profile === 'atendente'
       ? 'Karla Zambelly'
-      : 'Paulo Henrique';
+      : 'Paulo Henrique');
   const [tab, setTab] = React.useState('ia');
   const [showQR, setShowQR] = React.useState(false);
   const [showTags, setShowTags] = React.useState(false);
@@ -2466,7 +3101,7 @@ function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChang
   } : null;
 
   return (
-    <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', flexDirection: 'column', minHeight: 0 }}>
+    <div style={{ borderLeft: '1px solid var(--border)', background: 'var(--surface)', display: 'flex', flexDirection: 'column', minHeight: 0, flex: 1 }}>
       {onBack && <div className="row" style={{ padding: '8px 12px', borderBottom: '1px solid var(--border)', gap: 8, flexShrink: 0 }}><button className="btn btn-ghost btn-icon" onClick={onBack} title="Voltar" style={{ width: "30px", height: "30px" }}><Ic name="arrow-left" size={18} /></button><span style={{ fontWeight: 600, fontSize: 'var(--type-sm)' }}>Contexto do cliente</span></div>}
       <FunnelBar crm={crm} onSave={salvarCrm} />
       <AvatarHero conv={conv} onUpload={() => setShowUpload(true)} onAddCard={() => setShowCard(true)} />
@@ -2478,7 +3113,7 @@ function AIPanel({ conv, setComposing, inline, onAppointmentRequest, onDataChang
         {tab === 'respostas' && <TabRespostas setComposing={setComposing} onNew={() => setShowQR(true)} inline={inline} />}
         {tab === 'tags' && <TabTags conv={conv} onManage={() => setShowTags(true)} inline={inline} onDataChanged={onDataChanged} />}
         {tab === 'midias' && <TabMidias conv={conv} />}
-        {tab === 'historico' && <TabHistorico />}
+        {tab === 'historico' && <TabHistorico conv={conv} />}
       </div>
       {showQR && !inline && <NewQuickReplyModal onClose={() => setShowQR(false)} />}
       {showTags && !inline && <TagsManagerModal onClose={() => setShowTags(false)} />}

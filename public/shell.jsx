@@ -48,14 +48,14 @@ function useUserFotos() {
   }, []);
 }
 
-const Avatar = ({ name, size, src, color, online, uid }) => {
+const Avatar = ({ name, size, src, color, online, uid, style }) => {
   useUserFotos(); // assina o registro: re-renderiza quando as fotos carregam/mudam
   const [erro, setErro] = React.useState(false);
   const cls = size === 'sm' ? 'avatar avatar-sm' : size === 'lg' ? 'avatar avatar-lg' : size === 'xl' ? 'avatar avatar-xl' : 'avatar';
   const url = (!erro && (src || fotoDeUsuario(uid) || fotoDeUsuario(name))) || '';
   return (
     <div style={{ position: 'relative', display: 'inline-flex' }}>
-      <div className={cls} style={{ background: color || colorFor(name) }}>
+      <div className={cls} style={{ background: color || colorFor(name), ...style }}>
         {url ? <img src={url} alt={name} onError={() => setErro(true)} style={{ width: '100%', height: '100%', borderRadius: 'inherit', objectFit: 'cover' }} /> : initials(name)}
       </div>
       {online && <span className="dot dot-online" style={{ position: 'absolute', right: 0, bottom: 0, width: 9, height: 9, border: '2px solid var(--surface)' }} />}
@@ -67,6 +67,22 @@ const ChannelIcon = ({ ch, size = 14 }) => {
   const map = { whatsapp: { name: 'whatsapp', color: '#25d366' }, instagram: { name: 'instagram', color: '#e4405f' }, facebook: { name: 'facebook', color: '#1877f2' } };
   const m = map[ch] || { name: 'inbox', color: '#94a3b8' };
   return <span style={{ color: m.color, display: 'inline-flex' }}><Ic name={m.name} size={size} /></span>;
+};
+
+// Lista suspensa de ORIGEM (puxa do cadastro de origens). Mantém valor legado se não estiver na lista.
+const OrigemSelect = ({ value, onChange, style, className = 'input' }) => {
+  const [lista, setLista] = React.useState([]);
+  React.useEffect(() => {
+    if (!(window.API && window.API.getOrigensLista)) return;
+    window.API.getOrigensLista().then((r) => setLista((r && r.origens) || [])).catch(() => {});
+  }, []);
+  return (
+    <select className={className} value={value || ''} onChange={(e) => onChange(e.target.value)} style={style}>
+      <option value="">— Selecione —</option>
+      {lista.map((o) => <option key={o.id} value={o.nome}>{o.nome}</option>)}
+      {value && !lista.some((o) => o.nome === value) && <option value={value}>{value}</option>}
+    </select>
+  );
 };
 
 const StatusBadge = ({ status }) => {
@@ -442,13 +458,30 @@ function Modal({ title, onClose, children, footer, size = 'md' }) {
           <div className="modal-x btn btn-ghost btn-icon" onClick={close}><Ic name="x" size={16} /></div>
         </div>
         <div className="modal-bd scroll">{children}</div>
-        {footer && <div className="modal-ft">{typeof footer === 'function' ? footer(close) : footer}</div>}
+        {footer && <div className="modal-ft">{typeof footer === 'function' ? footer(close) : wrapFooterCloses(footer, onClose, close)}</div>}
       </div>
     </div>);
 
 }
 
-function Drawer({ title, subtitle, onClose, children, footer, width = 720, leftHead, rightHead, belowHead }) {
+// Faz os botões de fechar do RODAPÉ (cujo onClick é o próprio onClose) animarem a
+// SAÍDA, roteando pelo close() interno (anima e só então chama onClose). Centraliza
+// o efeito em todo o sistema sem mexer em cada tela. Idempotente e seguro (só troca
+// handlers cujo onClick === onClose; o resto passa intacto).
+function wrapFooterCloses(node, onClose, close) {
+  if (!React.isValidElement(node)) return node;
+  const p = node.props || {};
+  const patch = {};
+  let changed = false;
+  if (onClose && p.onClick === onClose) { patch.onClick = () => close(); changed = true; }
+  if (p.children != null && typeof p.children !== 'string') {
+    patch.children = React.Children.map(p.children, (c) => wrapFooterCloses(c, onClose, close));
+    changed = true;
+  }
+  return changed ? React.cloneElement(node, patch) : node;
+}
+
+function Drawer({ title, subtitle, onClose, children, footer, width = 720, leftHead, rightHead, belowHead, className = '' }) {
   const [closing, setClosing] = React.useState(false);
   // close() animates the panel out, then runs an optional callback, then onClose.
   const close = React.useCallback((cb) => {
@@ -456,11 +489,11 @@ function Drawer({ title, subtitle, onClose, children, footer, width = 720, leftH
     setTimeout(() => {
       if (typeof cb === 'function') cb();
       onClose && onClose();
-    }, 240);
+    }, 320); // casa com a animação suave de saída (.32s)
   }, [onClose]);
   return (
     <div className={`drawer-back ${closing ? 'closing' : ''}`} onClick={close}>
-      <div className="drawer" style={{ maxWidth: width, height: '100%', maxHeight: '100%' }} onClick={(e) => e.stopPropagation()}>
+      <div className={`drawer ${className}`} style={{ maxWidth: width, height: '100%', maxHeight: '100%' }} onClick={(e) => e.stopPropagation()}>
         <div className="drawer-hd" style={{ height: "54px", flexShrink: 0 }}>
           {leftHead}
           <div style={{ flex: 1, minWidth: 0 }}>
@@ -472,7 +505,7 @@ function Drawer({ title, subtitle, onClose, children, footer, width = 720, leftH
         </div>
         {belowHead}
         <div className="drawer-bd" style={{ flex: 1, minHeight: 0 }}>{children}</div>
-        {footer && <div className="drawer-ft" style={{ flexShrink: 0 }}>{typeof footer === 'function' ? footer(close) : footer}</div>}
+        {footer && <div className="drawer-ft" style={{ flexShrink: 0 }}>{typeof footer === 'function' ? footer(close) : wrapFooterCloses(footer, onClose, close)}</div>}
       </div>
     </div>);
 
@@ -573,7 +606,7 @@ const ACTION_BTN_SIZE = {
 };
 // "Botão Salvar efeito" (onda de pontinhos -> confete) embutido: padrão em action="salvar".
 const ACTION_CONFETE = ['#ef4444', '#f97316', '#eab308', '#22c55e', '#3b82f6'];
-function ActionButton({ action = 'salvar', size = 'md', label, icon, onClick, disabled, type = 'button', title, className = '', style, efeito }) {
+function ActionButton({ action = 'salvar', size = 'md', label, icon, onClick, disabled, type = 'button', title, className = '', style, efeito, iconSize }) {
   const a = ACTION_BTN[action] || ACTION_BTN.salvar;
   const s = ACTION_BTN_SIZE[size] || ACTION_BTN_SIZE.md;
   const ic = icon === undefined ? a.icon : icon;
@@ -599,7 +632,7 @@ function ActionButton({ action = 'salvar', size = 'md', label, icon, onClick, di
     <button ref={ref} type={type} title={title} onClick={handle} disabled={disabled}
       className={'ab' + (comEfeito ? ' ab-fx' : '') + (className ? ' ' + className : '')}
       style={{ height: s.h, padding: `0 ${s.px}px`, gap: s.gap, fontSize: s.fs, color: a.cor, background: a.bg, borderColor: `color-mix(in oklab, ${a.cor} 28%, transparent)`, minWidth: lockW || undefined, ...style }}>
-      {estado === 'idle' && <>{ic && !a.iconRight && <Ic name={ic} size={s.ic} />}{txt !== '' && txt != null && <span>{txt}</span>}{ic && a.iconRight && <Ic name={ic} size={s.ic} />}</>}
+      {estado === 'idle' && <>{ic && !a.iconRight && <Ic name={ic} size={iconSize == null ? s.ic : iconSize} />}{txt !== '' && txt != null && <span>{txt}</span>}{ic && a.iconRight && <Ic name={ic} size={iconSize == null ? s.ic : iconSize} />}</>}
       {estado === 'loading' && <span className="ab-dots"><i /><i /><i /></span>}
       {estado === 'done' && <span className="ab-confetti">{pecas.map((p, i) => <span key={i} className="ab-piece" style={{ '--tx': p.tx, '--ty': p.ty, '--rot': p.rot, '--d': p.d, background: p.cor, width: p.sz, height: p.sz }} />)}</span>}
     </button>);
@@ -652,9 +685,9 @@ window.showToast = (opts) => { try { window.dispatchEvent(new CustomEvent('app-t
 // Pílula gradiente verde-lima, recolhida só com o (+); no hover o rótulo desliza
 // pra esquerda e o (+) gira 180° (molejo). Coloque o botão ANCORADO À DIREITA pra
 // abrir o rótulo pra esquerda. Tamanhos: lg | md | sm | mini. CSS .fab-novo em styles.css.
-function FabNovo({ size = 'md', label = 'Nova receita', onClick, title }) {
+function FabNovo({ size = 'md', label = 'Nova receita', onClick, title, iconOnly, aberto }) {
   return (
-    <button type="button" className={'fab-novo fab-' + size} onClick={onClick} title={title} aria-label={label}>
+    <button type="button" className={'fab-novo fab-' + size + (iconOnly ? ' fab-iconly' : '') + (aberto ? ' fab-static' : '')} onClick={onClick} title={title} aria-label={label}>
       <span className="fab-label">{label + ' '}</span>
       <span className="fab-plus"><svg viewBox="0 0 24 24" fill="none" stroke="#1a1a1a" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 5.5v13M5.5 12h13" /></svg></span>
     </button>);
@@ -684,4 +717,4 @@ function Skeleton({ w, h = 12, r, circle, className = '', style }) {
 function skelCount(key, fallback = 3) { try { const v = parseInt(localStorage.getItem('skelN:' + key), 10); return v > 0 ? v : fallback; } catch (e) { return fallback; } }
 function skelRemember(key, n) { try { if (n > 0) localStorage.setItem('skelN:' + key, String(n)); } catch (e) {} }
 
-Object.assign(window, { Avatar, ChannelIcon, StatusBadge, Sidebar, Topbar, Page, EmptyState, Stat, Modal, Drawer, DesignerAba01, DA01Campo, ActionButton, ToastHost, Toast, FabNovo, AddCard, Skeleton, skelCount, skelRemember });
+Object.assign(window, { Avatar, ChannelIcon, OrigemSelect, StatusBadge, Sidebar, Topbar, Page, EmptyState, Stat, Modal, Drawer, DesignerAba01, DA01Campo, ActionButton, ToastHost, Toast, FabNovo, AddCard, Skeleton, skelCount, skelRemember });

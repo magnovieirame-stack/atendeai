@@ -38,7 +38,7 @@ const Ic = ({ name, size = 18, ...rest }) => {
 
     // Channels (brand fills kept)
     case 'whatsapp':return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" {...rest} style={{ fill: "rgb(28, 215, 98)", width: size, height: size }}><path d="M17.5 14.4c-.3-.1-1.7-.8-2-.9s-.5-.1-.7.1-.8.9-.9 1.1-.3.2-.6.1-1.2-.4-2.3-1.4c-.8-.7-1.4-1.7-1.5-1.9-.2-.3 0-.5.1-.6l.4-.5c.1-.2.2-.3.3-.5s0-.4 0-.5-.7-1.7-1-2.3c-.3-.6-.5-.5-.7-.5h-.6c-.2 0-.5.1-.7.4-.3.3-1 1-1 2.4s1 2.7 1.2 2.9c.1.2 2 3.1 4.9 4.4.7.3 1.2.5 1.6.6.7.2 1.3.2 1.8.1.5-.1 1.7-.7 1.9-1.3s.2-1.2.2-1.3c-.1-.2-.3-.2-.5-.3zM12 2a10 10 0 0 0-8.6 15.1L2 22l5-1.3a10 10 0 1 0 5-18.7zm6 14.5a8.3 8.3 0 0 1-12.6 1l-.3-.2-3 .8.8-2.9-.2-.3A8.3 8.3 0 1 1 18 16.5z" /></svg>;
-    case 'instagram':return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" {...rest} style={{ width: size, height: size }}><rect x="3.5" y="3.5" width="17" height="17" rx="4.5" /><circle cx="12" cy="12" r="3.8" /><circle cx="17.2" cy="6.8" r=".9" fill="currentColor" /></svg>;
+    case 'instagram':return <svg width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round" {...rest} style={{ width: size, height: size }}><rect x="3.5" y="3.5" width="17" height="17" rx="4.8" /><circle cx="12" cy="12" r="3.9" /><circle cx="17.1" cy="6.9" r="1.1" fill="currentColor" stroke="none" /></svg>;
     case 'facebook':return <svg width={size} height={size} viewBox="0 0 24 24" fill="currentColor" {...rest} style={{ width: size, height: size }}><path d="M22 12a10 10 0 1 0-11.6 9.9v-7H8v-2.9h2.4v-2c0-2.4 1.4-3.7 3.5-3.7 1 0 2.1.2 2.1.2v2.3h-1.2c-1.2 0-1.5.7-1.5 1.5v1.7H16l-.4 2.9h-2.2V22A10 10 0 0 0 22 12z" /></svg>;
 
     // Communication
@@ -120,10 +120,15 @@ const Ic = ({ name, size = 18, ...rest }) => {
     case 'zap':return <svg {...props} style={{ width: "18px", height: "18px" }}><path d="M13 2.5 3.5 14h8l-1 7.5 9.5-11.5h-8z" /></svg>;
     case 'list':return <svg {...props} style={{ width: "20px", height: "20px" }}><path d="M8 6.5h13M8 12h13M8 17.5h13" /><circle cx="3.5" cy="6.5" r=".9" fill="currentColor" stroke="none" /><circle cx="3.5" cy="12" r=".9" fill="currentColor" stroke="none" /><circle cx="3.5" cy="17.5" r=".9" fill="currentColor" stroke="none" /></svg>;
     case 'columns':return <svg {...props}><rect x="3.5" y="3.5" width="17" height="17" rx="2" /><path d="M9.5 3.5v17M14.5 3.5v17" /></svg>;
+    case 'panel-right-close':return <svg {...props}><rect x="3" y="4.5" width="18" height="15" rx="2" /><path d="M15 4.5v15" /><path d="m7.5 9.5 2.5 2.5-2.5 2.5" /></svg>;
+    case 'panel-right-open':return <svg {...props}><rect x="3" y="4.5" width="18" height="15" rx="2" /><path d="M15 4.5v15" /><path d="m12 9.5-2.5 2.5 2.5 2.5" /></svg>;
     case 'globe':return <svg {...props}><circle cx="12" cy="12" r="8.5" /><path d="M3.5 12h17M12 3.5a13 13 0 0 1 0 17M12 3.5a13 13 0 0 0 0 17" /></svg>;
     case 'link':return <svg {...props}><path d="M10 13a4.5 4.5 0 0 0 6.4 0l3-3a4.5 4.5 0 1 0-6.4-6.4l-1 1" /><path d="M14 11a4.5 4.5 0 0 0-6.4 0l-3 3a4.5 4.5 0 1 0 6.4 6.4l1-1" /></svg>;
     case 'lock':return <svg {...props}><rect x="4.5" y="10.5" width="15" height="10" rx="2" /><path d="M8 10.5V7a4 4 0 0 1 8 0v3.5" /></svg>;
     case 'copy':return <svg {...props}><rect x="8" y="8" width="12" height="12" rx="2" /><path d="M16 8V5.5A1.5 1.5 0 0 0 14.5 4H5.5A1.5 1.5 0 0 0 4 5.5v9A1.5 1.5 0 0 0 5.5 16H8" /></svg>;
+    case 'reply':return <svg {...props}><path d="M9 7 4 12l5 5" /><path d="M4 12h9.5a6.5 6.5 0 0 1 6.5 6.5V19" /></svg>;
+    case 'forward':return <svg {...props}><path d="m15 7 5 5-5 5" /><path d="M20 12h-9.5a6.5 6.5 0 0 0-6.5 6.5V19" /></svg>;
+    case 'check-square':return <svg {...props}><rect x="3.5" y="3.5" width="17" height="17" rx="3" /><path d="m8 12 2.8 2.8L16 9.5" /></svg>;
     case 'external-link':return <svg {...props}><path d="M14 4h6v6" /><path d="M11 13 20 4" /><path d="M19 13.5v5A1.5 1.5 0 0 1 17.5 20h-11A1.5 1.5 0 0 1 5 18.5v-11A1.5 1.5 0 0 1 6.5 6h5" /></svg>;
     case 'info':return <svg {...props}><circle cx="12" cy="12" r="9" /><path d="M12 11v6" /><circle cx="12" cy="7.8" r=".9" fill="currentColor" stroke="none" /></svg>;
     case 'refresh':return <svg {...props}><path d="M3 12a9 9 0 0 1 15.5-6.3L21 8" /><path d="M21 4v4h-4" /><path d="M21 12a9 9 0 0 1-15.5 6.3L3 16" /><path d="M3 20v-4h4" /></svg>;

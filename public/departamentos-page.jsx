@@ -470,4 +470,112 @@ function RoteamentoPage() {
   );
 }
 
-Object.assign(window, { DepartamentosPage, RoteamentoPage });
+// =====================================================================
+// OrigensPage — Cadastro de ORIGEM DO CLIENTE (2 campos: nome + descrição).
+// =====================================================================
+function OrigensPage() {
+  const { back } = useStore();
+  const [itens, setItens] = React.useState(null);
+  const [query, setQuery] = React.useState('');
+  const [modal, setModal] = React.useState(null);   // { modo, inicial }
+  const [excluir, setExcluir] = React.useState(null);
+  const reload = React.useCallback(() => { window.API.getOrigens().then((r) => setItens(r.origens || [])).catch(() => setItens([])); }, []);
+  React.useEffect(() => { reload(); }, [reload]);
+  const filtered = (itens || []).filter((o) => { const q = query.trim().toLowerCase(); return !q || (o.nome || '').toLowerCase().includes(q) || (o.descricao || '').toLowerCase().includes(q); });
+  return (
+    <Page title="Origem do Cliente" subtitle="De onde os clientes chegam (canais e origens)"
+      actions={<div className="row" style={{ gap: 8 }}><ActionButton action="voltar" size="sm" onClick={back} /><FabNovo size="sm" label="Nova origem" onClick={() => setModal({ modo: 'novo' })} /></div>}>
+      <style>{`
+        .ori-scroll { background: var(--surface-2); padding: 4px; display: flex; flex-direction: column; gap: 4px; }
+        .ori-card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; transition: box-shadow .12s ease, background .12s ease; }
+        .ori-card:hover { background: var(--surface-2); box-shadow: 0 2px 8px rgba(15,23,42,.06); }
+        .ori-act { width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border); background: var(--surface); color: var(--text-muted); display: inline-flex; align-items: center; justify-content: center; cursor: pointer; transition: all .15s ease; }
+        .ori-act-edit:hover { color: #165EEE; border-color: #165EEE; background: #EAF0FE; }
+        .ori-act-del:hover  { color: #FF452A; border-color: #FF452A; background: #FFEBEC; }
+      `}</style>
+      <div className="card" style={{ padding: 12, marginBottom: 'var(--pad-3)' }}>
+        <div className="row" style={{ gap: 10, alignItems: 'center' }}>
+          <div style={{ position: 'relative', display: 'flex', alignItems: 'center', flex: 1, minWidth: 220, maxWidth: 360 }}>
+            <Ic name="search" size={13} style={{ position: 'absolute', left: 16, top: '50%', transform: 'translateY(-50%)', color: 'var(--text-faint)', pointerEvents: 'none' }} />
+            <input className="input" placeholder="Buscar origem..." value={query} onChange={(e) => setQuery(e.target.value)} style={{ paddingLeft: 40, width: '100%' }} />
+          </div>
+          <span className="muted" style={{ fontSize: 'var(--type-sm)' }}>{filtered.length} origem{filtered.length === 1 ? '' : 's'}</span>
+        </div>
+      </div>
+      <div className="card" style={{ overflow: 'hidden' }}>
+        {itens === null ? (
+          <div className="ori-scroll">{Array.from({ length: 4 }).map((_, i) => <div key={i} className="row ori-card" style={{ gap: 12, padding: '12px 16px' }}><Skeleton w={36} h={36} r={10} /><div style={{ flex: 1 }}><Skeleton w="35%" h={13} /><Skeleton w="55%" h={10} style={{ marginTop: 6 }} /></div></div>)}</div>
+        ) : filtered.length === 0 ? (
+          <EmptyState icon="tag" title={(itens.length === 0) ? 'Nenhuma origem ainda' : 'Nada encontrado'} desc={(itens.length === 0) ? 'Clique em “Nova origem” para cadastrar a primeira.' : 'Ajuste a busca.'} />
+        ) : (
+          <div className="ori-scroll">
+            {filtered.map((o) => (
+              <div key={o.id} className="row ori-card" style={{ gap: 12, padding: '12px 16px', alignItems: 'center' }}>
+                <div style={{ width: 36, height: 36, borderRadius: 10, background: 'var(--accent-soft)', color: 'var(--accent)', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}><Ic name="tag" size={16} /></div>
+                <div style={{ flex: 1, minWidth: 0 }}>
+                  <div style={{ fontWeight: 700, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.nome}</div>
+                  {o.descricao && <div className="muted" style={{ fontSize: 'var(--type-sm)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{o.descricao}</div>}
+                </div>
+                <div className="row" style={{ gap: 6, flexShrink: 0 }}>
+                  <button className="ori-act ori-act-edit" title="Editar" onClick={() => setModal({ modo: 'editar', inicial: o })}><Ic name="edit" size={15} /></button>
+                  <button className="ori-act ori-act-del" title="Excluir" onClick={() => setExcluir(o)}><Ic name="trash" size={15} /></button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
+      {modal && <OrigemModal modo={modal.modo} inicial={modal.inicial} onClose={() => setModal(null)} onSaved={reload} />}
+      {excluir && <ConfirmExcluirOrigem origem={excluir} onClose={() => setExcluir(null)} onDone={reload} />}
+    </Page>
+  );
+}
+
+function OrigemModal({ modo, inicial, onClose, onSaved }) {
+  const novo = modo === 'novo';
+  const [nome, setNome] = React.useState((inicial && inicial.nome) || '');
+  const [descricao, setDescricao] = React.useState((inicial && inicial.descricao) || '');
+  const [salvando, setSalvando] = React.useState(false);
+  const salvar = async (close) => {
+    if (!nome.trim()) { window.showToast && window.showToast({ tipo: 'aviso', titulo: 'Campo obrigatório', descricao: 'Informe o nome da origem.' }); return; }
+    setSalvando(true);
+    try {
+      if (novo) await window.API.criarOrigem({ nome, descricao });
+      else await window.API.editarOrigem(inicial.id, { nome, descricao });
+      window.showToast && window.showToast({ tipo: 'sucesso', titulo: novo ? 'Origem criada' : 'Origem atualizada' });
+      onSaved && onSaved();
+      if (close) close(); else onClose && onClose();
+    } catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Não foi possível salvar', descricao: (e && e.message) || 'Tente novamente.' }); }
+    finally { setSalvando(false); }
+  };
+  return (
+    <Modal title={novo ? 'Nova origem' : 'Editar origem'} size="sm" onClose={onClose}
+      footer={(close) => <><ActionButton action="cancelar" size="md" label="Cancelar" onClick={() => close()} /><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label={salvando ? 'Salvando…' : (novo ? 'Criar' : 'Salvar')} efeito={false} disabled={salvando} onClick={() => salvar(close)} /></>}>
+      <div className="col" style={{ gap: 14 }}>
+        <div><label className="label">Nome da origem *</label><input className="input" value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex: Instagram" autoFocus /></div>
+        <div><label className="label">Descrição</label><textarea className="input" rows={3} value={descricao} onChange={(e) => setDescricao(e.target.value)} placeholder="Opcional" /></div>
+      </div>
+    </Modal>
+  );
+}
+
+function ConfirmExcluirOrigem({ origem, onClose, onDone }) {
+  const [rm, setRm] = React.useState(false);
+  const remover = async (close) => {
+    setRm(true);
+    try { await window.API.excluirOrigem(origem.id); window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Origem removida' }); onDone && onDone(); if (close) close(); else onClose && onClose(); }
+    catch (e) { window.showToast && window.showToast({ tipo: 'erro', titulo: 'Não foi possível remover', descricao: (e && e.message) || 'Tente novamente.' }); }
+    finally { setRm(false); }
+  };
+  return (
+    <Modal title="Remover origem" size="sm" onClose={onClose}
+      footer={(close) => <><ActionButton action="cancelar" size="md" label="Cancelar" onClick={() => close()} /><div style={{ flex: 1 }} /><ActionButton action="excluir" size="md" label={rm ? 'Removendo…' : 'Remover'} disabled={rm} onClick={() => remover(close)} /></>}>
+      <div className="col" style={{ gap: 8 }}>
+        <div>Remover a origem <strong>{origem.nome}</strong>?</div>
+        <div className="muted" style={{ fontSize: 'var(--type-sm)' }}>Esta ação não pode ser desfeita.</div>
+      </div>
+    </Modal>
+  );
+}
+
+Object.assign(window, { DepartamentosPage, RoteamentoPage, OrigensPage });

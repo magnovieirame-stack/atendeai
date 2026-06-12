@@ -58,7 +58,10 @@ const API = {
   // --- Chatbot ---
   getContatos() { return this._req('/chatbot/contatos'); },
   getMensagens(contatoId) { return this._req('/chatbot/contatos/' + contatoId + '/mensagens'); },
-  sendTexto(contatoId, texto) { return this._json('/chatbot/contatos/' + contatoId + '/mensagens', 'POST', { texto }); },
+  sendTexto(contatoId, texto, respondeA) { return this._json('/chatbot/contatos/' + contatoId + '/mensagens', 'POST', respondeA ? { texto, respondeA } : { texto }); },
+  sendContato(contatoId, dto) { return this._json('/chatbot/contatos/' + contatoId + '/contato', 'POST', dto); }, // dto: { nome, telefone }
+  patchMensagem(contatoId, msgId, dto) { return this._json('/chatbot/contatos/' + contatoId + '/mensagens/' + msgId, 'PATCH', dto); }, // fixar/favoritar/apagar
+  getHistorico(contatoId) { return this._req('/chatbot/contatos/' + contatoId + '/historico'); }, // linha do tempo do cliente
   sendMidia(contatoId, file, filename) {
     const fd = new FormData();
     fd.append('arquivo', file, filename || file.name || 'arquivo');
@@ -174,6 +177,12 @@ const API = {
   criarDepartamento(dto) { return this._json('/cadastros/departamentos', 'POST', dto); },
   editarDepartamento(id, dto) { return this._json('/cadastros/departamentos/' + id, 'PATCH', dto); },
   excluirDepartamento(id) { return this._req('/cadastros/departamentos/' + id, { method: 'DELETE' }); },
+  // Origem do cliente — CRUD (admin/cadastros) + lista enxuta (atendente, p/ dropdowns)
+  getOrigens() { return this._req('/cadastros/origens'); },
+  criarOrigem(dto) { return this._json('/cadastros/origens', 'POST', dto); },
+  editarOrigem(id, dto) { return this._json('/cadastros/origens/' + id, 'PATCH', dto); },
+  excluirOrigem(id) { return this._req('/cadastros/origens/' + id, { method: 'DELETE' }); },
+  getOrigensLista() { return this._req('/chatbot/origens'); },
   // --- Equipes (cada equipe -> 1 departamento; N membros) ---
   getEquipes(departamentoId) { return this._req('/cadastros/equipes' + (departamentoId ? ('?departamento=' + encodeURIComponent(departamentoId)) : '')); },
   criarEquipe(dto) { return this._json('/cadastros/equipes', 'POST', dto); },
@@ -228,6 +237,8 @@ const API = {
   getPresenca() { return this._req('/chatbot/presenca'); },
   setPresenca(dto) { return this._json('/chatbot/presenca', 'POST', dto); },
   getPresencas() { return this._req('/chatbot/presencas'); },
+  getAtendentesFiltro() { return this._req('/chatbot/atendentes'); }, // lista escopada (admin=todos / responsável=seu depto)
+  getDepartamentosFiltro() { return this._req('/chatbot/departamentos-filtro'); }, // todos + flag podeFiltrar
   // CRM do contato (painel do chat): posicao no funil/fase + funis disponiveis
   getCrmDoContato(clienteId) { return this._req('/chatbot/crm/' + clienteId); },
   setCrmDoContato(clienteId, faseId) { return this._json('/chatbot/crm/' + clienteId, 'PUT', { faseId }); },
@@ -483,14 +494,36 @@ function corContraste(hex) {
   return lum > 0.62 ? '#1f2937' : '#fff';
 }
 
+// Data/hora dos MARCADORES de sistema (início/transferência/encerramento).
+function fmtDataMarcador(iso) {
+  if (!iso) return '';
+  const d = new Date(iso); if (isNaN(d)) return '';
+  const meses = ['JAN', 'FEV', 'MAR', 'ABR', 'MAI', 'JUN', 'JUL', 'AGO', 'SET', 'OUT', 'NOV', 'DEZ'];
+  return String(d.getDate()).padStart(2, '0') + ' ' + meses[d.getMonth()] + ' ' + String(d.getFullYear() % 100).padStart(2, '0');
+}
+function fmtHoraMarcador(iso) {
+  if (!iso) return '';
+  const d = new Date(iso); if (isNaN(d)) return '';
+  return String(d.getHours()).padStart(2, '0') + 'h' + String(d.getMinutes()).padStart(2, '0');
+}
 function dbMsgToUi(m) {
   let kind = 'text';
-  if (m.tipo === 'nota') kind = 'nota';        // registro de transferência ("Conversa Recebida")
-  else if (m.tipo === 'inicio') kind = 'inicio'; // marcador "Atendimento iniciado às HH:MM"
+  if (m.tipo === 'nota') kind = 'nota';        // transferência
+  else if (m.tipo === 'inicio') kind = 'inicio'; // início do atendimento
+  else if (m.tipo === 'encerramento') kind = 'encerramento'; // encerramento
   else if (m.tipo === 'imagem') kind = 'image';
+  else if (m.tipo === 'video') kind = 'video';
   else if (m.tipo === 'audio') kind = 'audio';
   else if (m.tipo === 'texto') kind = 'text';
-  else kind = 'doc'; // arquivo, docx, xlsx, video, pdf...
+  else if (m.tipo === 'contato') kind = 'contact'; // cartão de contato
+  else kind = 'doc'; // arquivo, docx, xlsx, pdf...
+  // cartão de contato: dados vêm em m.contato (do backend) ou em JSON no texto (compat).
+  let contatoCard = (kind === 'contact') ? (m.contato || null) : null;
+  if (kind === 'contact' && !contatoCard && m.texto) { try { const j = JSON.parse(m.texto); if (j && typeof j === 'object') contatoCard = { nome: j.nome || null, telefone: j.telefone || null }; } catch (e) {} }
+  // marcadores de sistema guardam dados estruturados em JSON no texto (compat: antigos não têm).
+  const ehMarcador = kind === 'nota' || kind === 'inicio' || kind === 'encerramento';
+  let marca = null;
+  if (ehMarcador && m.texto) { try { const j = JSON.parse(m.texto); if (j && typeof j === 'object') marca = j; } catch (e) {} }
   const metaParts = [];
   if (m.formato) metaParts.push(m.formato);
   if (m.tamanho) metaParts.push(fmtTamanho(m.tamanho));
@@ -498,14 +531,24 @@ function dbMsgToUi(m) {
     _id: m.id,
     from: m.deCliente ? 'client' : 'agent',
     kind,
-    text: m.texto || '',
+    text: (kind === 'contact') ? '' : (ehMarcador ? (marca ? (marca.nota || '') : (m.texto || '')) : (m.texto || '')),
+    contactName: contatoCard ? contatoCard.nome : null,
+    contactPhone: contatoCard ? contatoCard.telefone : null,
     mediaUrl: m.midiaUrl || null,
     filename: m.titulo || 'arquivo',
     meta: metaParts.join(' · '),
     time: fmtHora(m.criadoEm),
-    // nota interna de transferência: quem transferiu + de qual setor veio
-    autor: m.enviadopor || null,
-    origem: kind === 'nota' ? (m.titulo || null) : null,
+    // marcadores: autor/origem podem vir do JSON (novos) ou dos campos antigos (compat)
+    autor: (marca && marca.por) || m.enviadopor || null,
+    origem: kind === 'nota' ? ((marca && marca.de && marca.de.dept) || m.titulo || null) : null,
+    marca,                                       // { dept, atend, de, para, nota, por } | null
+    data: ehMarcador ? fmtDataMarcador(m.criadoEm) : null,
+    horaMarcador: ehMarcador ? fmtHoraMarcador(m.criadoEm) : null,
+    respondeA: m.respondeA || null,              // id da msg citada (Responder)
+    fixada: !!m.fixada,                          // fixada na conversa
+    fixadaAte: m.fixadaAte || null,              // expiração da fixação (null = sem prazo)
+    favoritada: !!m.favoritada,                  // estrela
+    apagado: !!m.apagado,                        // apagada (pra todos)
   };
 }
 

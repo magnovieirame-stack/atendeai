@@ -106,6 +106,7 @@ function AppInner() {
     case 'cadastros':       screen = <CadastrosPage/>; break;
     case 'cad-departamentos': screen = <DepartamentosPage/>; break;
     case 'cad-roteamento':  screen = window.RoteamentoPage ? React.createElement(window.RoteamentoPage) : null; break;
+    case 'cad-origens':     screen = window.OrigensPage ? React.createElement(window.OrigensPage) : null; break;
     case 'user-profile':    screen = <UserProfile/>; break;
     case 'leads':           screen = <AdminLeads/>; break;
     case 'com-clients':     screen = <AdminClients/>; break;

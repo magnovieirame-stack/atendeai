@@ -29,33 +29,48 @@ function Login() {
   const [senha, setSenha] = React.useState('Teste@Atende2026');
   const [erro, setErro] = React.useState('');
   const [carregando, setCarregando] = React.useState(false);
+  const [sucesso, setSucesso] = React.useState(false);   // efeito 3: check antes do redirect
+  const [errKey, setErrKey] = React.useState(0);          // efeito 4: re-dispara o shake a cada falha
+  const cardRef = React.useRef(null);
+  // re-toca o shake sem remontar o form (reflow força o restart da animação)
+  React.useEffect(() => {
+    if (!errKey) return;
+    const el = cardRef.current; if (!el) return;
+    el.classList.remove('login-shake'); void el.offsetWidth; el.classList.add('login-shake');
+  }, [errKey]);
   const entrar = async () => {
+    if (carregando || sucesso) return;                    // evita duplo submit (aditivo, seguro)
     setErro(''); setCarregando(true);
     try {
       await API.login(email, senha);
       const papel = await reloadAuth(); // papel REAL de quem entrou (do /auth/me)
       window.showToast && window.showToast({ tipo: 'sucesso', titulo: 'Bem-vindo!', descricao: 'Login realizado com sucesso.' });
-      if (papel === 'super_admin') setRoute('super-dashboard');
-      else if (papel === 'atendente') setRoute('inbox');
-      else setRoute('dashboard');
+      // efeito 3: mostra o check ~600ms ANTES de redirecionar (MESMOS destinos de antes)
+      setCarregando(false); setSucesso(true);
+      setTimeout(() => {
+        if (papel === 'super_admin') setRoute('super-dashboard');
+        else if (papel === 'atendente') setRoute('inbox');
+        else setRoute('dashboard');
+      }, 600);
     } catch (e) {
       setErro(e.message || 'Não foi possível entrar.');
+      setErrKey((k) => k + 1);
       window.showToast && window.showToast({ tipo: 'erro', titulo: 'Não foi possível entrar', descricao: e.message || 'Verifique seu e-mail e senha.' });
-    } finally {
       setCarregando(false);
     }
   };
   return (
     <AuthShell>
-      <img src="assets/simbolo.png" alt="Pk360" style={{width:48, height:48, objectFit:'contain', marginBottom:24}}/>
+      <div className="login-anim" ref={cardRef}>
+      <img src="assets/simbolo.png" alt="Pk360" className="la-anim la-1" style={{width:48, height:48, objectFit:'contain', marginBottom:24}}/>
       <div className="h1">Entrar</div>
       <div className="muted" style={{marginTop:6}}>Use seu e-mail corporativo. O tenant é detectado automaticamente.</div>
       <div className="col" style={{gap:14, marginTop:28}}>
-        <div><label className="label">E-mail</label><input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="seu@email.com"/></div>
-        <div>
+        <div className="la-anim la-2"><label className="label">E-mail</label><input className="input" type="email" value={email} onChange={e=>setEmail(e.target.value)} placeholder="seu@email.com"/></div>
+        <div className="la-anim la-3">
           <label className="label">Senha</label>
           <div style={{position:'relative'}}>
-            <input className="input" type={showPw?'text':'password'} value={senha} onChange={e=>setSenha(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')entrar();}} placeholder="Sua senha"/>
+            <input className={'input' + (erro ? ' login-input-err' : '')} type={showPw?'text':'password'} value={senha} onChange={e=>setSenha(e.target.value)} onKeyDown={e=>{if(e.key==='Enter')entrar();}} placeholder="Sua senha"/>
             <span onClick={()=>setShowPw(!showPw)} style={{position:'absolute', right:10, top:'50%', transform:'translateY(-50%)', color:'var(--text-faint)', cursor:'default'}}><Ic name={showPw?'eye-off':'eye'} size={16}/></span>
           </div>
         </div>
@@ -64,7 +79,11 @@ function Login() {
           <span className="muted" style={{cursor:'default'}} onClick={()=>setRoute('forgot')}>Esqueci minha senha</span>
         </div>
         {erro && <div style={{padding:'8px 12px', borderRadius:8, background:'color-mix(in oklab, #ef4444 10%, var(--surface))', border:'1px solid color-mix(in oklab, #ef4444 30%, var(--border))', color:'#dc2626', fontSize:'var(--type-sm)'}}>{erro}</div>}
-        <button className="btn btn-primary" style={{height:42, opacity: carregando?0.6:1}} disabled={carregando} onClick={entrar}>{carregando ? 'Entrando…' : 'Entrar'}</button>
+        <button className="btn btn-primary la-anim la-4 login-btn" style={{height:42}} disabled={carregando||sucesso} onClick={entrar} data-state={sucesso ? 'success' : (carregando ? 'loading' : 'idle')}>
+          <span className="login-btn-label">Entrar</span>
+          <span className="login-btn-spinner" aria-hidden="true"></span>
+          <svg className="login-btn-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 13l4 4L19 7"/></svg>
+        </button>
         <div className="col" style={{gap:6, alignItems:'center', marginTop:6}}>
           <div className="muted" style={{fontSize:'var(--type-xs)', color:'var(--text-faint)'}}>ou explore com dados simulados (demo):</div>
           <div className="row" style={{gap:6, justifyContent:'center', fontSize:'var(--type-sm)'}}>
@@ -73,6 +92,7 @@ function Login() {
             ))}
           </div>
         </div>
+      </div>
       </div>
     </AuthShell>
   );

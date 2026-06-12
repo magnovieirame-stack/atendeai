@@ -196,7 +196,8 @@ function Agenda() {
   const cfg = useAgendaConfig();
   const [catFilter, setCatFilter] = React.useState(() => new Set()); // labels marcadas; vazio = mostra todos
   const toggleCat = (label) => setCatFilter((s) => { const n = new Set(s); n.has(label) ? n.delete(label) : n.add(label); return n; });
-  const filteredAppts = catFilter.size ? appts.filter((a) => catFilter.has(a.type)) : appts;
+  // Cancelados (status='cancelado') somem do calendário, mas continuam no banco (histórico do contato).
+  const filteredAppts = (catFilter.size ? appts.filter((a) => catFilter.has(a.type)) : appts).filter((a) => a.status !== 'cancelado');
   // Categorias, identidade (me) e config da agenda — busca leve secundária, fora do
   // cache (não bloqueia o skeleton; agendamentos/tarefas já vêm do cache acima).
   React.useEffect(() => {
@@ -208,7 +209,13 @@ function Agenda() {
   React.useEffect(() => { if (loaded) skelRemember('agenda', Math.max(appts.length, tasks.length)); }, [loaded, appts.length, tasks.length]);
   const openView = (appt) => setActive({ appt, mode: 'view' });
   const openEdit = (appt) => setActive({ appt, mode: 'edit' });
-  const removeAppt = async (appt) => { try { await API.deleteApptApi(appt.id); window.showToast({ tipo: 'sucesso', titulo: 'Agendamento cancelado' }); } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao cancelar', descricao: e.message || 'Tente novamente.' }); } setAppts((list) => list.filter((x) => x.id !== appt.id)); setActive(null); };
+  // Cancelar = SUAVE: marca status='cancelado' (não apaga). Otimista; reverte se falhar.
+  const removeAppt = async (appt) => {
+    setAppts((list) => list.map((x) => x.id === appt.id ? { ...x, status: 'cancelado' } : x));
+    setActive(null);
+    try { await API.updateApptApi(appt.id, { status: 'cancelado' }); window.showToast({ tipo: 'sucesso', titulo: 'Agendamento cancelado' }); }
+    catch (e) { setAppts((list) => list.map((x) => x.id === appt.id ? { ...x, status: appt.status } : x)); window.showToast({ tipo: 'erro', titulo: 'Erro ao cancelar', descricao: e.message || 'Tente novamente.' }); }
+  };
   const addAppt = async (dto) => { try { const r = await API.createAppt(dto); setAppts((list) => [...list, r.appt]); window.showToast({ tipo: 'sucesso', titulo: 'Agendamento criado' }); } catch (e) { window.showToast({ tipo: 'erro', titulo: 'Erro ao criar agendamento', descricao: e.message || 'Tente novamente.' }); } };
   const updateAppt = async (updated) => {
     try {
@@ -365,7 +372,7 @@ function AgendaSidebar({ view, changeView, cursor, setCursor, onNew, onSettings,
         <span style={{ flex: 1, fontSize: "16px" }}>MINHA AGENDA</span>
         <button className="agenda-cog" onClick={onSettings} title="Configurações"><Ic name="settings" size={15} /></button>
       </div>
-      <FabNovo size="sm" label={view === 'tasks' ? 'Nova tarefa' : 'Novo agendamento'} onClick={onNew} />
+      <FabNovo size="sm" aberto label={view === 'tasks' ? 'Nova tarefa' : 'Novo agendamento'} onClick={onNew} />
       <div className="view-tab-group">
         <div className="view-tab-ind" style={{ '--idx': Math.max(0, tabs.findIndex((t) => t.id === view)) }} />
         {tabs.map((t) =>
@@ -475,7 +482,7 @@ function useEvPopover({ onView, onEdit, onDelete }) {
               <div style={{ flex: 1 }} />
               <button className="btn fin-btn-back" onClick={() => setConfirmDel(null)}>Voltar</button>
               <button className="btn btn-danger" onClick={() => {onDelete && onDelete(confirmDel);setConfirmDel(null);}}>
-                <Ic name="trash" size={14} /> Excluir
+                <Ic name="x" size={14} /> Cancelar
               </button>
             </>
       }>
@@ -566,7 +573,7 @@ function MonthView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onN
   for (let d = 1; d <= daysInMonth; d++) cells.push({ d, cur: true });
   while (cells.length < 42) cells.push({ d: cells.length - (startWd + daysInMonth) + 1, cur: false });
 
-  const today = new Date(2026, 4, 11);
+  const today = new Date(); // dia atual real -> realça o "hoje" em verde claro
   const { evProps, layer } = useEvPopover({ onView, onEdit, onDelete });
 
   return (
@@ -675,8 +682,8 @@ function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete }
         {ev.byAI && <span className="mep-chip mep-ai"><Ic name="sparkles" size={11} /> IA</span>}
       </div>
       <div className="mep-foot">
-        <button className="mep-act mep-act-danger" title="Excluir agendamento" onClick={stop(onDelete)}>
-          <Ic name="trash" size={15} />
+        <button className="mep-act mep-act-danger" title="Cancelar agendamento" onClick={stop(onDelete)}>
+          <Ic name="x" size={15} />
         </button>
         <button className="mep-act" title="Editar agendamento" onClick={stop(onEdit)}>
           <Ic name="edit" size={15} />
@@ -690,14 +697,32 @@ function MonthEvPopover({ ev, rect, onEnter, onLeave, onView, onEdit, onDelete }
 
 }
 
+// Faixa de horas da grade (semana/dia): parte das horas de trabalho (config) e EXPANDE
+// para incluir QUALQUER agendamento fora do intervalo — assim nada fica cortado/escondido.
+function gridHours(cfg, dayAppts) {
+  const hh = (s) => { const n = parseInt(String(s || '').split(':')[0], 10); return Number.isFinite(n) ? n : null; };
+  const mm = (s) => { const p = String(s || '').split(':'); const h = parseInt(p[0], 10), m = parseInt(p[1], 10); return Number.isFinite(h) ? h * 60 + (Number.isFinite(m) ? m : 0) : null; };
+  let lo = 7, hi = 19; // piso histórico (07–19)
+  const cs = hh(cfg && cfg.horaInicio); if (cs != null) lo = Math.min(lo, cs);
+  const ce = hh(cfg && cfg.horaFim);    if (ce != null) hi = Math.max(hi, ce);
+  (dayAppts || []).forEach((a) => {
+    const sm = mm(a.start); if (sm == null) return;
+    lo = Math.min(lo, Math.floor(sm / 60));
+    hi = Math.max(hi, Math.ceil((sm + (a.dur || 60)) / 60) - 1);
+  });
+  lo = Math.max(0, Math.min(lo, 23));
+  hi = Math.min(23, Math.max(hi, lo));
+  return Array.from({ length: hi - lo + 1 }, (_, i) => lo + i);
+}
+
 function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt }) {
   const cfg = useAgendaConfig();
   const start = weekStartDate(cursor, firstDow(cfg));
   const days = Array.from({ length: 7 }, (_, i) => {const d = new Date(start);d.setDate(d.getDate() + i);return d;});
-  const hours = Array.from({ length: 13 }, (_, i) => i + 7); // 07:00 .. 19:00
+  const hours = gridHours(cfg, appts.filter((a) => days.some((d) => a.data === ymd(d)))); // dinâmico: horas de trabalho + agendamentos da semana
   const DAY_START = hours[0] * 60;
   const HOUR_H = 56;
-  const today = new Date(2026, 4, 11);
+  const today = new Date(); // dia atual real -> realça o "hoje" no cabeçalho em verde claro
   const { evProps, layer } = useEvPopover({ onView, onEdit, onDelete });
   const toMin = (s) => {const [h, m] = s.split(':').map(Number);return h * 60 + m;};
 
@@ -792,7 +817,8 @@ function WeekView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNe
 }
 
 function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt }) {
-  const hours = Array.from({ length: 13 }, (_, i) => i + 7); // 07:00 .. 19:00
+  const cfg = useAgendaConfig();
+  const hours = gridHours(cfg, appts.filter((a) => a.data === ymd(cursor))); // dinâmico: horas de trabalho + agendamentos do dia
   const DAY_START = hours[0] * 60;
   const HOUR_H = 76;
   const inMay = cursor.getMonth() === 4 && cursor.getFullYear() === 2026;
@@ -875,7 +901,7 @@ function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNew
                     }
                   </div>
                   <div className="day-ev-actions" onClick={(e) => e.stopPropagation()}>
-                    <button className="day-ev-act day-ev-act-danger" title="Cancelar agendamento" onClick={() => setConfirmDel(ev)}><Ic name="trash" size={14} /></button>
+                    <button className="day-ev-act day-ev-act-danger" title="Cancelar agendamento" onClick={() => setConfirmDel(ev)}><Ic name="x" size={14} /></button>
                     <button className="day-ev-act" title="Editar agendamento" onClick={() => onEdit && onEdit(ev)}><Ic name="edit" size={14} /></button>
                     <button className="day-ev-act" title="Visualizar detalhes" onClick={() => onView && onView(ev)}><Ic name="eye" size={14} /></button>
                   </div>
@@ -901,7 +927,7 @@ function DayView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNew
             <div style={{ flex: 1 }} />
             <button className="btn fin-btn-back" onClick={() => setConfirmDel(null)}>Voltar</button>
             <button className="btn btn-danger" onClick={() => {onDelete && onDelete(confirmDel);setConfirmDel(null);}}>
-              <Ic name="trash" size={14} /> Excluir
+              <Ic name="x" size={14} /> Cancelar
             </button>
           </>
         }>
@@ -1267,7 +1293,105 @@ function ParticipantPicker({ onChange, defaultValue }) {
     </div>);
 }
 
-function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsible = '', defaultDate, defaultTime, appts = [], defaultParticipante }) {
+// Aba lateral (mesma largura do "Novo agendamento") com os agendamentos de um contato.
+// Card no padrão do kit (.card) + faixa esquerda na cor do status e chip de status.
+// Filtro por status no topo. NOTA: agendas SIMULADAS (mock) só para validar o layout.
+function AgendaContato({ participante, onClose }) {
+  const p = participante || {};
+  const nome = p.name || 'Lucas Ros';
+  // Status: Agendado (azul) · Cumprido (verde) · Cancelado (vermelho).
+  const ST = {
+    agendado:  { cor: '#165EEE', label: 'Agendado' },
+    cumprido:  { cor: '#16A34A', label: 'Cumprido' },
+    cancelado: { cor: '#FF452A', label: 'Cancelado' },
+  };
+  // Mapeia o status do backend (agendado/confirmado/realizado/cancelado) para os 3 buckets.
+  const mapStatus = (s) => {
+    const v = String(s || '').toLowerCase();
+    if (v === 'realizado' || v === 'cumprido' || v === 'concluido') return 'cumprido';
+    if (v === 'cancelado' || v === 'cancelada') return 'cancelado';
+    return 'agendado'; // agendado, confirmado, etc.
+  };
+  const fmtDataCurta = (d) => (d ? d.split('-').reverse().slice(0, 2).join('/') : '');
+
+  // Dados REAIS: agenda do contato (filtra por cliente/nome/telefone). null = carregando.
+  const [appts, setAppts] = React.useState(null);
+  React.useEffect(() => {
+    let alive = true;
+    const foneDig = (s) => String(s || '').replace(/\D/g, '');
+    const alvoFone = foneDig(p.phone);
+    const alvoNome = (p.name || '').trim().toLowerCase();
+    window.API.getAgenda()
+      .then((r) => {
+        if (!alive) return;
+        const meus = (r.agenda || []).filter((a) =>
+          (p.clienteId && a.clienteId && a.clienteId === p.clienteId) ||
+          (!p.clienteId && alvoNome && (a.client || '').trim().toLowerCase() === alvoNome) ||
+          (alvoFone && foneDig(a.phone) && foneDig(a.phone) === alvoFone));
+        setAppts(meus.map((a) => ({ ...a, _st: mapStatus(a.status) })));
+      })
+      .catch(() => { if (alive) setAppts([]); });
+    return () => { alive = false; };
+  }, [p.clienteId, p.name, p.phone]);
+
+  const [filtros, setFiltros] = React.useState([]); // status ativos; vazio = todos
+  const toggle = (k) => setFiltros((f) => f.includes(k) ? f.filter((x) => x !== k) : [...f, k]);
+  const todas = appts || [];
+  const lista = filtros.length ? todas.filter((a) => filtros.includes(a._st)) : todas;
+
+  // Card no padrão do kit (.card): superfície branca, borda colorida + faixa esquerda 3px
+  // na cor do status; chip de status (campo na cor da borda) no canto superior direito.
+  const Card = (a) => {
+    const cor = (ST[a._st] || ST.agendado).cor;
+    const respName = a.respNome || (TEAM.find((m) => m.id === a.resp) || {}).name || a.resp || '—';
+    return (
+      <div key={a.id} className="card" style={{ position: 'relative', padding: '12px 14px', boxShadow: 'var(--shadow-sm)', borderColor: `color-mix(in oklab, ${cor} 38%, var(--border))`, borderLeftWidth: 3, borderLeftColor: cor }}>
+        <span style={{ position: 'absolute', top: 11, right: 11, background: cor, color: '#fff', fontSize: 10, fontWeight: 700, letterSpacing: '.02em', padding: '3px 9px', borderRadius: 999 }}>{(ST[a._st] || {}).label || a._st}</span>
+        <div className="mep-title" style={{ paddingRight: 86 }}>{a.service || a.type || 'Agendamento'}</div>
+        <div className="mep-rows" style={{ gap: 8, marginTop: 9 }}>
+          <div className="mep-row"><Ic name="clock" size={13} /><span>{fmtDataCurta(a.data)} · {a.start} – {fmtEndTime(a.start, a.dur)} <span className="mep-dim">({a.dur} min)</span></span></div>
+          <div className="mep-row"><Ic name={typeIcon(a.type)} size={13} /><span>{a.type}</span></div>
+          <div className="mep-row"><Ic name="map-pin" size={13} /><span>{a.local || '—'}</span></div>
+          <div className="mep-row"><Ic name="team" size={13} /><span>{respName}</span></div>
+        </div>
+      </div>
+    );
+  };
+
+  // Filtro por status (abaixo do cabeçalho): pílulas na cor de cada status.
+  const filtroBar = (
+    <div style={{ display: 'flex', gap: 8, padding: '10px 22px', borderBottom: '1px solid var(--border)', flexWrap: 'wrap' }}>
+      {Object.keys(ST).map((k) => {
+        const on = filtros.includes(k); const cor = ST[k].cor;
+        return (
+          <button key={k} onClick={() => toggle(k)} style={{
+            fontSize: 'var(--type-xs)', fontWeight: 600, padding: '5px 12px', borderRadius: 999, cursor: 'pointer',
+            border: `1px solid ${on ? cor : `color-mix(in oklab, ${cor} 40%, var(--border))`}`,
+            background: on ? cor : `color-mix(in oklab, ${cor} 10%, var(--surface))`,
+            color: on ? '#fff' : cor, transition: 'all .12s ease',
+          }}>{ST[k].label}</button>
+        );
+      })}
+    </div>
+  );
+
+  return (
+    <Drawer title={`Agendamentos de ${nome}`} onClose={onClose} width={DRAWER_W} className="appt-drawer" belowHead={filtroBar}
+      footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" label="Fechar" onClick={onClose} /></>}>
+      {appts === null ? (
+        <div className="col" style={{ gap: 12 }}>{Array.from({ length: 3 }).map((_, i) => <Skeleton key={i} h={92} r={14} />)}</div>
+      ) : todas.length === 0 ? (
+        <EmptyState icon="agenda" title="Nenhum agendamento" desc="Este contato ainda não tem agendamentos." />
+      ) : (
+        <div className="col" style={{ gap: 12 }}>
+          {lista.length ? lista.map(Card) : <div className="muted" style={{ fontSize: 'var(--type-sm)', textAlign: 'center', padding: 20 }}>Nenhum agendamento neste filtro.</div>}
+        </div>
+      )}
+    </Drawer>
+  );
+}
+
+function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsible = '', defaultDate, defaultTime, appts = [], defaultParticipante, lockResponsible = false }) {
   const _now = new Date();
   const [date, setDate] = React.useState(defaultDate || ymd(_now));
   const [time, setTime] = React.useState(defaultTime || `${String(_now.getHours()).padStart(2, '0')}:${String(_now.getMinutes()).padStart(2, '0')}`);
@@ -1282,6 +1406,7 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
   const [phone, setPhone] = React.useState('');
   const [obs, setObs] = React.useState('');
   const [status, setStatus] = React.useState('agendado');
+  const [showAgenda, setShowAgenda] = React.useState(false); // aba lateral c/ agendamentos do contato
   const DURATIONS = [
   { v: '15', l: '15 min' },
   { v: '30', l: '30 min' },
@@ -1331,8 +1456,10 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
   };
 
   return (
+    <>
     <Drawer title="Novo agendamento" subtitle="Cadastre um compromisso" onClose={onClose} width={DRAWER_W}
-    footer={<><div style={{ flex: 1 }} /><ActionButton action="voltar" size="md" onClick={onClose} /><ActionButton action="salvar" size="md" label="Criar" disabled={!valid} onClick={submit} /></>}>
+    rightHead={defaultParticipante ? <ActionButton action="editar" size="sm" label="Agenda" icon="agenda" className="ag-head-ic" onClick={() => setShowAgenda(true)} style={{ height: 30, padding: '0 10px', fontSize: 'var(--type-xs)' }} /> : null}
+    footer={(close) => <><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Criar" disabled={!valid} onClick={() => close(submit)} /></>}>
       <div className="col" style={{ gap: 14 }}>
         <div><label className="label">Participante</label><ParticipantPicker defaultValue={defaultParticipante} onChange={(p) => { setClient(p.name); setParticipanteTipo(p.tipo); setClienteId(p.clienteId); setParticipanteId(p.participanteId); if (p.phone && !phone) setPhone(p.phone); }} /></div>
         <div><label className="label">Serviço</label><input className="input" value={service} onChange={(e) => setService(e.target.value)} placeholder="Ex.: Limpeza de pele" /></div>
@@ -1349,13 +1476,23 @@ function NewAppointment({ onClose, onSave, defaultClient = '', defaultResponsibl
         </div>
         <div><label className="label">Local</label><input className="input" value={local} onChange={(e) => setLocal(e.target.value)} placeholder="Ex.: Sala 1" /></div>
         <div className="row" style={{ gap: 10 }}>
-          <div style={{ flex: 1 }}><label className="label">Responsável</label><select className="input" value={respName} onChange={(e) => setRespName(e.target.value)}>{respList.map((r) => <option key={r}>{r}</option>)}</select></div>
+          <div style={{ flex: 1 }}><label className="label">Responsável</label>
+            {lockResponsible ? (
+              <div className="input" title="Responsável travado (você)" style={{ display: 'flex', alignItems: 'center', gap: 6, background: 'var(--surface-2)', cursor: 'not-allowed' }}>
+                <Ic name="lock" size={13} style={{ color: 'var(--text-faint)', flexShrink: 0 }} /><span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{respName}</span>
+              </div>
+            ) : (
+              <select className="input" value={respName} onChange={(e) => setRespName(e.target.value)}>{respList.map((r) => <option key={r}>{r}</option>)}</select>
+            )}
+          </div>
           <div style={{ flex: 1 }}><label className="label">Status</label><select className="input" value={status} onChange={(e) => setStatus(e.target.value)} style={{ textTransform: 'capitalize' }}>{STATUSES.map((s) => <option key={s} value={s}>{s}</option>)}</select></div>
         </div>
         <div><label className="label">Telefone</label><PhoneInput value={phone} onChange={setPhone} /></div>
         <div><label className="label">Observações</label><textarea className="input" rows={4} value={obs} onChange={(e) => setObs(e.target.value)} /></div>
       </div>
-    </Drawer>);
+    </Drawer>
+    {showAgenda && <AgendaContato participante={{ name: client || (defaultParticipante && defaultParticipante.name) || '', clienteId: clienteId || (defaultParticipante && defaultParticipante.clienteId) || null, phone: phone || (defaultParticipante && defaultParticipante.phone) || '' }} onClose={() => setShowAgenda(false)} />}
+    </>);
 
 }
 
@@ -1386,7 +1523,7 @@ function NewTask({ onClose, onCreate }) {
     </div>;
 
   return (
-    <Drawer title="Nova tarefa" subtitle="Criar tarefa na agenda" onClose={onClose} width={DRAWER_W} footer={<><ActionButton action="voltar" size="md" onClick={onClose} /><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Criar" disabled={!valid} onClick={submit} /></>}>
+    <Drawer title="Nova tarefa" subtitle="Criar tarefa na agenda" onClose={onClose} width={DRAWER_W} footer={(close) => <><div style={{ flex: 1 }} /><ActionButton action="salvar" size="md" label="Criar" disabled={!valid} onClick={() => close(submit)} /></>}>
       <div className="col" style={{ gap: 14 }}>
         <div><label className="label">Título</label><input className="input" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="Ex.: Ligar para Sara" /></div>
         <div><label className="label">Categoria</label><TypeSelect value={cat} onChange={setCat} /></div>
@@ -1460,7 +1597,7 @@ function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
       leftHead={<Avatar name={appt.client} />}
       footer={
       <>
-          <ActionButton action="excluir" size="md" label="Cancelar agendamento" onClick={() => setConfirmDel(true)} />
+          <ActionButton action="cancelar" size="md" label="Cancelar agendamento" onClick={() => setConfirmDel(true)} />
           <div style={{ flex: 1 }} />
           <ActionButton action="editar" size="md" onClick={onEdit} />
         </>
@@ -1495,7 +1632,7 @@ function AppointmentDetailDrawer({ appt, onClose, onEdit, onDelete }) {
             <div style={{ flex: 1 }} />
             <button className="btn fin-btn-back" onClick={() => setConfirmDel(false)}>Voltar</button>
             <button className="btn btn-danger" onClick={() => {setConfirmDel(false);onDelete && onDelete();}}>
-              <Ic name="trash" size={14} /> Excluir
+              <Ic name="x" size={14} /> Cancelar
             </button>
           </>
         }>
@@ -1906,7 +2043,7 @@ function AgendaStyles() {
       .month-grid { display:grid; grid-template-columns:repeat(7,1fr); grid-auto-rows: minmax(108px, 1fr); gap:2px; flex:1; }
       .month-cell { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:8px 10px; display:flex; flex-direction:column; min-width:0; transition: all .2s ease; cursor:pointer; }
       .month-cell[data-current="false"] { background:var(--surface-2); opacity:.55; }
-      .month-cell[data-today="true"] { background:color-mix(in oklab, var(--accent) 7%, var(--surface)); border-color:var(--accent); box-shadow:0 0 0 1px var(--accent) inset; }
+      .month-cell[data-today="true"] { background:color-mix(in oklab, var(--accent) 8%, var(--surface)); }
       .month-cell:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(15,23,42,.08); border-color:var(--accent); z-index:2; }
       .month-cell-day { font-size:13px; color:var(--text-muted); font-weight:600; font-variant-numeric: tabular-nums; }
       .month-cell[data-today="true"] .month-cell-day { color:var(--accent-700); }
@@ -1939,6 +2076,9 @@ function AgendaStyles() {
       .mep-chip[data-status="confirmado"] { background:color-mix(in oklab, #16a34a 14%, var(--surface)); color:#15803d; }
       .mep-chip[data-status="agendado"] { background:color-mix(in oklab, var(--accent) 14%, var(--surface)); color:var(--accent-700); }
       .mep-chip[data-status="realizado"] { background:var(--surface-3); color:var(--text-muted); }
+      .mep-chip[data-status="agendada"] { background:color-mix(in oklab, var(--accent) 14%, var(--surface)); color:var(--accent-700); }
+      .mep-chip[data-status="marcada"] { background:color-mix(in oklab, #165EEE 14%, var(--surface)); color:#165EEE; }
+      .mep-chip[data-status="cancelada"] { background:color-mix(in oklab, #FF452A 14%, var(--surface)); color:#c0341c; }
       .mep-chip.mep-ai { background:var(--ai-soft); color:var(--ai-strong); text-transform:none; }
       .mep-foot { display:flex; justify-content:flex-end; gap:6px; margin-top:11px; padding-top:10px; border-top:1px solid var(--border); }
       .mep-act {
@@ -2033,8 +2173,8 @@ function AgendaStyles() {
       .daystrip-wd { font-size:10px; font-weight:600; letter-spacing:.04em; color:var(--text-faint); text-transform:uppercase; }
       .daystrip-dn { font-size:15px; font-weight:700; color:var(--text); font-variant-numeric:tabular-nums; }
       .daystrip-day[data-today="true"] .daystrip-dn { color:var(--accent-700); }
-      .daystrip-day[data-selected="true"] { background:linear-gradient(120deg, #4dfc83 0%, #FFF943 100%); border-color:#7df76a; box-shadow:0 4px 12px rgba(120,230,90,.35); }
-      .daystrip-day[data-selected="true"] .daystrip-wd, .daystrip-day[data-selected="true"] .daystrip-dn { color:#1a3d12; }
+      .daystrip-day[data-selected="true"] { background:color-mix(in oklab, var(--accent) 8%, var(--surface)); border-color:var(--accent); box-shadow:none; }
+      .daystrip-day[data-selected="true"] .daystrip-wd, .daystrip-day[data-selected="true"] .daystrip-dn { color:var(--accent-700); }
 
       .myp-btn { display:inline-flex; align-items:center; gap:7px; height:32px; padding:0 12px; border:1px solid var(--border); background:var(--surface); border-radius:8px; font-size:13px; font-weight:600; color:var(--text); cursor:pointer; transition:all .15s; }
       .myp-btn:hover { border-color:var(--accent); color:var(--accent-700); }

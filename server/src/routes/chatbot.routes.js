@@ -51,7 +51,7 @@ function permChatbot(method, p) {
 chatbotRouter.use((req, res, next) => requirePermissao(permChatbot(req.method, req.path))(req, res, next));
 
 const BUCKET = 'arquivos';
-const MAX_FILE = 25 * 1024 * 1024; // 25 MB
+const MAX_FILE = 100 * 1024 * 1024; // 100 MB (suporta vídeos)
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: MAX_FILE } });
 
 const uuid = z.string().uuid('id inválido');
@@ -68,7 +68,9 @@ function nomeAtendente(user) {
 const CANAIS_EXTERNOS = new Set(['instagram', 'facebook', 'whatsapp']);
 const NOME_CANAL = { instagram: 'Instagram', facebook: 'Facebook', whatsapp: 'WhatsApp' };
 
-async function entregarNoCanal(req, contatoId, { texto, midiaUrl, tipo, titulo }) {
+async function entregarNoCanal(req, contatoId, { texto, midiaUrl, tipo, titulo, contato }) {
+  // Texto de fallback para canais sem cartão de contato nativo (Instagram/Facebook).
+  const txtContato = contato ? ('📇 Contato: ' + (contato.nome || 'Contato') + (contato.telefone ? ' — ' + contato.telefone : '')) : null;
   try {
     const { data: ct } = await req.supabase
       .from('chatbot-contatos').select('origemcontato,external_id').eq('id', contatoId).single();
@@ -81,14 +83,17 @@ async function entregarNoCanal(req, contatoId, { texto, midiaUrl, tipo, titulo }
     if (!tok) { console.log('[envio] sem token ativo p/', canal); return { tentou: true, entregue: false, erro: NOME_CANAL[canal] + ' não está conectado.' }; }
 
     if (canal === 'instagram') {
-      if (midiaUrl) await ig.sendMedia({ token: tok.token, recipientId: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'file' })[tipo] || 'file', url: midiaUrl });
+      if (contato) await ig.sendText({ token: tok.token, recipientId: ct.external_id, text: txtContato });
+      else if (midiaUrl) await ig.sendMedia({ token: tok.token, recipientId: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'file' })[tipo] || 'file', url: midiaUrl });
       else await ig.sendText({ token: tok.token, recipientId: ct.external_id, text: texto });
     } else if (canal === 'facebook') {
-      if (midiaUrl) await fb.sendMedia({ token: tok.token, recipientId: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'file' })[tipo] || 'file', url: midiaUrl });
+      if (contato) await fb.sendText({ token: tok.token, recipientId: ct.external_id, text: txtContato });
+      else if (midiaUrl) await fb.sendMedia({ token: tok.token, recipientId: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'file' })[tipo] || 'file', url: midiaUrl });
       else await fb.sendText({ token: tok.token, recipientId: ct.external_id, text: texto });
     } else if (canal === 'whatsapp') {
       // No WhatsApp, o phone_number_id é o external_id da integração; o destino é o external_id do contato.
-      if (midiaUrl) await wa.sendMedia({ token: tok.token, phoneNumberId: tok.externalId, to: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'document' })[tipo] || 'document', link: midiaUrl, filename: titulo });
+      if (contato) await wa.sendContact({ token: tok.token, phoneNumberId: tok.externalId, to: ct.external_id, nome: contato.nome, telefone: contato.telefone });
+      else if (midiaUrl) await wa.sendMedia({ token: tok.token, phoneNumberId: tok.externalId, to: ct.external_id, type: ({ imagem: 'image', video: 'video', audio: 'audio', arquivo: 'document' })[tipo] || 'document', link: midiaUrl, filename: titulo });
       else await wa.sendText({ token: tok.token, phoneNumberId: tok.externalId, to: ct.external_id, text: texto });
     }
     console.log('[envio] OK ->', canal);
@@ -134,9 +139,10 @@ function mapContato(r, cliente, tags, ultima) {
   const nomeContato = r.nome && r.nome !== 'null' ? r.nome : null;
   const nomeCliente = cliente && cliente.nome && cliente.nome !== 'null' ? cliente.nome : null;
   const um = ultima || null;
-  const temTexto = !!(um && um.texto && um.texto !== 'null');
-  const midiaTipo = (um && !temTexto) ? normMidia(um.tipomidia) : null;
-  const preview = temTexto ? um.texto : (midiaTipo ? rotuloMidia(midiaTipo) : '');
+  const ehContato = !!(um && um.tipomidia === 'contato');
+  const temTexto = !!(um && um.texto && um.texto !== 'null') && !ehContato;
+  const midiaTipo = (um && !temTexto && !ehContato) ? normMidia(um.tipomidia) : null;
+  const preview = ehContato ? 'Contato' : (temTexto ? um.texto : (midiaTipo ? rotuloMidia(midiaTipo) : ''));
   const porEmpresa = !!(um && um.enviadopor && String(um.enviadopor).trim()); // empresa enviou a última msg
   return {
     id: r.id,
@@ -183,19 +189,27 @@ function ensureTipoTag(tags, isLead) {
 
 function mapMensagem(r) {
   const deCliente = !r.enviadopor || r.enviadopor.trim() === '';
+  // Cartão de contato: dados (nome/telefone) ficam em JSON no campo texto.
+  let contato = null;
+  if (r.tipomidia === 'contato' && r.texto) { try { const j = JSON.parse(r.texto); if (j && typeof j === 'object') contato = { nome: j.nome || null, telefone: j.telefone || null }; } catch (_) {} }
   return {
     id: r.id,
     criadoEm: r.created_at,
     deCliente,                       // true = cliente (esquerda), false = empresa (direita)
     enviadopor: r.enviadopor || null,
-    tipo: r.tipomidia || 'texto',    // texto | imagem | audio | video | arquivo | docx | xlsx ...
+    tipo: r.tipomidia || 'texto',    // texto | imagem | audio | video | arquivo | contato | docx | xlsx ...
     texto: r.texto || null,
+    contato,                         // { nome, telefone } quando tipo === 'contato'
     midiaUrl: r.linkmidia || null,
     titulo: r.titulomidia || null,
     formato: r.formato || null,
     tamanho: r.tamanho || null,
     paginas: r.qtdpaginas || null,
     apagado: !!r['apagado-pra-todos'],
+    respondeA: r.responde_a || null,   // citação (Responder)
+    fixada: !!r.fixada,                // fixada na conversa
+    fixadaAte: r.fixada_ate || null,   // expiração da fixação (24h/7d/.../90d) — null = sem prazo
+    favoritada: !!r.favoritada,        // estrela
   };
 }
 
@@ -311,7 +325,7 @@ chatbotRouter.get('/contatos', async (req, res, next) => {
           .in('contato', contatoIds)
           .order('created_at', { ascending: false })
           .limit(1000);
-        (msgs || []).forEach((m) => { if (m.tipomidia === 'nota' || m.tipomidia === 'inicio') return; if (!map[m.contato]) map[m.contato] = m; }); // 1ª = mais recente; ignora marcadores internos
+        (msgs || []).forEach((m) => { if (m.tipomidia === 'nota' || m.tipomidia === 'inicio' || m.tipomidia === 'encerramento') return; if (!map[m.contato]) map[m.contato] = m; }); // 1ª = mais recente; ignora marcadores internos
         return map;
       })(),
       // 5) CRM: fases (colunas) em que cada CLIENTE está. Um cliente pode estar em
@@ -395,6 +409,63 @@ chatbotRouter.get('/presencas', async (req, res, next) => {
     const { data } = await adminClient().from('atendente_presenca').select('user_id,status,motivo,motivo_label,cor,nota,desde').eq('empresa', empresaId);
     res.json({ presencas: data || [] });
   } catch (e) { res.json({ presencas: [] }); }
+});
+
+// ---- GET /api/chatbot/atendentes — lista de atendentes p/ o filtro do inbox, ESCOPADA:
+//   - ADMIN (atendimento.gerenciar): TODOS os atendentes da loja.
+//   - RESPONSÁVEL de departamento: só os atendentes cujo departamento (perfil) está
+//     entre os que ele lidera (vê só as conversas desses).
+//   - Demais: lista vazia (a aba nem aparece pra eles no front).
+chatbotRouter.get('/atendentes', async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const A = adminClient();
+    const auth = await carregarAutorizacao(req);
+    const isAdmin = temPermissao(auth, 'atendimento.gerenciar');
+
+    const { data: membros } = await A.from('empresa_membros').select('user_id').eq('empresa_id', empresaId);
+    const memberIds = new Set((membros || []).map((m) => m.user_id).filter(Boolean));
+    const { data: list } = await A.auth.admin.listUsers({ page: 1, perPage: 200 });
+    let users = (list?.users || []).filter((u) => memberIds.has(u.id));
+
+    if (!isAdmin) {
+      // responsável: departamentos que ele lidera -> só atendentes desses departamentos.
+      const { data: deps } = await A.from('departamentos').select('id').eq('empresa', empresaId).eq('responsavel_id', req.user.id);
+      const respIds = new Set((deps || []).map((d) => String(d.id)));
+      if (!respIds.size) return res.json({ atendentes: [] }); // não lidera nada
+      users = users.filter((u) => {
+        const md = u.user_metadata || {};
+        return md.departamentoId != null && respIds.has(String(md.departamentoId));
+      });
+    }
+    const nomeDe = (u) => (u.user_metadata && u.user_metadata.name) || u.email;
+    res.json({ atendentes: users.map((u) => ({ id: u.id, nome: nomeDe(u) })).sort((a, b) => (a.nome || '').localeCompare(b.nome || '')) });
+  } catch (err) { next(err); }
+});
+
+// ---- GET /api/chatbot/departamentos-filtro — departamentos p/ o filtro do inbox.
+//   Lista TODOS (ativos). podeFiltrar = ADMIN ou RESPONSÁVEL daquele departamento.
+//   No front, os não-liberados aparecem cinza e não selecionáveis.
+chatbotRouter.get('/departamentos-filtro', async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const A = adminClient();
+    const auth = await carregarAutorizacao(req);
+    const isAdmin = temPermissao(auth, 'atendimento.gerenciar');
+    const { data: deps } = await A.from('departamentos').select('id,nome,ativo,responsavel_id').eq('empresa', empresaId).order('nome');
+    const ativos = (deps || []).filter((d) => d.ativo !== false);
+    res.json({ departamentos: ativos.map((d) => ({ id: d.id, nome: d.nome, podeFiltrar: isAdmin || d.responsavel_id === req.user.id })) });
+  } catch (err) { next(err); }
+});
+
+// ---- GET /api/chatbot/origens — lista de ORIGENS p/ as listas suspensas (ficha etc.).
+// Acessível a quem atende (atendimento.ver). Escopo por empresa.
+chatbotRouter.get('/origens', async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const { data } = await adminClient().from('origens').select('id,nome').eq('empresa', empresaId).order('nome');
+    res.json({ origens: (data || []).map((o) => ({ id: o.id, nome: o.nome })) });
+  } catch (e) { res.json({ origens: [] }); }
 });
 
 // ---- GET /api/chatbot/departamentos — lista enxuta (id,nome) p/ a transferência.
@@ -588,12 +659,15 @@ chatbotRouter.get('/contatos/:id/mensagens', async (req, res, next) => {
       .eq('contato', id)
       .order('created_at', { ascending: true });
     if (error) throw error;
+    // Abrir/ler a conversa ZERA o contador de não-lidas (badge verde da lista).
+    // Best-effort: não falha o GET se o update der erro.
+    try { await req.supabase.from('chatbot-contatos').update({ qtd_mensagem_nao_lida: 0 }).eq('id', id); } catch (_) {}
     res.json({ mensagens: (data || []).map(mapMensagem) });
   } catch (err) { next(err); }
 });
 
 // ---- POST /api/chatbot/contatos/:id/mensagens (texto) ---------------------
-const textoSchema = z.object({ texto: z.string().trim().min(1, 'Mensagem vazia.').max(4000) }).strip();
+const textoSchema = z.object({ texto: z.string().trim().min(1, 'Mensagem vazia.').max(4000), respondeA: z.string().max(64).optional() }).strip();
 
 chatbotRouter.post('/contatos/:id/mensagens', validateBody(textoSchema), async (req, res, next) => {
   try {
@@ -602,7 +676,7 @@ chatbotRouter.post('/contatos/:id/mensagens', validateBody(textoSchema), async (
     // usuário; se não for, o insert falha. Gravamos o nome -> lado da empresa.
     const { data, error } = await req.supabase
       .from('chatbot-mensagens')
-      .insert({ contato: id, tipomidia: 'texto', texto: req.body.texto, enviadopor: nomeAtendente(req.user) })
+      .insert({ contato: id, tipomidia: 'texto', texto: req.body.texto, enviadopor: nomeAtendente(req.user), ...(req.body.respondeA ? { responde_a: req.body.respondeA } : {}) })
       .select('*')
       .single();
     if (error) throw error;
@@ -615,6 +689,134 @@ chatbotRouter.post('/contatos/:id/mensagens', validateBody(textoSchema), async (
     // marca o horário da última mensagem no contato (best-effort)
     await req.supabase.from('chatbot-contatos').update({ ultimamsg: new Date().toISOString() }).eq('id', id);
     res.status(201).json({ mensagem: mapMensagem(data), aviso: (ent.tentou && !ent.entregue) ? ent.erro : undefined });
+  } catch (err) { next(err); }
+});
+
+// ---- POST /api/chatbot/contatos/:id/contato (enviar cartão de contato) -----
+// Guarda nome+telefone como JSON no campo texto (tipomidia='contato') e entrega
+// no canal (WhatsApp nativo; Instagram/Facebook caem em texto).
+const contatoCardSchema = z.object({
+  nome: z.string().trim().min(1, 'Nome vazio.').max(120),
+  telefone: z.string().trim().max(40).optional().default(''),
+}).strip();
+
+chatbotRouter.post('/contatos/:id/contato', validateBody(contatoCardSchema), async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const card = { nome: req.body.nome, telefone: req.body.telefone || '' };
+    const { data, error } = await req.supabase
+      .from('chatbot-mensagens')
+      .insert({ contato: id, tipomidia: 'contato', texto: JSON.stringify(card), enviadopor: nomeAtendente(req.user) })
+      .select('*')
+      .single();
+    if (error) throw error;
+    const ent = await entregarNoCanal(req, id, { contato: card });
+    if (ent.tentou && !ent.entregue) {
+      await req.supabase.from('chatbot-mensagens').update({ entregue: false }).eq('id', data.id);
+      data.entregue = false;
+    }
+    await req.supabase.from('chatbot-contatos').update({ ultimamsg: new Date().toISOString() }).eq('id', id);
+    res.status(201).json({ mensagem: mapMensagem(data), aviso: (ent.tentou && !ent.entregue) ? ent.erro : undefined });
+  } catch (err) { next(err); }
+});
+
+// ---- PATCH /api/chatbot/contatos/:id/mensagens/:msgId  (ações por mensagem) ----
+// Fixar / Favoritar / Apagar (pra todos, interno). Idempotente, via RLS (req.supabase).
+const msgAcaoSchema = z.object({
+  fixada: z.boolean().optional(),
+  fixadaAte: z.string().nullable().optional(),  // ISO da expiração da fixação (null = sem prazo)
+  favoritada: z.boolean().optional(),
+  apagada: z.boolean().optional(),
+}).strip();
+chatbotRouter.patch('/contatos/:id/mensagens/:msgId', validateBody(msgAcaoSchema), async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const msgId = String(req.params.msgId);
+    const b = req.body;
+    const patch = {};
+    if (b.fixada !== undefined) patch.fixada = !!b.fixada;
+    if (b.fixadaAte !== undefined) patch.fixada_ate = b.fixadaAte || null;
+    if (b.favoritada !== undefined) patch.favoritada = !!b.favoritada;
+    if (b.apagada !== undefined) patch['apagado-pra-todos'] = !!b.apagada;
+    if (!Object.keys(patch).length) return res.status(422).json({ error: 'Nada para atualizar.' });
+    // Fixar: limite de 5 por conversa (estilo WhatsApp).
+    if (patch.fixada === true) {
+      const { count } = await req.supabase.from('chatbot-mensagens')
+        .select('id', { count: 'exact', head: true }).eq('contato', id).eq('fixada', true);
+      if ((count || 0) >= 5) return res.status(422).json({ error: 'Limite de 5 mensagens fixadas por conversa.' });
+    }
+    let r = await req.supabase.from('chatbot-mensagens')
+      .update(patch).eq('id', msgId).eq('contato', id).select('*').single();
+    // Resiliência: se a coluna fixada_ate ainda não existe (migration 0039 não rodada),
+    // refaz o update sem ela (a fixação funciona, só sem prazo até rodar o SQL).
+    if (r.error && patch.fixada_ate !== undefined) {
+      const semAte = { ...patch }; delete semAte.fixada_ate;
+      r = await req.supabase.from('chatbot-mensagens').update(semAte).eq('id', msgId).eq('contato', id).select('*').single();
+    }
+    if (r.error) throw r.error;
+    res.json({ mensagem: mapMensagem(r.data) });
+  } catch (err) { next(err); }
+});
+
+// ---- GET /api/chatbot/midia/download?url=&nome= — baixa a mídia VIA SERVIDOR e força o
+// download no PC (Content-Disposition: attachment), sem esbarrar em CORS. Só aceita URLs
+// do Storage PÚBLICO da própria Supabase (evita SSRF).
+chatbotRouter.get('/midia/download', async (req, res, next) => {
+  try {
+    const url = String(req.query.url || '');
+    const nome = (String(req.query.nome || 'arquivo').replace(/[^\w.\- ]+/g, '_').slice(0, 90) || 'arquivo').replace(/"/g, '');
+    const base = (process.env.SUPABASE_URL || '').replace(/\/+$/, '') + '/storage/v1/object/public/';
+    if (base.length < 30 || !url.startsWith(base)) return res.status(400).json({ error: 'URL não permitida.' });
+    const up = await fetch(url);
+    if (!up.ok) return res.status(502).json({ error: 'Falha ao buscar o arquivo.' });
+    res.setHeader('Content-Type', up.headers.get('content-type') || 'application/octet-stream');
+    res.setHeader('Content-Disposition', 'attachment; filename="' + nome + '"');
+    const len = up.headers.get('content-length'); if (len) res.setHeader('Content-Length', len);
+    res.setHeader('Cache-Control', 'private, max-age=0');
+    res.send(Buffer.from(await up.arrayBuffer()));
+  } catch (err) { next(err); }
+});
+
+// ---- GET /api/chatbot/contatos/:id/historico — linha do tempo REAL do cliente:
+// cadastro + eventos da conversa (início/transferência/encerramento) + vendas + agendamentos.
+// Agregado por empresa+cliente (adminClient escopado), ordenado por data desc.
+chatbotRouter.get('/contatos/:id/historico', async (req, res, next) => {
+  try {
+    const id = uuid.parse(req.params.id);
+    const empresaId = await getEmpresaId(req);
+    const A = adminClient();
+    const { data: cont } = await A.from('chatbot-contatos').select('cliente_id,empresa_id').eq('id', id).single();
+    if (!cont || String(cont.empresa_id) !== String(empresaId)) return res.status(403).json({ error: 'Sem permissão.' });
+    const clienteId = cont.cliente_id || null;
+    const ev = [];
+    const up = (s) => (s == null ? '' : String(s)).toUpperCase();
+    // 1) Cadastro do cliente
+    if (clienteId) try {
+      const { data: cli } = await A.from('clientes').select('created_at,origemcontato').eq('id', clienteId).eq('empresa_id', empresaId).single();
+      if (cli && cli.created_at) ev.push({ kind: 'entry', icon: 'plus', color: 'var(--text-faint)', title: 'Cliente cadastrado', desc: cli.origemcontato ? ('Origem: ' + cli.origemcontato) : '', at: cli.created_at });
+    } catch (e) {}
+    // 2) Eventos da conversa (marcadores)
+    try {
+      const { data: mk } = await A.from('chatbot-mensagens').select('tipomidia,texto,enviadopor,created_at').eq('contato', id).in('tipomidia', ['inicio', 'nota', 'encerramento']);
+      (mk || []).forEach((m) => {
+        let j = null; try { j = m.texto ? JSON.parse(m.texto) : null; } catch (e) {}
+        if (m.tipomidia === 'inicio') ev.push({ kind: 'message', icon: 'check', color: 'var(--accent)', title: 'Atendimento iniciado', desc: [up(j && j.dept), (j && j.atend) || m.enviadopor].filter(Boolean).join(' · '), at: m.created_at });
+        else if (m.tipomidia === 'nota') { const de = (j && j.de) || {}, pa = (j && j.para) || {}; ev.push({ kind: 'transfer', icon: 'refresh', color: 'var(--hue-blue)', title: 'Atendimento transferido', desc: `de ${up(de.dept) || '—'}${de.atend ? ' (' + de.atend + ')' : ''} → ${up(pa.dept) || '—'}${pa.atend ? ' (' + pa.atend + ')' : ''}`, at: m.created_at }); }
+        else ev.push({ kind: 'close', icon: 'check-double', color: 'var(--text-muted)', title: 'Atendimento encerrado', desc: [up(j && j.dept), (j && j.atend) || m.enviadopor].filter(Boolean).join(' · '), at: m.created_at });
+      });
+    } catch (e) {}
+    // 3) Vendas do cliente
+    if (clienteId) try {
+      const { data: vs } = await A.from('vendas').select('codigo,total,status,created_at').eq('empresa_id', empresaId).eq('cliente_id', clienteId).order('created_at', { ascending: false }).limit(50);
+      (vs || []).forEach((v) => ev.push({ kind: 'sale', icon: 'cart', color: '#16a34a', title: 'Venda · R$ ' + (Number(v.total) || 0).toFixed(2).replace('.', ','), desc: [v.codigo ? ('#' + v.codigo) : null, v.status].filter(Boolean).join(' · '), at: v.created_at }));
+    } catch (e) {}
+    // 4) Agendamentos do cliente
+    if (clienteId) try {
+      const { data: ags } = await A.from('agenda').select('servico,tipo,data,hora,responsavel,status').eq('empresa_id', empresaId).eq('cliente_id', clienteId).order('data', { ascending: false }).limit(50);
+      (ags || []).forEach((a) => ev.push({ kind: 'schedule', icon: 'agenda', color: 'var(--hue-violet)', title: a.servico || a.tipo || 'Agendamento', desc: [a.responsavel ? ('com ' + a.responsavel) : null, a.status].filter(Boolean).join(' · '), at: a.data ? (a.data + 'T' + (a.hora || '00:00') + ':00') : null }));
+    } catch (e) {}
+    ev.sort((a, b) => new Date(b.at || 0).getTime() - new Date(a.at || 0).getTime());
+    res.json({ historico: ev });
   } catch (err) { next(err); }
 });
 
@@ -840,8 +1042,13 @@ chatbotRouter.patch('/contatos/:id', validateBody(statusSchema), async (req, res
   try {
     const id = uuid.parse(req.params.id);
     const { data, error } = await req.supabase.from('chatbot-contatos')
-      .update({ statuschat: req.body.statuschat }).eq('id', id).select('id,statuschat').single();
+      .update({ statuschat: req.body.statuschat }).eq('id', id).select('id,statuschat,departamento,atendente').single();
     if (error) throw error;
+    // Ao ENCERRAR, registra o marcador 'encerramento' (departamento + atendente) no histórico.
+    if (req.body.statuschat === 'finalizado') {
+      const _nomeEnc = nomeAtendente(req.user);
+      try { await req.supabase.from('chatbot-mensagens').insert({ contato: id, tipomidia: 'encerramento', texto: JSON.stringify({ dept: data.departamento || null, atend: data.atendente || _nomeEnc }), enviadopor: _nomeEnc }); } catch (e) { /* best-effort */ }
+    }
     res.json({ contato: { id: data.id, status: data.statuschat } });
   } catch (err) { next(err); }
 });
@@ -896,16 +1103,22 @@ chatbotRouter.patch('/contatos/:id/atribuir', validateBody(atribuirSchema), asyn
     // Pendentes do destinatário, que precisa clicar "Atender" para iniciar. (não mexe se já encerrada)
     patch.statuschat = 'pendente';
     // Lê o setor ATUAL (origem "de qual setor veio") ANTES de trocar.
-    const { data: prev } = await req.supabase.from('chatbot-contatos').select('departamento').eq('id', id).single();
-    const origem = (prev && prev.departamento && String(prev.departamento).trim() && prev.departamento !== 'null') ? prev.departamento : null;
+    const { data: prev } = await req.supabase.from('chatbot-contatos').select('departamento,atendente').eq('id', id).single();
+    const _ok = (v) => (v && String(v).trim() && v !== 'null') ? v : null;
+    const origemDept = _ok(prev && prev.departamento);
+    const origemAtend = _ok(prev && prev.atendente);
     const { data, error } = await req.supabase.from('chatbot-contatos')
       .update(patch).eq('id', id).select('id,atendente_id,departamento_id').single();
     if (error) throw error;
-    // REGISTRO da transferência como mensagem INTERNA (tipomidia='nota'): quem transferiu
-    // (enviadopor), de qual setor veio (titulomidia) e a nota (texto). Alimenta o rodapé
-    // "Conversa pendente". Não vai pro canal externo nem vira "última mensagem" (preview).
+    // REGISTRO da transferência ('nota'): de/para (departamento + atendente) em JSON no
+    // texto; titulomidia mantém o setor de origem (compat). Alimenta o rodapé "Conversa
+    // pendente". Não vai pro canal externo nem vira "última mensagem" (preview).
     const nota = (b.nota || '').trim();
-    try { await req.supabase.from('chatbot-mensagens').insert({ contato: id, tipomidia: 'nota', texto: nota || null, titulomidia: origem, enviadopor: nomeAtendente(req.user) }); } catch (e) { /* best-effort */ }
+    const destinoDept = b.departamentoId ? (b.departamentoNome || null) : origemDept;
+    const destinoAtend = b.atendenteId ? (b.atendenteNome || null) : null;
+    const _por = nomeAtendente(req.user);
+    const _marca = JSON.stringify({ de: { dept: origemDept, atend: origemAtend }, para: { dept: destinoDept, atend: destinoAtend }, nota: nota || null, por: _por });
+    try { await req.supabase.from('chatbot-mensagens').insert({ contato: id, tipomidia: 'nota', texto: _marca, titulomidia: origemDept, enviadopor: _por }); } catch (e) { /* best-effort */ }
     res.json({ contato: { id: data.id, atendenteId: data.atendente_id || null, departamentoId: data.departamento_id || null } });
   } catch (err) { next(err); }
 });
@@ -926,11 +1139,12 @@ chatbotRouter.post('/contatos/:id/assumir', async (req, res, next) => {
       if (!cur || cur.departamento_id == null) patch.departamento_id = meuDept;
     }
     const { data, error } = await req.supabase.from('chatbot-contatos')
-      .update(patch).eq('id', id).select('id,atendente_id,departamento_id,statuschat').single();
+      .update(patch).eq('id', id).select('id,atendente_id,departamento_id,statuschat,departamento').single();
     if (error) throw error;
-    // Marca o INÍCIO do atendimento como mensagem interna ('inicio') -> vira o registro
-    // "Atendimento iniciado às HH:MM" no histórico da conversa. Não vai pro canal nem vira preview.
-    try { await req.supabase.from('chatbot-mensagens').insert({ contato: id, tipomidia: 'inicio', texto: null, enviadopor: nomeAtendente(req.user) }); } catch (e) { /* best-effort */ }
+    // Marca o INÍCIO ('inicio'): dados estruturados (departamento + atendente) em JSON no
+    // texto; a data/hora vem do created_at. Não vai pro canal nem vira preview.
+    const _nomeIni = nomeAtendente(req.user);
+    try { await req.supabase.from('chatbot-mensagens').insert({ contato: id, tipomidia: 'inicio', texto: JSON.stringify({ dept: data.departamento || null, atend: _nomeIni }), enviadopor: _nomeIni }); } catch (e) { /* best-effort */ }
     res.json({ contato: { id: data.id, atendenteId: data.atendente_id || null, departamentoId: data.departamento_id || null, status: data.statuschat } });
   } catch (err) { next(err); }
 });
@@ -1096,7 +1310,10 @@ async function vendasKpiPorCliente(empresaId) {
 }
 
 // ---- POST /api/chatbot/contatos/:id/midia (imagem/audio/video/arquivo) ----
-chatbotRouter.post('/contatos/:id/midia', upload.single('arquivo'), async (req, res, next) => {
+chatbotRouter.post('/contatos/:id/midia', (req, res, next) => upload.single('arquivo')(req, res, (err) => {
+  if (err) return res.status(err.code === 'LIMIT_FILE_SIZE' ? 413 : 400).json({ error: err.code === 'LIMIT_FILE_SIZE' ? 'Arquivo muito grande (máx. 100 MB).' : 'Falha ao receber o arquivo.' });
+  next();
+}), async (req, res, next) => {
   try {
     const id = uuid.parse(req.params.id);
     if (!req.file) return res.status(400).json({ error: 'Nenhum arquivo enviado.' });

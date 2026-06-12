@@ -29,6 +29,7 @@ function CadastrosPage() {
     { id: 'marcas', label: 'Marcas', desc: 'Fabricantes e grifes', icon: 'tag' },
     { id: 'unidades', label: 'Unidades', desc: 'Unidades de medida', icon: 'reports' },
     { id: 'departamentos', label: 'Departamentos', desc: 'Setores internos', icon: 'folder', route: 'cad-departamentos' },
+    { id: 'origens', label: 'Origem do Cliente', desc: 'De onde os clientes chegam', icon: 'tag', route: 'cad-origens' },
     { id: 'roteamento', label: 'Roteamento', desc: 'Destino e distribuição dos contatos', icon: 'filter', route: 'cad-roteamento' },
   ];
 

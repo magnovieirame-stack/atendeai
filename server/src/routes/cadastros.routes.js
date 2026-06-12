@@ -79,6 +79,55 @@ cadastrosRouter.delete('/departamentos/:id', async (req, res, next) => {
 });
 
 // =====================================================================
+// ORIGEM DO CLIENTE — de onde o cliente chegou (Instagram, Indicação…). 2 campos.
+// =====================================================================
+const mapOrigem = (o) => ({ id: o.id, nome: o.nome, descricao: o.descricao || '', criadoEm: o.created_at });
+cadastrosRouter.get('/origens', async (req, res, next) => {
+  try {
+    const empresaId = await empresaDe(req);
+    if (!empresaId) return res.json({ origens: [] });
+    const { data, error } = await db().from('origens').select('*').eq('empresa', empresaId).order('nome');
+    if (error) throw error;
+    res.json({ origens: (data || []).map(mapOrigem) });
+  } catch (err) { next(err); }
+});
+cadastrosRouter.post('/origens', async (req, res, next) => {
+  try {
+    const empresaId = await empresaDe(req);
+    if (!empresaId) return res.status(400).json({ error: 'Sua conta não está vinculada a nenhuma empresa.' });
+    const nome = String((req.body && req.body.nome) || '').trim();
+    if (!nome) return res.status(422).json({ error: 'Informe o nome da origem.' });
+    const ins = await db().from('origens').insert({ empresa: empresaId, nome, descricao: String((req.body && req.body.descricao) || '').trim() || null }).select('*').single();
+    if (ins.error) throw ins.error;
+    res.status(201).json({ origem: mapOrigem(ins.data) });
+  } catch (err) { next(err); }
+});
+cadastrosRouter.patch('/origens/:id', async (req, res, next) => {
+  try {
+    const empresaId = await empresaDe(req);
+    if (!empresaId) return res.status(400).json({ error: 'Sua conta não está vinculada a nenhuma empresa.' });
+    const id = String(req.params.id || '');
+    const b = req.body || {};
+    const patch = {};
+    if (b.nome !== undefined) { const n = String(b.nome).trim(); if (!n) return res.status(422).json({ error: 'Nome é obrigatório.' }); patch.nome = n; }
+    if (b.descricao !== undefined) patch.descricao = String(b.descricao).trim() || null;
+    const upd = await db().from('origens').update(patch).eq('id', id).eq('empresa', empresaId).select('*').single();
+    if (upd.error) throw upd.error;
+    res.json({ origem: mapOrigem(upd.data) });
+  } catch (err) { next(err); }
+});
+cadastrosRouter.delete('/origens/:id', async (req, res, next) => {
+  try {
+    const empresaId = await empresaDe(req);
+    if (!empresaId) return res.status(400).json({ error: 'Sua conta não está vinculada a nenhuma empresa.' });
+    const id = String(req.params.id || '');
+    const del = await db().from('origens').delete().eq('id', id).eq('empresa', empresaId);
+    if (del.error) throw del.error;
+    res.json({ ok: true });
+  } catch (err) { next(err); }
+});
+
+// =====================================================================
 // ROTEAMENTO inicial — para onde o CONTATO NOVO vai primeiro (IA ou Departamento).
 //   1 linha por empresa em `atendimento_config`. RESILIENTE: se a migration 0036
 //   ainda não rodou, devolve o default ('ia') sem quebrar.

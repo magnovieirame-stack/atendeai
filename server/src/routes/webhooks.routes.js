@@ -31,7 +31,7 @@ const BUCKET = 'arquivos';
 // Acha (ou cria) o contato de uma pessoa, isolado por empresa+canal.
 async function acharOuCriarContato(db, { empresaId, canal, senderId, perfil }) {
   let { data: contato } = await db.from('chatbot-contatos')
-    .select('id,cliente_id,qtd_mensagem_nao_lida')
+    .select('id,cliente_id,qtd_mensagem_nao_lida,statuschat')
     .eq('empresa_id', empresaId).eq('origemcontato', canal).eq('external_id', senderId)
     .maybeSingle();
   if (contato) return contato;
@@ -44,7 +44,7 @@ async function acharOuCriarContato(db, { empresaId, canal, senderId, perfil }) {
 
   const { data: novo, error: ctErr } = await db.from('chatbot-contatos')
     .insert({ empresa_id: empresaId, cliente_id: cli.id, nome, origemcontato: canal, external_id: String(senderId), statuschat: 'ativo' })
-    .select('id,cliente_id,qtd_mensagem_nao_lida').single();
+    .select('id,cliente_id,qtd_mensagem_nao_lida,statuschat').single();
   if (ctErr) throw ctErr;
   return novo;
 }
@@ -52,6 +52,8 @@ async function acharOuCriarContato(db, { empresaId, canal, senderId, perfil }) {
 // Grava as mensagens recebidas e atualiza o contato (não lida + horário).
 async function salvarMensagens(db, contato, linhas) {
   if (!linhas.length) return;
+  // Contato BLOQUEADO: ignora as mensagens recebidas (não grava, não notifica).
+  if (contato && contato.statuschat === 'bloqueado') { console.log(`[wh] contato ${contato.id} bloqueado — ${linhas.length} mensagem(ns) ignorada(s)`); return; }
   const { error } = await db.from('chatbot-mensagens').insert(linhas.map((l) => ({ ...l, contato: contato.id, enviadopor: '' })));
   if (error) throw error;
   const ultima = linhas[linhas.length - 1].created_at || new Date().toISOString();

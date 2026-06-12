@@ -580,7 +580,7 @@
           <div className="fin-section">
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div><label className="label">Valor estimado (R$)</label><input className="input" type="number" value={f.value} onChange={(e) => set('value', Number(e.target.value) || 0)} /></div>
-              <div><label className="label">Origem</label><select className="input" value={f.source} onChange={(e) => set('source', e.target.value)}><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Google</option><option>Indicação</option><option>Site</option></select></div>
+              <div><label className="label">Origem</label><OrigemSelect value={f.source} onChange={(v) => set('source', v)} /></div>
             </div>
             <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 10 }}>
               <div>

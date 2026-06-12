@@ -64,6 +64,7 @@ function mapAppt(r, cli) {
     start: r.hora || '',           // 'HH:MM'
     dur: r.duracao || 60,
     resp: r.responsavel || '',
+    respNome: r.responsavel_nome || null,
     source: r.canal || 'manual',
     status: r.status || 'agendado',
     byAI: !!r.por_ia,

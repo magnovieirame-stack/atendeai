@@ -53,6 +53,21 @@ export async function sendMedia({ token, phoneNumberId, to, type, link, filename
   }, 'envio de mídia');
 }
 
+// Envio de um cartão de contato (vCard nativo do WhatsApp — tipo "contacts").
+export async function sendContact({ token, phoneNumberId, to, nome, telefone }) {
+  const fone = String(telefone || '').replace(/[^\d+]/g, '');     // mantém dígitos e +
+  const waId = fone.replace(/\D/g, '');                            // só dígitos p/ wa_id
+  const contact = {
+    name: { formatted_name: nome || 'Contato', first_name: nome || 'Contato' },
+    phones: fone ? [{ phone: fone, type: 'CELL', ...(waId ? { wa_id: waId } : {}) }] : [],
+  };
+  return callMeta(GRAPH + '/' + VERSION + '/' + phoneNumberId + '/messages', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token },
+    body: JSON.stringify({ messaging_product: 'whatsapp', recipient_type: 'individual', to, type: 'contacts', contacts: [contact] }),
+  }, 'envio de contato');
+}
+
 // Resolve a URL temporária de uma mídia recebida (precisa de token p/ baixar).
 export async function getMediaUrl(mediaId, token) {
   const data = await callMeta(GRAPH + '/' + VERSION + '/' + mediaId + '?access_token=' + encodeURIComponent(token), { method: 'GET' }, 'url da mídia');

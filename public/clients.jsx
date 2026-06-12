@@ -973,7 +973,7 @@
         {/* Informações comerciais */}
         <CliBlock icon="tag" title="Informações comerciais" color="#f59e0b">
           <div className="cli-grid-3">
-            <div><label className="label">Origem</label><select className="input" value={f.source} onChange={(e) => set('source', e.target.value)}><option>Instagram</option><option>WhatsApp</option><option>Facebook</option><option>Google</option><option>Indicação</option><option>Site</option></select></div>
+            <div><label className="label">Origem</label><OrigemSelect value={f.source} onChange={(v) => set('source', v)} /></div>
             <div><label className="label">Segmento</label><select className="input" value={f.segment} onChange={(e) => set('segment', e.target.value)}>{Object.entries(SEGMENTS).map(([id, s]) => <option key={id} value={id}>{s.label}</option>)}</select></div>
             <div><label className="label">Atendente</label><select className="input" value={f.attendant} onChange={(e) => set('attendant', e.target.value)}>{ATTENDANTS.filter((a) => a !== '—').map((a) => <option key={a} value={a}>{a}</option>)}</select></div>
           </div>
