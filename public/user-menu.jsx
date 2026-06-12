@@ -112,7 +112,7 @@ function UserMenu() {
 // Help widget — floating chat panel in bottom-right
 function HelpWidget({ onClose }) {
   const [msgs, setMsgs] = React.useState([
-  { from: 'agent', text: 'Olá! Sou o assistente do ATENDE.IA. Em que posso te ajudar?' }]
+  { from: 'agent', text: 'Olá! Sou o assistente do PK360. Em que posso te ajudar?' }]
   );
   const [input, setInput] = React.useState('');
   const [menu, setMenu] = React.useState(null); // 'emoji' | 'attach'
@@ -192,7 +192,7 @@ function HelpWidget({ onClose }) {
         <div className="hw-head-l">
           <div className="hw-logo"><Ic name="sparkles" size={16} /></div>
           <div>
-            <div className="hw-title">Suporte ATENDE.IA</div>
+            <div className="hw-title">Suporte PK360</div>
             <div className="hw-sub"><span className="dot dot-online" style={{ boxShadow: 'none' }} /> Resposta em ~2 min</div>
           </div>
         </div>

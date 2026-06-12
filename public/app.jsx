@@ -4,7 +4,7 @@ function TweaksUI() {
   const { tweaks, setTweak, setVerComo, auth } = useStore();
   const ehSuper = auth.papel === 'super_admin'; // só super admin de verdade vê o simulador "Ver como"
   return (
-    <TweaksPanel title="Tweaks · ATENDE.IA">
+    <TweaksPanel title="Tweaks · PK360">
       {ehSuper && <>
         <TweakSection label="Ver como (preview)" />
         <TweakRadio label="Ver como" value={tweaks.profile} options={[{value:'admin',label:'Admin'},{value:'atendente',label:'Atendente'},{value:'super',label:'Super'}]} onChange={v=>setVerComo(v)} />

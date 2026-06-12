@@ -325,9 +325,9 @@ function Sidebar({ collapsed = false, setCollapsed = () => {}, isMobile = false,
           aria-hidden="true"
           onClick={() => {if (collapsed) {setOpen({});setCollapsed(false);}}}
           title={collapsed ? 'Expandir menu' : ''}>
-          <img src="assets/simbolo.png" alt="Pk360" style={{ width: "36px", height: "36px" }} />
+          <img src="assets/simbolo.png" alt="PK360" style={{ width: "36px", height: "36px" }} />
         </div>
-        <div className="brand-name">Pk360<small>{(tweaks.profile === 'super' ? 'PLATAFORMA' : (auth.empresaNome || 'ATENDE.IA')).toUpperCase()}</small></div>
+        <div className="brand-name">PK360<small>{(tweaks.profile === 'super' ? 'PLATAFORMA' : (auth.empresaNome || 'Grow Business')).toUpperCase()}</small></div>
         <div className="menu-toggle brand-toggle" onClick={() => { if (isMobile) { onNavigate(); return; } setOpen({}); setCollapsed(!collapsed); }} title={isMobile ? 'Fechar menu' : (collapsed ? 'Expandir menu' : 'Recolher menu')}>
           <Ic name={isMobile ? 'x' : (collapsed ? 'menu-closed' : 'menu-open')} size={20} />
         </div>

@@ -542,7 +542,7 @@
           <ActionButton action="salvar" size="md" label="Imprimir" icon="file-text" onClick={handlePrint} /></>}>
         <div className="sale-print-paper">
           <div className="sale-print-hd">
-            <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: '.06em' }}>ATENDE.IA</div>
+            <div style={{ fontWeight: 800, fontSize: 14, letterSpacing: '.06em' }}>PK360</div>
             <div style={{ fontSize: 11, color: '#64748b' }}>Comprovante de Venda</div>
           </div>
           <div className="sale-print-row"><span>Venda</span><strong>Nº {sale.code}</strong></div>
