@@ -94,78 +94,64 @@ const MYAG_TABS = [
 // ============================================================================
 function MyAgendaDrawer({ agentName = 'Júlia', agentTitle = 'Atendimento', onClose }) {
   const [tab, setTab] = React.useState('horarios');
-  const [slotDuration, setSlotDuration] = React.useState(30);
-  const [bufferMin, setBufferMin] = React.useState(0);
-  const [advanceMin, setAdvanceMin] = React.useState(60);
-  const [horizon, setHorizon] = React.useState(30); // days ahead
-  const [avail, setAvail] = React.useState(MY_AG_DEFAULT_AVAIL);
+  // CACHE de tela (mesmo mecanismo das telas do sistema): reabrir o drawer é INSTANTÂNEO.
+  // useCachedQuery devolve do cache na hora e revalida em segundo plano (stale-while-revalidate).
+  const { data: pubData, setData: setPubCache } = useCachedQuery(['minha-agenda-config'], () => window.API.getMinhaAgendaConfig(), {});
+  const { data: meData } = useCachedQuery(['ma-me'], () => window.API.me(), {});
+  const { data: agData } = useCachedQuery(['ma-agenda'], () => window.API.getAgenda(), {});
+
+  const _pub = (pubData && pubData.publica) || null;
+  const _c0 = (_pub && _pub.config) || {};
+  const _notif0 = (n) => ({ emailCliente: n ? n.emailCliente !== false : true, whatsappLembrete: n ? n.whatsappLembrete !== false : true, meNotificar: n ? n.meNotificar !== false : true });
+
+  // Estado editável — JÁ inicializado do cache quando ele existe (reabrir = sem spinner e sem flash do default).
+  const [slotDuration, setSlotDuration] = React.useState(() => typeof _c0.slotDuration === 'number' ? _c0.slotDuration : 30);
+  const [bufferMin, setBufferMin] = React.useState(() => typeof _c0.bufferMin === 'number' ? _c0.bufferMin : 0);
+  const [advanceMin, setAdvanceMin] = React.useState(() => typeof _c0.advanceMin === 'number' ? _c0.advanceMin : 60);
+  const [horizon, setHorizon] = React.useState(() => typeof _c0.horizon === 'number' ? _c0.horizon : 30);
+  const [avail, setAvail] = React.useState(() => (_c0.avail && typeof _c0.avail === 'object') ? _c0.avail : MY_AG_DEFAULT_AVAIL);
   // Bloqueios manuais INDIVIDUAIS por data+hora: Set de 'YYYY-MM-DD-HH:MM'.
-  // (a Disponibilidade é recorrente; estes bloqueios valem só na data exata.)
-  const [bloqueios, setBloqueios] = React.useState(() => new Set());
-  // Identidade da agenda PÚBLICA — por usuário, vinda do backend (slug do link, título, on/off).
-  const [slug, setSlug] = React.useState('');
-  const [titulo, setTitulo] = React.useState('');
-  const [ativa, setAtiva] = React.useState(true);
-  // Notificações (controladas — persistidas junto da config).
-  const [notif, setNotif] = React.useState({ emailCliente: true, whatsappLembrete: true, meNotificar: true });
+  const [bloqueios, setBloqueios] = React.useState(() => new Set(Array.isArray(_c0.bloqueios) ? _c0.bloqueios : []));
+  // Identidade da agenda PÚBLICA — por usuário (slug do link, título, on/off).
+  const [slug, setSlug] = React.useState(() => (_pub && _pub.slug) || '');
+  const [titulo, setTitulo] = React.useState(() => (_pub && _pub.titulo) || '');
+  const [ativa, setAtiva] = React.useState(() => _pub ? _pub.ativa !== false : true);
+  const [notif, setNotif] = React.useState(() => _notif0(_c0.notif));
   const [saving, setSaving] = React.useState(false);
-  // Só renderiza o conteúdo depois que a config real chega — evita o "flash" do
-  // default (2 faixas) antes do salvo (1 faixa). Carregamento sem flicker.
-  const [carregado, setCarregado] = React.useState(false);
+  const [carregado, setCarregado] = React.useState(() => !!_pub);
   // Compromissos reais por data (só leitura, do módulo Agenda): { 'YYYY-MM-DD': [{ ini, dur }] }.
-  // Alimenta a aba "Esta semana": um agendamento real aparece OCUPADO (vermelho, só leitura).
   const [apptsByDate, setApptsByDate] = React.useState({});
 
-  // Carrega a config real do usuário ao abrir. Best-effort: em demo/sem backend, mantém os defaults.
+  // Primeira carga vinda da REDE (quando ainda não havia cache): aplica UMA vez no estado,
+  // sem clobberar edições do usuário (revalidação em background não reescreve o que ele mexeu).
+  const aplicadoRef = React.useRef(!!_pub);
   React.useEffect(() => {
-    let vivo = true;
-    (async () => {
-      try {
-        const r = await window.API.getMinhaAgendaConfig();
-        if (vivo && r && r.publica) {
-          const p = r.publica; const c = p.config || {};
-          setSlug(p.slug || '');
-          setTitulo(p.titulo || '');
-          setAtiva(p.ativa !== false);
-          if (typeof c.slotDuration === 'number') setSlotDuration(c.slotDuration);
-          if (typeof c.bufferMin === 'number') setBufferMin(c.bufferMin);
-          if (typeof c.advanceMin === 'number') setAdvanceMin(c.advanceMin);
-          if (typeof c.horizon === 'number') setHorizon(c.horizon);
-          if (c.avail && typeof c.avail === 'object') setAvail(c.avail);
-          if (Array.isArray(c.bloqueios)) setBloqueios(new Set(c.bloqueios));
-          if (c.notif && typeof c.notif === 'object') setNotif({
-            emailCliente: c.notif.emailCliente !== false,
-            whatsappLembrete: c.notif.whatsappLembrete !== false,
-            meNotificar: c.notif.meNotificar !== false,
-          });
-        }
-      } catch (e) { /* sem backend (demo) — segue com os defaults locais */ }
-      finally { if (vivo) setCarregado(true); }
-    })();
-    return () => { vivo = false; };
-  }, []);
+    if (aplicadoRef.current) return;
+    if (!pubData || !pubData.publica) return;
+    const p = pubData.publica; const c = p.config || {};
+    setSlug(p.slug || ''); setTitulo(p.titulo || ''); setAtiva(p.ativa !== false);
+    if (typeof c.slotDuration === 'number') setSlotDuration(c.slotDuration);
+    if (typeof c.bufferMin === 'number') setBufferMin(c.bufferMin);
+    if (typeof c.advanceMin === 'number') setAdvanceMin(c.advanceMin);
+    if (typeof c.horizon === 'number') setHorizon(c.horizon);
+    if (c.avail && typeof c.avail === 'object') setAvail(c.avail);
+    if (Array.isArray(c.bloqueios)) setBloqueios(new Set(c.bloqueios));
+    if (c.notif && typeof c.notif === 'object') setNotif(_notif0(c.notif));
+    aplicadoRef.current = true; setCarregado(true);
+  }, [pubData]);
 
-  // Lê (SÓ leitura) os compromissos reais da Agenda e indexa por data → [{ini,dur}].
-  // Usado pra mostrar OCUPADO (vermelho) na "Esta semana". Não altera a Agenda.
-  // Best-effort: em demo/sem backend, fica vazio.
+  // Compromissos reais (do cache da Agenda) → mostra OCUPADO na "Esta semana". Não altera a Agenda.
   React.useEffect(() => {
-    let vivo = true;
-    (async () => {
-      try {
-        const [meR, agR] = await Promise.all([window.API.me(), window.API.getAgenda()]);
-        if (!vivo) return;
-        const meId = meR && meR.user && meR.user.id;
-        const map = {};
-        ((agR && agR.agenda) || []).forEach((a) => {
-          if (!a.data || !a.start) return;
-          if (meId && a.resp && a.resp !== meId) return; // só os MEUS compromissos
-          (map[a.data] = map[a.data] || []).push({ ini: myAgTimeToMin(a.start), dur: a.dur || 30 });
-        });
-        setApptsByDate(map);
-      } catch (e) { /* demo/sem backend — sem compromissos reais */ }
-    })();
-    return () => { vivo = false; };
-  }, []);
+    if (!meData) return; // espera saber "quem sou" pra filtrar só os meus compromissos
+    const meId = meData && meData.user && meData.user.id;
+    const map = {};
+    ((agData && agData.agenda) || []).forEach((a) => {
+      if (!a.data || !a.start) return;
+      if (meId && a.resp && a.resp !== meId) return; // só os MEUS compromissos
+      (map[a.data] = map[a.data] || []).push({ ini: myAgTimeToMin(a.start), dur: a.dur || 30 });
+    });
+    setApptsByDate(map);
+  }, [agData, meData]);
 
   // Horários candidatos = UNIÃO das faixas configuradas (só dias ligados), no passo = slotDuration.
   // Assim a grade da "Esta semana" e o preview usam EXATAMENTE o que foi configurado na Disponibilidade.
@@ -213,6 +199,7 @@ function MyAgendaDrawer({ agentName = 'Júlia', agentTitle = 'Atendimento', onCl
       if (slug) dto.slug = slug;
       const r = await window.API.saveMinhaAgendaConfig(dto);
       if (r && r.publica && r.publica.slug) setSlug(r.publica.slug);
+      if (r && r.publica) setPubCache(r); // atualiza o cache → reabrir mostra o salvo na hora
       window.showToast({ tipo: 'sucesso', titulo: 'Agenda atualizada' });
       onClose && onClose();
     } catch (e) {

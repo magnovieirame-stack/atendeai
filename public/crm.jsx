@@ -289,36 +289,38 @@ function CRMList() {
 }
 
 function CRMBoard() {
-  const { setRoute, back, routeParam } = useStore();
+  const { setRoute, back, routeParam, auth } = useStore();
   const funilId = routeParam; // id do funil vindo da lista
   const [openCard, setOpenCard] = React.useState(null);
   const [view, setView] = React.useState('funnel');
   const [chatCard, setChatCard] = React.useState(null);
   const [apptCard, setApptCard] = React.useState(null);
   const [contractCard, setContractCard] = React.useState(null);
-  const [cards, setCards] = React.useState([]);
-  const [phases, setPhases] = React.useState([]);
-  const [funil, setFunil] = React.useState(null);
-  const [loading, setLoading] = React.useState(true);
-  React.useEffect(() => { if (phases.length) skelRemember('crm-phases', phases.length); }, [phases]);
-
   const cardFromApi = (c) => ({ _id: 'c' + c.id, _cardId: c.id, clienteId: c.clienteId, phase: c.faseId, name: c.name, company: c.company, phone: c.phone, email: c.email, value: c.value, foto: c.foto, date: fmtCardDate(c.criadoEm), tags: c.tags || [], tipo: c.tipo || 'cliente', responsavelId: c.responsavelId || null, responsavelNome: c.responsavelNome || null, pinned: c.fixado === true, pinnedAt: c.fixado === true ? 1 : null });
 
-  React.useEffect(() => {
-    let alive = true;
-    if (!funilId) { setLoading(false); return; }
-    setLoading(true);
-    API.getFunil(funilId)
-      .then((r) => {
-        if (!alive) return;
-        setFunil(r.funil);
-        setPhases((r.fases || []).map((f) => ({ id: f.id, label: f.label, color: f.color, pos: f.pos })));
-        setCards((r.cards || []).map(cardFromApi));
-      })
-      .catch(() => {})
-      .finally(() => { if (alive) setLoading(false); });
-    return () => { alive = false; };
-  }, [funilId]);
+  // CACHE de tela (igual à lista de funis): revisitar um funil é INSTANTÂNEO e revalida no fundo.
+  // O cache guarda { funil, fases, cards }. As mutações abaixo seguem usando setCards/setPhases —
+  // agora WRAPPERS que escrevem no cache —, então render e ações ficam IGUAIS e a revisita
+  // não "volta" os cards de lugar.
+  const { data: board, setData: setBoard } = useCachedQuery(
+    ['funil', funilId],
+    async () => {
+      const r = await API.getFunil(funilId);
+      return {
+        funil: r.funil || null,
+        fases: (r.fases || []).map((f) => ({ id: f.id, label: f.label, color: f.color, pos: f.pos })),
+        cards: (r.cards || []).map(cardFromApi),
+      };
+    },
+    { empresaId: auth && auth.empresaId, enabled: !!funilId },
+  );
+  const funil = (board && board.funil) || null;
+  const phases = (board && board.fases) || [];
+  const cards = (board && board.cards) || [];
+  const loading = !!funilId && !board; // sem cache (e com funil selecionado) = carregando
+  const setCards = React.useCallback((u) => setBoard((b) => { const base = b || { funil: null, fases: [], cards: [] }; return { ...base, cards: typeof u === 'function' ? u(base.cards || []) : u }; }), [setBoard]);
+  const setPhases = React.useCallback((u) => setBoard((b) => { const base = b || { funil: null, fases: [], cards: [] }; return { ...base, fases: typeof u === 'function' ? u(base.fases || []) : u }; }), [setBoard]);
+  React.useEffect(() => { if (phases.length) skelRemember('crm-phases', phases.length); }, [phases.length]);
   const [confirmDel, setConfirmDel] = React.useState(null);
   const [editPhase, setEditPhase] = React.useState(null);
   const [addingTo, setAddingTo] = React.useState(null);
