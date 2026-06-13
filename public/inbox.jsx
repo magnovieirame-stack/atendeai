@@ -483,15 +483,16 @@ function Inbox() {
   // só Admin de Loja (ou quem tem a permissão de gerenciar atendimento) vê as Configurações.
   const podeConfig = auth.papel === 'admin_loja' || (can && can('atendimento.gerenciar'));
   const [extraConvs, setExtraConvs] = React.useState([]);
-  // Conversas reais (API). null = ainda carregando.
-  const [dbConvs, setDbConvs] = React.useState(null);
-  const [convError, setConvError] = React.useState('');
-  const refetchContatos = React.useCallback(() => {
-    return API.getContatos()
-      .then((r) => setDbConvs((r.contatos || []).map(dbContatoToConv)))
-      .catch((e) => { setDbConvs((p) => p || []); setConvError(e.message || 'Erro ao carregar conversas'); });
-  }, []);
-  React.useEffect(() => { refetchContatos(); }, [refetchContatos]);
+  // Conversas reais (API) com CACHE de tela: voltar ao inbox é INSTANTÂNEO e o polling
+  // revalida em segundo plano. As mutações abaixo seguem usando setDbConvs (agora escreve no
+  // cache) e refetchContatos (agora = reload do cache) — render, polling e filhos ficam IGUAIS.
+  const { data: _convData, setData: setDbConvs, reload: refetchContatos, error: _convErr } =
+    useCachedQuery(['inbox-convs'], async () => {
+      const r = await API.getContatos();
+      return (r.contatos || []).map(dbContatoToConv);
+    }, { empresaId: auth.empresaId });
+  const convError = _convErr || '';
+  const dbConvs = convError ? (_convData || []) : _convData; // erro -> lista vazia (igual antes); senão null = carregando
   // Atualização automática: re-busca a lista de conversas a cada 6s (mensagens
   // novas chegam pelo webhook no Supabase; sem realtime, fazemos polling leve).
   // Pausa quando a aba não está visível pra economizar.
@@ -1555,12 +1556,14 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
     setLocalHandler(conv.handler);
     setMenu(null);setRecording(false);setModal(null);setToast(null);setReplyingTo(null);setSelecting(false);setSelectedIds([]);setPinIdx(0);setConfirmApagar(null);setPinDurMsg(null);setLightbox(null);
     if (conv._db) {
-      // conversa real: busca as mensagens na API
-      setLoadingMsgs(true);
+      // conversa real: SEMEIA do cache leve (revisita instantânea) e busca na API pra atualizar.
+      const cached = window.screenCacheGet && window.screenCacheGet('msgs-' + conv.id);
+      if (cached !== undefined) { setMessages(cached); setLoadingMsgs(false); }
+      else { setLoadingMsgs(true); }
       let alive = true;
       API.getMensagens(conv.id)
         .then((r) => { if (alive) setMessages((r.mensagens || []).map(dbMsgToUi)); })
-        .catch(() => { if (alive) setMessages([]); })
+        .catch(() => { if (alive && cached === undefined) setMessages([]); })
         .finally(() => { if (alive) setLoadingMsgs(false); });
       return () => { alive = false; };
     } else {
@@ -1589,6 +1592,11 @@ function ConvThread({ conv, composing, setComposing, onOpenContext, onConvChange
     }, 4000);
     return () => clearInterval(id);
   }, [conv.id, conv._db]);
+
+  // Grava as mensagens no cache leve -> revisita da conversa é instantânea (inclui updates do poll/envio).
+  React.useEffect(() => {
+    if (conv._db && !loadingMsgs && messages && messages.length && window.screenCacheSet) window.screenCacheSet('msgs-' + conv.id, messages);
+  }, [messages, conv.id, loadingMsgs, conv._db]);
 
   // Rola pro FIM (última mensagem). Ao ABRIR/trocar de conversa, sempre nasce no fim
   // — depois dos balões renderizarem (loadingMsgs false), não na skeleton. Em mensagem
@@ -2572,10 +2580,12 @@ function TabFicha({ conv }) {
   React.useEffect(() => {
     let alive = true;
     if (!conv.clienteId) { setCliente(null); setLoading(false); return; }
-    setLoading(true);
+    const ck = 'cliente-' + conv.clienteId;
+    const cached = window.screenCacheGet && window.screenCacheGet(ck);
+    if (cached !== undefined) { setCliente(cached); setLoading(false); } else { setLoading(true); } // semeia do cache (instantâneo)
     API.getCliente(conv.clienteId)
-      .then((r) => { if (alive) setCliente(r.cliente); })
-      .catch(() => { if (alive) setCliente(null); })
+      .then((r) => { if (alive) { setCliente(r.cliente); window.screenCacheSet && window.screenCacheSet(ck, r.cliente); } })
+      .catch(() => { if (alive && cached === undefined) setCliente(null); })
       .finally(() => { if (alive) setLoading(false); });
     return () => { alive = false; };
   }, [conv.clienteId]);
@@ -2622,7 +2632,7 @@ function TabFicha({ conv }) {
     const patch = {};
     Object.keys(COL).forEach((k) => { if ((draft[k] || '') !== (cliente[k] || '')) patch[COL[k]] = draft[k] === '' ? null : draft[k]; });
     try {
-      if (Object.keys(patch).length) { const r = await API.updateCliente(conv.clienteId, patch); setCliente(r.cliente); }
+      if (Object.keys(patch).length) { const r = await API.updateCliente(conv.clienteId, patch); setCliente(r.cliente); window.screenCacheSet && window.screenCacheSet('cliente-' + conv.clienteId, r.cliente); }
       setEditing(false);
     } catch (e) { /* mantém em edição */ }
     setSaving(false);
@@ -2898,10 +2908,12 @@ function TabMidias({ conv }) {
   React.useEffect(() => {
     let alive = true;
     if (!conv || !conv._db) { setMidias([]); return; }
-    setMidias(null);
+    const ck = 'midias-' + conv.id;
+    const cached = window.screenCacheGet && window.screenCacheGet(ck);
+    setMidias(cached !== undefined ? cached : null); // semeia do cache (instantâneo) ou null = carregando
     API.getMidias(conv.id)
-      .then((r) => { if (alive) setMidias((r.midias || []).map((m) => ({ ...m, _id: m.id, filename: m.titulo || 'arquivo', meta: [m.formato, m.tamanho ? fmtTamanho(m.tamanho) : null].filter(Boolean).join(' · '), time: fmtHora(m.criadoEm) }))); })
-      .catch(() => { if (alive) setMidias([]); });
+      .then((r) => { if (alive) { const ui = (r.midias || []).map((m) => ({ ...m, _id: m.id, filename: m.titulo || 'arquivo', meta: [m.formato, m.tamanho ? fmtTamanho(m.tamanho) : null].filter(Boolean).join(' · '), time: fmtHora(m.criadoEm) })); setMidias(ui); window.screenCacheSet && window.screenCacheSet(ck, ui); } })
+      .catch(() => { if (alive && cached === undefined) setMidias([]); });
     return () => { alive = false; };
   }, [conv && conv.id]);
 
@@ -2971,8 +2983,10 @@ function TabHistorico({ conv }) {
   React.useEffect(() => {
     let alive = true;
     if (!conv || !conv._db) { setHist([]); return; }
-    setHist(null);
-    API.getHistorico(conv.id).then((r) => { if (alive) setHist(r.historico || []); }).catch(() => { if (alive) setHist([]); });
+    const ck = 'hist-' + conv.id;
+    const cached = window.screenCacheGet && window.screenCacheGet(ck);
+    setHist(cached !== undefined ? cached : null); // semeia do cache (instantâneo) ou null = carregando
+    API.getHistorico(conv.id).then((r) => { if (alive) { const h = r.historico || []; setHist(h); window.screenCacheSet && window.screenCacheSet(ck, h); } }).catch(() => { if (alive && cached === undefined) setHist([]); });
     return () => { alive = false; };
   }, [conv && conv.id]);
   const fmtWhen = (at) => {

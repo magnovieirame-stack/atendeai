@@ -391,10 +391,18 @@ function useCachedQuery(key, fetcher, opts = {}) {
 // Limpa TODO o cache (logout / volta pro login / troca de sessão): nunca mostrar
 // dado de uma sessão/loja anterior. A chave por empresa já isola; isto é o cinto
 // de segurança. Notifica os listeners pra telas montadas recarregarem do zero.
+// Cache LEVE de tela por chave de string — revisita instantânea de telas que não usam
+// useCachedQuery (ex.: mensagens / ficha / mídias / histórico do chatbot). É aditivo:
+// quem usa SEMEIA o estado do cache na hora e GRAVA quando atualiza. Limpo no logout.
+const SCREEN_CACHE = new Map();
+function screenCacheGet(key) { return SCREEN_CACHE.get(key); }
+function screenCacheSet(key, val) { if (key != null) SCREEN_CACHE.set(key, val); }
+
 function clearQueryCache() {
   QUERY_CACHE.clear();
   QUERY_INFLIGHT.clear();
   QUERY_ERR.clear();
+  SCREEN_CACHE.clear();
   QUERY_ACTIVE_EMPRESA = undefined;
   QUERY_LISTENERS.forEach((s) => s.forEach((fn) => fn()));
 }
@@ -414,7 +422,7 @@ function useClientes(empresaId, mapFn) {
   );
   return { rows: data || [], loading, error, reload, setRows: setData };
 }
-Object.assign(window, { useCachedQuery, loadQuery, clearQueryCache, useClientes });
+Object.assign(window, { useCachedQuery, loadQuery, clearQueryCache, useClientes, screenCacheGet, screenCacheSet });
 
 // ---------- helpers de formatação ----------
 function fmtHora(iso) {
