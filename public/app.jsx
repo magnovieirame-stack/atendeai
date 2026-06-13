@@ -28,6 +28,11 @@ function TweaksUI() {
 }
 
 function App() {
+  // Página pública de agendamento (/agendar/:slug) — renderiza SEM login nem shell.
+  const m = (window.location.pathname || '').match(/^\/agendar\/([^\/\s]+)\/?$/);
+  if (m && window.AgendarPublico) {
+    return (<><AgendarPublico slug={decodeURIComponent(m[1])} /><ToastHost /></>);
+  }
   return (
     <Provider>
       <AppInner/>

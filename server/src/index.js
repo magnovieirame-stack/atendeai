@@ -26,6 +26,7 @@ import { webhooksRouter } from './routes/webhooks.routes.js';
 import { plataformaRouter } from './routes/plataforma.routes.js';
 import { equipeRouter } from './routes/equipe.routes.js';
 import { cadastrosRouter } from './routes/cadastros.routes.js';
+import { agendaPublicoRouter } from './routes/agenda-publico.routes.js';
 
 const app = express();
 
@@ -43,6 +44,11 @@ app.use(cookieParser());
 // A Meta chama estas rotas; precisam responder rápido e não podem ser barradas
 // pelo limitador da API. A segurança vem da assinatura HMAC, não do login.
 app.use('/api/webhooks', webhooksRouter);
+
+// --- Agenda pública (link de agendamento, SEM login) ---
+// O cliente final abre /api/publico/agenda/:slug pra ver horários livres e marcar.
+// Sem requireAuth: o dono/empresa saem SEMPRE do slug. Rate limit p/ conter abuso.
+app.use('/api/publico', apiLimiter, agendaPublicoRouter);
 
 // --- API (tudo sob /api) ---
 const api = express.Router();

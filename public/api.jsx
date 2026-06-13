@@ -201,6 +201,12 @@ const API = {
   deleteCategoria(id) { return this._req('/agenda/categorias/' + id, { method: 'DELETE' }); },
   getAgendaConfig() { return this._req('/agenda/config'); },
   saveAgendaConfig(dto) { return this._json('/agenda/config', 'PUT', dto); },
+  // Minha Agenda (link público) — config POR USUÁRIO (slug, título, disponibilidade, regras).
+  getMinhaAgendaConfig() { return this._req('/agenda/publica/config'); },
+  saveMinhaAgendaConfig(dto) { return this._json('/agenda/publica/config', 'PUT', dto); },
+  // Agenda pública (página /agendar/:slug — SEM login; resolvido pelo slug).
+  getAgendaPublica(slug) { return this._req('/publico/agenda/' + encodeURIComponent(slug)); },
+  reservarAgendaPublica(slug, dto) { return this._json('/publico/agenda/' + encodeURIComponent(slug) + '/reservar', 'POST', dto); },
   // --- Notificações ---
   getNotificacoes() { return this._req('/notificacoes'); },
   markNotificacaoRead(id) { return this._json('/notificacoes/' + id, 'PATCH', { lida: true }); },

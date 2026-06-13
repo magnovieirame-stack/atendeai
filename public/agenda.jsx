@@ -569,6 +569,42 @@ function TasksSkeleton() {
     </div>);
 }
 
+// Eventos de uma célula de dia no mês. Mostra ~3 e, quando há mais, a célula é
+// apertada: a lista rola dentro de si (barra de rolagem INVISÍVEL) e o rótulo
+// "+ N mais" vira um botão — cada clique rola um pouco; ao chegar no fim, volta ao topo.
+function MonthCellEvents({ evs, evProps }) {
+  const ref = React.useRef(null);
+  const temMais = evs.length > 3;
+  const rolar = (e) => {
+    e.stopPropagation(); // não dispara "novo agendamento neste dia"
+    const el = ref.current;
+    if (!el) return;
+    const noFim = el.scrollTop + el.clientHeight >= el.scrollHeight - 2;
+    if (noFim) el.scrollTo({ top: 0, behavior: 'smooth' });            // circular: recomeça do topo
+    else el.scrollBy({ top: Math.max(40, el.clientHeight - 6), behavior: 'smooth' }); // rola ~uma "página"
+  };
+  return (
+    <div className="month-cell-evs-wrap">
+      <div className="month-cell-evs" ref={ref}>
+        {evs.map((e, j) => (
+          <div
+            key={j}
+            className="month-ev"
+            style={{ background: `color-mix(in oklab, ${catColor(e.type)} 16%, var(--surface))`, color: catColor(e.type), borderLeft: `3px solid ${catColor(e.type)}`, fontSize: "10px", cursor: 'pointer' }}
+            {...evProps(e)}>
+            <strong className="tnum">{e.start}</strong> {e.client}
+          </div>
+        ))}
+      </div>
+      {temMais && (
+        <button type="button" className="month-ev-more" onClick={rolar} title="Mais agendamentos — clique para rolar">
+          + {evs.length - 3} mais
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MonthView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onNewAt, onOpenDay, meId }) {
   const year = cursor.getFullYear();
   const month = cursor.getMonth();
@@ -602,18 +638,7 @@ function MonthView({ cursor, appts = APPOINTMENTS, onView, onEdit, onDelete, onN
               onClick={c.cur && onNewAt ? () => onNewAt(ymd(new Date(year, month, c.d))) : undefined}
               title={c.cur ? 'Novo agendamento neste dia' : undefined}>
               <div className="month-cell-day" style={{ height: "14px" }}>{c.d.toString().padStart(2, '0')}</div>
-              <div className="month-cell-evs">
-                {evs.slice(0, 3).map((e, j) =>
-                <div
-                  key={j}
-                  className="month-ev"
-                  style={{ background: `color-mix(in oklab, ${catColor(e.type)} 16%, var(--surface))`, color: catColor(e.type), borderLeft: `3px solid ${catColor(e.type)}`, fontSize: "10px", cursor: 'pointer' }}
-                  {...evProps(e)}>
-                    <strong className="tnum">{e.start}</strong> {e.client}
-                  </div>
-                )}
-                {evs.length > 3 && <div style={{ fontSize: 10, color: 'var(--text-faint)', padding: '1px 5px' }}>+ {evs.length - 3} mais</div>}
-              </div>
+              <MonthCellEvents evs={evs} evProps={evProps} />
             </div>);
 
         })}
@@ -2142,9 +2167,16 @@ function AgendaStyles() {
       .month-cell:hover { transform: translateY(-2px); box-shadow: 0 6px 16px rgba(15,23,42,.08); border-color:var(--accent); z-index:2; }
       .month-cell-day { font-size:13px; color:var(--text-muted); font-weight:600; font-variant-numeric: tabular-nums; }
       .month-cell[data-today="true"] .month-cell-day { color:var(--accent-700); }
-      .month-cell-evs { display:flex; flex-direction:column; gap:3px; margin-top:3px; }
-      .month-ev { padding:2px 6px; border-radius:4px; font-size:10.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default; transition:filter .12s; }
+      .month-cell-evs-wrap { display:flex; flex-direction:column; margin-top:3px; gap:2px; min-height:0; }
+      /* lista rolável SÓ dentro da célula do dia — altura fixa (~3 itens) + barra INVISÍVEL.
+         altura fixa garante que o scroll fica preso aqui, sem vazar pra página. */
+      .month-cell-evs { display:flex; flex-direction:column; gap:3px; max-height:66px; overflow-y:auto; scrollbar-width:none; -ms-overflow-style:none; }
+      .month-cell-evs::-webkit-scrollbar { width:0; height:0; display:none; }
+      .month-ev { flex-shrink:0; padding:2px 6px; border-radius:4px; font-size:10.5px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; cursor:default; transition:filter .12s; }
       .month-ev:hover { filter:brightness(.97); }
+      /* "+ N mais" clicável: rola a lista; hover no verde do kit */
+      .month-ev-more { flex-shrink:0; align-self:flex-start; border:none; background:transparent; font:inherit; font-size:10px; font-weight:600; color:var(--text-faint); padding:1px 6px; border-radius:5px; cursor:pointer; transition: color .12s, background .12s; }
+      .month-ev-more:hover { color:var(--accent-700); background:var(--accent-soft); }
 
       .month-ev-pop {
         position:fixed; z-index:2400; width:248px;

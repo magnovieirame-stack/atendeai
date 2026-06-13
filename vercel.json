@@ -3,6 +3,6 @@
   "outputDirectory": "public",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/", "destination": "/ATENDE.IA.html" }
+    { "source": "/(.*)", "destination": "/ATENDE.IA.html" }
   ]
 }

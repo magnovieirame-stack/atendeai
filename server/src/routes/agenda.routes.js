@@ -394,6 +394,96 @@ agendaRouter.put('/config', validateBody(configSchema), async (req, res, next) =
   } catch (err) { next(err); }
 });
 
+// ===================== MINHA AGENDA (link público) =====================
+// Config da agenda PÚBLICA é POR USUÁRIO (não da empresa): cada user tem o SEU
+// link/slug, disponibilidade e regras, dentro do isolamento da empresa.
+// Tabela "agenda-publica-config", chaveada por (empresa_id, user_id); slug único.
+const PUBLICA = 'agenda-publica-config';
+
+// slug a partir de um nome: minúsculas, sem acento, só [a-z0-9-].
+function slugify(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40) || 'agenda';
+}
+
+// devolve um slug livre a partir de uma base (acrescenta -2, -3... se preciso).
+// `exceto` = user_id que pode "manter" o slug atual (na edição).
+async function slugUnico(base, exceto) {
+  const raiz = slugify(base);
+  for (let i = 0; i < 60; i++) {
+    const cand = i === 0 ? raiz : `${raiz}-${i + 1}`;
+    const { data } = await db().from(PUBLICA).select('user_id').eq('slug', cand).maybeSingle();
+    if (!data || (exceto && data.user_id === exceto)) return cand;
+  }
+  return `${raiz}-${Math.random().toString(36).slice(2, 7)}`;
+}
+
+function mapPublica(r) {
+  return {
+    slug: r.slug,
+    titulo: r.titulo || '',
+    ativa: r.ativa !== false,
+    config: r.config || {},
+  };
+}
+
+// pega a linha do usuário; se não existir, cria com slug derivado do nome dele.
+async function getOrCreatePublica(req, empresaId) {
+  const me = req.user.id;
+  const { data } = await db().from(PUBLICA).select('*').eq('empresa_id', empresaId).eq('user_id', me).maybeSingle();
+  if (data) return data;
+  const md = req.user.user_metadata || {};
+  const nome = md.name || md.nome || (req.user.email || '').split('@')[0] || 'agenda';
+  const slug = await slugUnico(nome);
+  const ins = await db().from(PUBLICA)
+    .insert({ empresa_id: empresaId, user_id: me, slug, titulo: md.name || md.nome || 'Agendamento', ativa: true, config: {} })
+    .select('*').single();
+  if (ins.error) throw ins.error;
+  return ins.data;
+}
+
+agendaRouter.get('/publica/config', async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const row = await getOrCreatePublica(req, empresaId);
+    res.json({ publica: mapPublica(row) });
+  } catch (err) { next(err); }
+});
+
+const publicaSchema = z.object({
+  slug: z.string().trim().min(2, 'Link muito curto.').max(40)
+    .regex(/^[a-z0-9-]+$/, 'Use só letras minúsculas, números e hífen.').optional(),
+  titulo: z.string().trim().max(120).optional(),
+  ativa: z.coerce.boolean().optional(),
+  config: z.record(z.any()).optional(),
+}).strip();
+
+agendaRouter.put('/publica/config', validateBody(publicaSchema), async (req, res, next) => {
+  try {
+    const empresaId = await getEmpresaId(req);
+    const me = req.user.id;
+    const atual = await getOrCreatePublica(req, empresaId); // garante a linha
+    const patch = { updated_at: new Date().toISOString() };
+    if (req.body.titulo !== undefined) patch.titulo = req.body.titulo;
+    if (req.body.ativa !== undefined) patch.ativa = req.body.ativa;
+    if (req.body.config !== undefined) patch.config = req.body.config;
+    if (req.body.slug !== undefined && req.body.slug !== atual.slug) {
+      // slug é a chave do link público — não pode colidir com o de outro usuário.
+      const { data: ex } = await db().from(PUBLICA).select('user_id').eq('slug', req.body.slug).maybeSingle();
+      if (ex && ex.user_id !== me) return res.status(409).json({ error: 'Esse link já está em uso. Escolha outro.' });
+      patch.slug = req.body.slug;
+    }
+    const { data, error } = await db().from(PUBLICA)
+      .update(patch).eq('empresa_id', empresaId).eq('user_id', me).select('*').single();
+    if (error) throw error;
+    res.json({ publica: mapPublica(data) });
+  } catch (err) { next(err); }
+});
+
 agendaRouter.post('/', validateBody(apptSchema), async (req, res, next) => {
   try {
     const empresaId = await getEmpresaId(req);

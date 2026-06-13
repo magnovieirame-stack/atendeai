@@ -37,6 +37,21 @@ function myAgTimeToMin(t) {
   return h * 60 + m;
 }
 
+function myAgMinToStr(m) {
+  return `${String(Math.floor(m / 60)).padStart(2, '0')}:${String(m % 60).padStart(2, '0')}`;
+}
+
+// 'YYYY-MM-DD' no fuso local (sem deslocar).
+function myAgYmd(d) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+// Segunda-feira da semana de uma data.
+function myAgSegunda(d) {
+  const n = new Date(d); const wd = n.getDay(); const diff = wd === 0 ? -6 : 1 - wd;
+  n.setDate(n.getDate() + diff); n.setHours(0, 0, 0, 0); return n;
+}
+const MYAG_MESES = ['jan', 'fev', 'mar', 'abr', 'mai', 'jun', 'jul', 'ago', 'set', 'out', 'nov', 'dez'];
+
 // Build "default availability map" from weekly availability config
 function myAgBuildAvailMap(avail, slots) {
   const map = {};
@@ -53,6 +68,27 @@ function myAgBuildAvailMap(avail, slots) {
   return map;
 }
 
+// slug a partir de um texto (espelha o slugify do backend): minúsculas, sem acento, só [a-z0-9-].
+function myAgSlugify(s) {
+  return String(s || '')
+    .normalize('NFD').replace(/[̀-ͯ]/g, '')
+    .toLowerCase().trim()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 40);
+}
+
+// Domínio público do PK360 (onde o app está hospedado) — usado no link de agendamento.
+const MYAG_DOMINIO = 'www.pk360.app.br';
+
+// Abas do drawer (ordem define a posição da barra de destaque deslizante).
+const MYAG_TABS = [
+  ['horarios', 'Disponibilidade', 'clock'],
+  ['semana',   'Esta semana',     'calendar'],
+  ['preview',  'Página pública',  'external-link'],
+  ['regras',   'Regras',          'settings'],
+];
+
 // ============================================================================
 // Main drawer
 // ============================================================================
@@ -63,104 +99,207 @@ function MyAgendaDrawer({ agentName = 'Júlia', agentTitle = 'Atendimento', onCl
   const [advanceMin, setAdvanceMin] = React.useState(60);
   const [horizon, setHorizon] = React.useState(30); // days ahead
   const [avail, setAvail] = React.useState(MY_AG_DEFAULT_AVAIL);
-  // overrides: { 'wd-slot': 'blocked' | 'available' } — per-weekday template overrides
-  const [overrides, setOverrides] = React.useState({
-    '2-10:00': 'blocked', // exemplo: ter 10h ocupado
-    '4-15:30': 'blocked', // exemplo: qui 15h30 ocupado
-  });
+  // Bloqueios manuais INDIVIDUAIS por data+hora: Set de 'YYYY-MM-DD-HH:MM'.
+  // (a Disponibilidade é recorrente; estes bloqueios valem só na data exata.)
+  const [bloqueios, setBloqueios] = React.useState(() => new Set());
+  // Identidade da agenda PÚBLICA — por usuário, vinda do backend (slug do link, título, on/off).
+  const [slug, setSlug] = React.useState('');
+  const [titulo, setTitulo] = React.useState('');
+  const [ativa, setAtiva] = React.useState(true);
+  // Notificações (controladas — persistidas junto da config).
+  const [notif, setNotif] = React.useState({ emailCliente: true, whatsappLembrete: true, meNotificar: true });
+  const [saving, setSaving] = React.useState(false);
+  // Só renderiza o conteúdo depois que a config real chega — evita o "flash" do
+  // default (2 faixas) antes do salvo (1 faixa). Carregamento sem flicker.
+  const [carregado, setCarregado] = React.useState(false);
+  // Compromissos reais por data (só leitura, do módulo Agenda): { 'YYYY-MM-DD': [{ ini, dur }] }.
+  // Alimenta a aba "Esta semana": um agendamento real aparece OCUPADO (vermelho, só leitura).
+  const [apptsByDate, setApptsByDate] = React.useState({});
 
-  const slots = React.useMemo(() => myAgGenSlots(slotDuration), [slotDuration]);
-  const baseMap = React.useMemo(() => myAgBuildAvailMap(avail, slots), [avail, slots]);
+  // Carrega a config real do usuário ao abrir. Best-effort: em demo/sem backend, mantém os defaults.
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const r = await window.API.getMinhaAgendaConfig();
+        if (vivo && r && r.publica) {
+          const p = r.publica; const c = p.config || {};
+          setSlug(p.slug || '');
+          setTitulo(p.titulo || '');
+          setAtiva(p.ativa !== false);
+          if (typeof c.slotDuration === 'number') setSlotDuration(c.slotDuration);
+          if (typeof c.bufferMin === 'number') setBufferMin(c.bufferMin);
+          if (typeof c.advanceMin === 'number') setAdvanceMin(c.advanceMin);
+          if (typeof c.horizon === 'number') setHorizon(c.horizon);
+          if (c.avail && typeof c.avail === 'object') setAvail(c.avail);
+          if (Array.isArray(c.bloqueios)) setBloqueios(new Set(c.bloqueios));
+          if (c.notif && typeof c.notif === 'object') setNotif({
+            emailCliente: c.notif.emailCliente !== false,
+            whatsappLembrete: c.notif.whatsappLembrete !== false,
+            meNotificar: c.notif.meNotificar !== false,
+          });
+        }
+      } catch (e) { /* sem backend (demo) — segue com os defaults locais */ }
+      finally { if (vivo) setCarregado(true); }
+    })();
+    return () => { vivo = false; };
+  }, []);
 
-  // Final state per slot: blocked|available|busy
-  const stateFor = (wdId, slot) => {
-    const key = `${wdId}-${slot}`;
-    if (overrides[key]) return overrides[key];
-    return baseMap[wdId][slot];
+  // Lê (SÓ leitura) os compromissos reais da Agenda e indexa por data → [{ini,dur}].
+  // Usado pra mostrar OCUPADO (vermelho) na "Esta semana". Não altera a Agenda.
+  // Best-effort: em demo/sem backend, fica vazio.
+  React.useEffect(() => {
+    let vivo = true;
+    (async () => {
+      try {
+        const [meR, agR] = await Promise.all([window.API.me(), window.API.getAgenda()]);
+        if (!vivo) return;
+        const meId = meR && meR.user && meR.user.id;
+        const map = {};
+        ((agR && agR.agenda) || []).forEach((a) => {
+          if (!a.data || !a.start) return;
+          if (meId && a.resp && a.resp !== meId) return; // só os MEUS compromissos
+          (map[a.data] = map[a.data] || []).push({ ini: myAgTimeToMin(a.start), dur: a.dur || 30 });
+        });
+        setApptsByDate(map);
+      } catch (e) { /* demo/sem backend — sem compromissos reais */ }
+    })();
+    return () => { vivo = false; };
+  }, []);
+
+  // Horários candidatos = UNIÃO das faixas configuradas (só dias ligados), no passo = slotDuration.
+  // Assim a grade da "Esta semana" e o preview usam EXATAMENTE o que foi configurado na Disponibilidade.
+  const slots = React.useMemo(() => {
+    const set = new Set();
+    MY_AG_WD.forEach((wd) => {
+      const cfg = avail[wd.id];
+      if (!cfg || !cfg.on) return;
+      (cfg.ranges || []).forEach((r) => {
+        let m = myAgTimeToMin(r.from); const end = myAgTimeToMin(r.to);
+        while (m < end) { set.add(myAgMinToStr(m)); m += slotDuration; }
+      });
+    });
+    return [...set].sort();
+  }, [avail, slotDuration]);
+
+  // Estado base de um slot direto da disponibilidade (sem depender de grade pré-montada).
+  const baseState = (wdId, slot) => {
+    const cfg = avail[wdId];
+    if (!cfg || !cfg.on) return 'blocked';
+    const m = myAgTimeToMin(slot);
+    return (cfg.ranges || []).some((r) => m >= myAgTimeToMin(r.from) && m < myAgTimeToMin(r.to)) ? 'available' : 'blocked';
   };
 
-  const toggleSlot = (wdId, slot) => {
-    const cur = stateFor(wdId, slot);
-    const key = `${wdId}-${slot}`;
-    setOverrides(prev => {
-      const next = { ...prev };
-      if (cur === 'available') next[key] = 'blocked';
-      else if (cur === 'blocked' && baseMap[wdId][slot] === 'available') next[key] = 'available';
-      else delete next[key];
+  // Liga/desliga um bloqueio manual INDIVIDUAL (data+hora específica).
+  const toggleBloqueio = (dateStr, hhmm) => {
+    setBloqueios((prev) => {
+      const next = new Set(prev);
+      const key = `${dateStr}-${hhmm}`;
+      if (next.has(key)) next.delete(key); else next.add(key);
       return next;
     });
   };
 
-  const publicLink = `atende.ai/agendar/${agentName.toLowerCase()}-iguabela`;
+  // Link público a partir do slug real do usuário (fallback derivado do nome enquanto carrega).
+  const slugEfetivo = slug || myAgSlugify(agentName) || 'agenda';
+  const publicLink = `${MYAG_DOMINIO}/agendar/${slugEfetivo}`;
   const fullLink = `https://${publicLink}`;
+
+  // Persiste a config no backend (por usuário). Chamado pelo "Aplicar configuração".
+  const salvar = async () => {
+    setSaving(true);
+    try {
+      const dto = { titulo, ativa, config: { slotDuration, bufferMin, advanceMin, horizon, avail, bloqueios: [...bloqueios], notif } };
+      if (slug) dto.slug = slug;
+      const r = await window.API.saveMinhaAgendaConfig(dto);
+      if (r && r.publica && r.publica.slug) setSlug(r.publica.slug);
+      window.showToast({ tipo: 'sucesso', titulo: 'Agenda atualizada' });
+      onClose && onClose();
+    } catch (e) {
+      window.showToast({ tipo: 'erro', titulo: 'Não foi possível salvar', descricao: (e && e.message) || 'Tente novamente.' });
+    } finally { setSaving(false); }
+  };
 
   return (
     <Drawer
       title="Minha Agenda"
       subtitle={`Configure horários disponíveis e compartilhe seu link público de agendamento`}
       onClose={onClose}
-      width={920}
+      width="80vw"
       footer={
         <>
           <div className="muted" style={{ fontSize: 12, display: 'flex', alignItems: 'center', gap: 6 }}>
-            <Ic name="check" size={12} style={{ color: 'var(--accent)' }} /> Salvo automaticamente
+            <Ic name="user" size={12} style={{ color: 'var(--accent)' }} /> Sua agenda pessoal de agendamento
           </div>
           <div style={{ flex: 1 }} />
-          <ActionButton action="salvar" size="md" label="Aplicar configuração" onClick={() => { window.showToast({ tipo: 'sucesso', titulo: 'Agenda atualizada' }); onClose && onClose(); }} />
+          <ActionButton action="salvar" size="md" label={saving ? 'Salvando…' : 'Aplicar configuração'} disabled={saving} onClick={salvar} />
         </>
       }
     >
       <MyAgendaStyles />
 
       {/* Public link banner — always visible */}
-      <MyAgPublicLinkCard link={fullLink} display={publicLink} agentName={agentName} agentTitle={agentTitle} />
+      <MyAgPublicLinkCard link={fullLink} display={publicLink} slug={slugEfetivo} onSlugChange={(v) => setSlug(myAgSlugify(v))} ativa={ativa} onToggleAtiva={setAtiva} agentName={agentName} agentTitle={agentTitle} />
 
-      {/* Tab nav */}
+      {/* Tab nav — barra de destaque verde que desliza lateralmente até a aba ativa */}
       <div className="myag-tabs">
-        {[
-          ['horarios',   'Disponibilidade',   'clock'],
-          ['semana',     'Esta semana',       'calendar'],
-          ['preview',    'Página pública',    'external-link'],
-          ['regras',     'Regras',            'settings'],
-        ].map(([id, label, icon]) => (
+        <span className="myag-tab-ind" style={{ transform: `translateX(${Math.max(0, MYAG_TABS.findIndex((t) => t[0] === tab)) * 100}%)` }} />
+        {MYAG_TABS.map(([id, label, icon]) => (
           <button key={id} className={`myag-tab ${tab === id ? 'active' : ''}`} onClick={() => setTab(id)}>
             <Ic name={icon} size={14} /> {label}
           </button>
         ))}
       </div>
 
-      {tab === 'horarios' && (
-        <MyAgHoursPanel avail={avail} setAvail={setAvail} slotDuration={slotDuration} />
-      )}
+      {/* Conteúdo da aba com a animação padrão de entrada (mesma das telas: page-enter).
+          Enquanto a config real não chega, mostra um loading — sem flash do default. */}
+      <div key={carregado ? tab : '__load'} className="page-enter">
+        {!carregado ? (
+          <div className="myag-loading">
+            <span className="myag-spin" />
+            <span>Carregando sua agenda…</span>
+          </div>
+        ) : (<>
+        {tab === 'horarios' && (
+          <MyAgHoursPanel avail={avail} setAvail={setAvail} slotDuration={slotDuration} />
+        )}
 
-      {tab === 'semana' && (
-        <MyAgWeekPanel
-          slots={slots}
-          stateFor={stateFor}
-          toggleSlot={toggleSlot}
-          overrides={overrides}
-          clearOverrides={() => setOverrides({})}
-        />
-      )}
+        {tab === 'semana' && (
+          <MyAgWeekPanel
+            slots={slots}
+            avail={avail}
+            slotDuration={slotDuration}
+            baseState={baseState}
+            bloqueios={bloqueios}
+            toggleBloqueio={toggleBloqueio}
+            apptsByDate={apptsByDate}
+          />
+        )}
 
-      {tab === 'preview' && (
-        <MyAgPublicPreview
-          link={fullLink}
-          agentName={agentName}
-          agentTitle={agentTitle}
-          slots={slots}
-          stateFor={stateFor}
-        />
-      )}
+        {tab === 'preview' && (
+          <MyAgPublicPreview
+            link={fullLink}
+            agentName={agentName}
+            agentTitle={agentTitle}
+            slots={slots}
+            slotDuration={slotDuration}
+            baseState={baseState}
+            bloqueios={bloqueios}
+            apptsByDate={apptsByDate}
+          />
+        )}
 
-      {tab === 'regras' && (
-        <MyAgRulesPanel
-          slotDuration={slotDuration} setSlotDuration={setSlotDuration}
-          bufferMin={bufferMin} setBufferMin={setBufferMin}
-          advanceMin={advanceMin} setAdvanceMin={setAdvanceMin}
-          horizon={horizon} setHorizon={setHorizon}
-        />
-      )}
+        {tab === 'regras' && (
+          <MyAgRulesPanel
+            slotDuration={slotDuration} setSlotDuration={setSlotDuration}
+            bufferMin={bufferMin} setBufferMin={setBufferMin}
+            advanceMin={advanceMin} setAdvanceMin={setAdvanceMin}
+            horizon={horizon} setHorizon={setHorizon}
+            notif={notif} setNotif={setNotif}
+          />
+        )}
+        </>)}
+      </div>
     </Drawer>
   );
 }
@@ -168,25 +307,67 @@ function MyAgendaDrawer({ agentName = 'Júlia', agentTitle = 'Atendimento', onCl
 // ============================================================================
 // Public link card
 // ============================================================================
-function MyAgPublicLinkCard({ link, display, agentName, agentTitle }) {
+function MyAgPublicLinkCard({ link, display, slug, onSlugChange, ativa, onToggleAtiva, agentName, agentTitle }) {
   const [copied, setCopied] = React.useState(false);
+  const [editing, setEditing] = React.useState(false);
+  const [draft, setDraft] = React.useState(slug || '');
+  React.useEffect(() => { setDraft(slug || ''); }, [slug]);
   const copy = () => {
     try { navigator.clipboard?.writeText(link); } catch (_) {}
     setCopied(true);
     setTimeout(() => setCopied(false), 1800);
   };
+  const confirmar = () => {
+    const limpo = (draft || '').toLowerCase().replace(/[^a-z0-9-]+/g, '-').replace(/^-+|-+$/g, '');
+    if (limpo && limpo.length >= 2 && onSlugChange) onSlugChange(limpo);
+    setEditing(false);
+  };
   return (
-    <div className="myag-link-card">
+    <div className="myag-link-card" data-off={ativa === false}>
       <div className="myag-link-icon">
         <Ic name="link" size={20} />
       </div>
       <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--accent-700)' }}>
-          Link público de agendamento
+        <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div style={{ fontSize: 11, fontWeight: 700, letterSpacing: '.08em', textTransform: 'uppercase', color: 'var(--accent-700)' }}>
+            Link público de agendamento
+          </div>
+          {onToggleAtiva && (
+            <button
+              className="myag-link-state"
+              onClick={() => onToggleAtiva(!(ativa !== false))}
+              title={ativa !== false ? 'Link ativo — clique para desativar' : 'Link desativado — clique para ativar'}
+            >
+              <span className="myag-link-dot" data-on={ativa !== false} />
+              {ativa !== false ? 'Ativo' : 'Desativado'}
+            </button>
+          )}
         </div>
-        <div className="myag-link-url" title={link}>
-          <Ic name="lock" size={11} style={{ color: 'var(--accent-700)' }} /> {display}
-        </div>
+        {editing ? (
+          <div className="myag-link-edit">
+            <span className="myag-link-prefix">{MYAG_DOMINIO}/agendar/</span>
+            <input
+              className="input"
+              autoFocus
+              value={draft}
+              onChange={(e) => setDraft(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') confirmar(); if (e.key === 'Escape') { setDraft(slug || ''); setEditing(false); } }}
+              placeholder="seu-link"
+              style={{ height: 30, width: 200 }}
+            />
+            <button className="btn btn-sm btn-primary" onClick={confirmar}><Ic name="check" size={12} /></button>
+            <button className="btn btn-sm" onClick={() => { setDraft(slug || ''); setEditing(false); }}><Ic name="x" size={12} /></button>
+          </div>
+        ) : (
+          <div className="myag-link-url" title={link}>
+            <Ic name="lock" size={11} style={{ color: 'var(--accent-700)' }} /> {display}
+            {onSlugChange && (
+              <button className="myag-link-pencil" onClick={() => setEditing(true)} title="Personalizar o link">
+                <Ic name="edit" size={12} />
+              </button>
+            )}
+          </div>
+        )}
         <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>
           Envie este link para clientes — eles escolhem um horário livre e agendam direto com {agentName}.
         </div>
@@ -195,11 +376,7 @@ function MyAgPublicLinkCard({ link, display, agentName, agentTitle }) {
         <button className="btn btn-sm" onClick={() => window.open(link, '_blank')} title="Abrir em nova aba">
           <Ic name="external-link" size={13} /> Abrir
         </button>
-        <button
-          className={`btn btn-sm ${copied ? '' : 'btn-primary'}`}
-          onClick={copy}
-          style={copied ? { background: 'var(--accent-soft)', color: 'var(--accent-700)', borderColor: 'var(--accent)' } : {}}
-        >
+        <button className="btn btn-sm btn-primary" onClick={copy}>
           <Ic name={copied ? 'check' : 'copy'} size={13} /> {copied ? 'Copiado!' : 'Copiar link'}
         </button>
       </div>
@@ -264,9 +441,9 @@ function MyAgHoursPanel({ avail, setAvail, slotDuration }) {
                 <div className="myag-ranges">
                   {cfg.ranges.map((r, i) => (
                     <div key={i} className="myag-range">
-                      <TimeInput value={r.from} onChange={(v) => updateRange(wd.id, i, { from: v })} step={15} />
+                      <TimeInput value={r.from} onChange={(v) => updateRange(wd.id, i, { from: v })} step={slotDuration} />
                       <span className="muted" style={{ fontSize: 12 }}>até</span>
-                      <TimeInput value={r.to} onChange={(v) => updateRange(wd.id, i, { to: v })} step={15} />
+                      <TimeInput value={r.to} onChange={(v) => updateRange(wd.id, i, { to: v })} step={slotDuration} />
                       {cfg.ranges.length > 1 && (
                         <button className="btn btn-ghost btn-icon" title="Remover faixa" onClick={() => removeRange(wd.id, i)}>
                           <Ic name="trash" size={13} />
@@ -274,8 +451,8 @@ function MyAgHoursPanel({ avail, setAvail, slotDuration }) {
                       )}
                     </div>
                   ))}
-                  <button className="btn btn-sm myag-add-range" onClick={() => addRange(wd.id)}>
-                    <Ic name="plus" size={11} /> Faixa
+                  <button className="btn btn-sm btn-icon myag-add-range" onClick={() => addRange(wd.id)} title="Adicionar faixa de horário">
+                    <Ic name="plus" size={14} />
                   </button>
                 </div>
               ) : (
@@ -305,10 +482,50 @@ function MyAgHoursPanel({ avail, setAvail, slotDuration }) {
 // ============================================================================
 // Tab 2 — Week grid for manual blocking
 // ============================================================================
-function MyAgWeekPanel({ slots, stateFor, toggleSlot, overrides, clearOverrides }) {
-  // visible week ordered Seg→Dom
-  const weekOrder = [1, 2, 3, 4, 5, 6, 0];
-  const overrideCount = Object.keys(overrides).length;
+function MyAgWeekPanel({ slots, avail, slotDuration, baseState, bloqueios, toggleBloqueio, apptsByDate }) {
+  const [weekStart, setWeekStart] = React.useState(() => myAgSegunda(new Date()));
+  const [confirmar, setConfirmar] = React.useState(null); // { dateStr, hhmm, dateLabel, acao }
+  const [info, setInfo] = React.useState(null);           // { dateLabel, hhmm }
+
+  // 7 dias da semana exibida; só os dias LIGADOS na Disponibilidade aparecem (coluna some se off).
+  const dias = Array.from({ length: 7 }, (_, i) => { const d = new Date(weekStart); d.setDate(weekStart.getDate() + i); return d; })
+    .filter((d) => avail[d.getDay()] && avail[d.getDay()].on);
+
+  // Tem compromisso real cobrindo (data, hora)? (sobreposição com a duração do compromisso)
+  const realOcupado = (dateStr, hhmm) => {
+    const arr = apptsByDate[dateStr] || [];
+    const m = myAgTimeToMin(hhmm);
+    return arr.some((a) => a.ini < m + slotDuration && a.ini + a.dur > m);
+  };
+
+  // Estado de cada célula: blocked (fora do horário) | available (livre) | manual (bloqueio seu) | real (agendamento).
+  const cellState = (d, hhmm) => {
+    if (baseState(d.getDay(), hhmm) === 'blocked') return 'blocked';
+    const dateStr = myAgYmd(d);
+    if (realOcupado(dateStr, hhmm)) return 'real';
+    if (bloqueios.has(`${dateStr}-${hhmm}`)) return 'manual';
+    return 'available';
+  };
+
+  const rotuloDia = (d) => `${MY_AG_WD_LONG[d.getDay()]}, ${String(d.getDate()).padStart(2, '0')}/${String(d.getMonth() + 1).padStart(2, '0')}`;
+
+  const clicar = (d, hhmm, st) => {
+    if (st === 'blocked') return;
+    if (st === 'real') { setInfo({ dateLabel: rotuloDia(d), hhmm }); return; }     // B) só informa
+    setConfirmar({ dateStr: myAgYmd(d), hhmm, dateLabel: rotuloDia(d), acao: st === 'available' ? 'ocupar' : 'liberar' });
+  };
+  const aplicar = () => { if (confirmar) toggleBloqueio(confirmar.dateStr, confirmar.hhmm); setConfirmar(null); };
+
+  const shift = (dir) => { const d = new Date(weekStart); d.setDate(d.getDate() + dir * 7); setWeekStart(d); };
+  const fim = new Date(weekStart); fim.setDate(weekStart.getDate() + 6);
+  const labelSemana = `${weekStart.getDate()} ${MYAG_MESES[weekStart.getMonth()]} – ${fim.getDate()} ${MYAG_MESES[fim.getMonth()]} · ${fim.getFullYear()}`;
+
+  // bloqueios manuais DESTA semana (para o botão "Limpar")
+  const datasSemana = dias.map(myAgYmd);
+  const bloqSemana = [...bloqueios].filter((k) => datasSemana.some((ds) => k.startsWith(ds + '-')));
+  const limparSemana = () => bloqSemana.forEach((k) => { const i = k.lastIndexOf('-'); toggleBloqueio(k.slice(0, i), k.slice(i + 1)); });
+
+  const semConteudo = dias.length === 0 || slots.length === 0;
 
   return (
     <div className="myag-panel">
@@ -316,59 +533,113 @@ function MyAgWeekPanel({ slots, stateFor, toggleSlot, overrides, clearOverrides 
         <div>
           <div className="myag-h3">Esta semana</div>
           <div className="muted" style={{ fontSize: 13 }}>
-            Clique em qualquer slot para <strong style={{ color: 'var(--text)' }}>ocupar</strong> ou liberar. Slots verdes ficam visíveis no link público.
+            Bloqueie horários específicos de um dia (vale só naquela data). Agendamentos reais aparecem em vermelho automaticamente.
           </div>
         </div>
-        <div className="row" style={{ gap: 10 }}>
-          <div className="myag-legend">
-            <span><span className="myag-dot avail" /> Livre</span>
-            <span><span className="myag-dot busy" /> Ocupado</span>
-            <span><span className="myag-dot blocked" /> Fora do horário</span>
-          </div>
-          {overrideCount > 0 && (
-            <button className="btn btn-sm" onClick={clearOverrides}>
-              <Ic name="refresh" size={12} /> Limpar ({overrideCount})
-            </button>
-          )}
+        <div className="myag-legend">
+          <span><span className="myag-dot avail" /> Livre</span>
+          <span><span className="myag-dot busy" /> Ocupado</span>
+          <span><span className="myag-dot blocked" /> Fora do horário</span>
         </div>
       </div>
 
-      <div className="myag-week-wrap">
-        <div className="myag-week-grid" style={{ gridTemplateColumns: `64px repeat(7, 1fr)` }}>
-          <div />
-          {weekOrder.map(id => {
-            const wd = MY_AG_WD.find(w => w.id === id);
-            return (
-              <div key={id} className="myag-week-head">
-                <div className="myag-wh-abbr">{wd.abbr}</div>
+      {/* Navegador de semana (datas reais) */}
+      <div className="myag-weeknav">
+        <button className="myag-weeknav-btn" onClick={() => shift(-1)} title="Semana anterior"><Ic name="arrow-left" size={15} /></button>
+        <div className="myag-weeknav-label"><Ic name="calendar" size={13} /> {labelSemana}</div>
+        <button className="myag-weeknav-btn" onClick={() => shift(1)} title="Próxima semana"><Ic name="arrow-right" size={15} /></button>
+        <button className="myag-weeknav-btn" onClick={() => setWeekStart(myAgSegunda(new Date()))} title="Voltar para esta semana"><Ic name="refresh" size={13} /></button>
+        <div style={{ flex: 1 }} />
+        {bloqSemana.length > 0 && (
+          <button className="btn btn-sm" onClick={limparSemana} title="Remover seus bloqueios desta semana">
+            <Ic name="refresh" size={12} /> Limpar ({bloqSemana.length})
+          </button>
+        )}
+      </div>
+
+      {semConteudo ? (
+        <div className="myag-hint" style={{ justifyContent: 'center' }}>
+          <Ic name="info" size={13} />
+          <span>Nenhum horário configurado ainda. Defina sua disponibilidade na aba <strong>Disponibilidade</strong>.</span>
+        </div>
+      ) : (
+        <div className="myag-week-wrap">
+          <div className="myag-week-grid" style={{ gridTemplateColumns: `64px repeat(${dias.length}, 1fr)` }}>
+            <div />
+            {dias.map((d, i) => (
+              <div key={i} className="myag-week-head">
+                <div className="myag-wh-abbr">{MY_AG_WD.find((w) => w.id === d.getDay()).abbr}</div>
+                <div className="myag-wh-day">{String(d.getDate()).padStart(2, '0')}</div>
               </div>
-            );
-          })}
+            ))}
 
-          {slots.map(slot => (
-            <React.Fragment key={slot}>
-              <div className="myag-week-hour">{slot}</div>
-              {weekOrder.map(id => {
-                const st = stateFor(id, slot);
-                const key = `${id}-${slot}`;
-                const isOverride = !!overrides[key];
-                return (
-                  <button
-                    key={id}
-                    className={`myag-slot myag-slot-${st}`}
-                    onClick={() => toggleSlot(id, slot)}
-                    title={`${MY_AG_WD.find(w => w.id === id).full} · ${slot} — ${st === 'available' ? 'Disponível' : st === 'blocked' ? 'Fora do horário' : 'Ocupado'}`}
-                  >
-                    {st === 'available' && '✓'}
-                    {st === 'busy' && '×'}
-                    {isOverride && <span className="myag-slot-edit" />}
-                  </button>
-                );
-              })}
-            </React.Fragment>
-          ))}
+            {slots.map((slot) => (
+              <React.Fragment key={slot}>
+                <div className="myag-week-hour">{slot}</div>
+                {dias.map((d, i) => {
+                  const st = cellState(d, slot);
+                  const cls = st === 'available' ? 'available' : st === 'blocked' ? 'blocked' : 'busy';
+                  const titulo = st === 'available' ? 'Livre' : st === 'blocked' ? 'Fora do horário' : st === 'real' ? 'Ocupado (agendamento)' : 'Bloqueado por você';
+                  return (
+                    <button
+                      key={i}
+                      className={`myag-slot myag-slot-${cls}`}
+                      disabled={st === 'blocked'}
+                      onClick={() => clicar(d, slot, st)}
+                      title={`${rotuloDia(d)} · ${slot} — ${titulo}`}
+                    >
+                      {st === 'available' && '✓'}
+                      {(st === 'manual' || st === 'real') && '×'}
+                      {st === 'manual' && <span className="myag-slot-edit" />}
+                      {st === 'real' && <span className="myag-slot-lockmark"><Ic name="lock" size={9} /></span>}
+                    </button>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
         </div>
-      </div>
+      )}
+
+      {/* A) Popup de confirmação para BLOQUEIO MANUAL (ocupar/liberar) */}
+      {confirmar && (
+        <div className="myag-confirm-back" onClick={() => setConfirmar(null)}>
+          <div className="myag-confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="myag-confirm-ic" data-tipo={confirmar.acao === 'ocupar' ? 'ocupar' : 'liberar'}>
+              <Ic name={confirmar.acao === 'ocupar' ? 'lock' : 'check'} size={22} />
+            </div>
+            <div className="myag-confirm-title">
+              {confirmar.acao === 'ocupar' ? 'Bloquear este horário?' : 'Liberar este horário?'}
+            </div>
+            <div className="muted" style={{ fontSize: 13, textAlign: 'center' }}>
+              {confirmar.dateLabel} · {confirmar.hhmm}
+              {confirmar.acao === 'ocupar'
+                ? ' — deixará de aparecer no seu link público (só nesta data).'
+                : ' — voltará a ficar disponível no seu link público.'}
+            </div>
+            <div className="myag-confirm-acts">
+              <ActionButton action="cancelar" size="sm" label="Cancelar" efeito={false} onClick={() => setConfirmar(null)} />
+              <ActionButton action="salvar" size="sm" label="Confirmar" efeito={false} onClick={aplicar} />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* B) Popup só informativo para AGENDAMENTO REAL (não dá pra liberar aqui) */}
+      {info && (
+        <div className="myag-confirm-back" onClick={() => setInfo(null)}>
+          <div className="myag-confirm" onClick={(e) => e.stopPropagation()}>
+            <div className="myag-confirm-ic" data-tipo="ocupar"><Ic name="calendar" size={22} /></div>
+            <div className="myag-confirm-title">Horário ocupado</div>
+            <div className="muted" style={{ fontSize: 13, textAlign: 'center' }}>
+              {info.dateLabel} · {info.hhmm} — ocupado por um <strong>agendamento</strong> da sua Agenda. Para liberar, cancele o compromisso lá na Agenda.
+            </div>
+            <div className="myag-confirm-acts">
+              <ActionButton action="salvar" size="sm" label="Entendi" efeito={false} onClick={() => setInfo(null)} />
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -380,21 +651,26 @@ const MY_AG_MONTHS = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Jul
 const MY_AG_WD_LONG = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 const MY_AG_WD_MINI = ['Dom','Seg','Ter','Qua','Qui','Sex','Sáb'];
 
-function MyAgPublicPreview({ link, agentName, agentTitle, slots, stateFor }) {
+function MyAgPublicPreview({ link, agentName, agentTitle, slots, slotDuration, baseState, bloqueios, apptsByDate }) {
   const [phase, setPhase] = React.useState('pick'); // pick | form | done
   const [picked, setPicked] = React.useState(null);
   const [form, setForm] = React.useState({ nome: '', sobrenome: '', contato: '', email: '', local: 'Videochamada', assunto: '' });
   const [showCal, setShowCal] = React.useState(false);
   const [tz, setTz] = React.useState('Americas/Fortaleza');
-  // start = monday of visible week
-  const [weekStart, setWeekStart] = React.useState(() => {
-    const today = new Date(2026, 4, 25); // segunda
-    const d = new Date(today);
-    const wd = d.getDay();
-    const diff = wd === 0 ? -6 : 1 - wd;
-    d.setDate(d.getDate() + diff);
-    return d;
-  });
+  // semana atual (datas reais) — o preview é reflexo fiel do que o cliente vê.
+  const [weekStart, setWeekStart] = React.useState(() => myAgSegunda(new Date()));
+
+  // mesma lógica da "Esta semana": ocupado por compromisso real?
+  const realOcupado = (dateStr, hhmm) => {
+    const arr = (apptsByDate && apptsByDate[dateStr]) || [];
+    const m = myAgTimeToMin(hhmm);
+    return arr.some((a) => a.ini < m + slotDuration && a.ini + a.dur > m);
+  };
+  // horários LIVRES de um dia (disponível + não bloqueado manualmente + sem agendamento).
+  const livresDoDia = (d) => {
+    const wd = d.getDay(); const dateStr = myAgYmd(d);
+    return slots.filter((s) => baseState(wd, s) === 'available' && !bloqueios.has(`${dateStr}-${s}`) && !realOcupado(dateStr, s));
+  };
 
   const visibleWeek = React.useMemo(() => {
     return Array.from({ length: 7 }, (_, i) => {
@@ -430,12 +706,6 @@ function MyAgPublicPreview({ link, agentName, agentTitle, slots, stateFor }) {
     setWeekStart(nd);
     setShowCal(false);
   };
-
-  // For display: only show 6 time slots per day (10,11,14,15,16,17 like reference)
-  const displaySlots = React.useMemo(() => {
-    const wanted = ['10:00','11:00','14:00','15:00','16:00','17:00'];
-    return wanted;
-  }, []);
 
   return (
     <div className="myag-panel">
@@ -514,31 +784,20 @@ function MyAgPublicPreview({ link, agentName, agentTitle, slots, stateFor }) {
               {/* Grid */}
               <div className="myag-pp2-grid">
                 {visibleWeek.map((d, i) => {
-                  const wd = d.getDay();
-                  const isWeekend = wd === 0 || wd === 6;
-                  const dayLabel = MY_AG_WD_LONG[wd];
+                  const dayLabel = MY_AG_WD_LONG[d.getDay()];
+                  const livres = livresDoDia(d);
                   return (
-                    <div key={i} className="myag-pp2-col" data-faded={isWeekend}>
+                    <div key={i} className="myag-pp2-col" data-faded={livres.length === 0}>
                       <div className="myag-pp2-col-head">
                         <div className="myag-pp2-col-wd">{dayLabel}</div>
                         <div className="myag-pp2-col-day">{String(d.getDate()).padStart(2, '0')}</div>
                       </div>
                       <div className="myag-pp2-col-slots">
-                        {displaySlots.map(slot => {
-                          const st = stateFor(wd, slot);
-                          const ok = st === 'available';
-                          return (
-                            <button
-                              key={slot}
-                              className="myag-pp2-slot"
-                              data-state={st}
-                              disabled={!ok}
-                              onClick={() => ok && pickSlot(d, slot)}
-                            >
-                              {slot}
-                            </button>
-                          );
-                        })}
+                        {livres.length
+                          ? livres.map((slot) => (
+                              <button key={slot} className="myag-pp2-slot" onClick={() => pickSlot(d, slot)}>{slot}</button>
+                            ))
+                          : <div className="myag-pp2-empty">—</div>}
                       </div>
                     </div>
                   );
@@ -693,7 +952,8 @@ function MyAgPopoverCalendar({ anchorDate, onPick, onClose }) {
 // ============================================================================
 // Tab 4 — Rules
 // ============================================================================
-function MyAgRulesPanel({ slotDuration, setSlotDuration, bufferMin, setBufferMin, advanceMin, setAdvanceMin, horizon, setHorizon }) {
+function MyAgRulesPanel({ slotDuration, setSlotDuration, bufferMin, setBufferMin, advanceMin, setAdvanceMin, horizon, setHorizon, notif = {}, setNotif }) {
+  const setN = (k, v) => setNotif && setNotif({ ...notif, [k]: v });
   return (
     <div className="myag-panel">
       <div className="myag-panel-head">
@@ -786,9 +1046,9 @@ function MyAgRulesPanel({ slotDuration, setSlotDuration, bufferMin, setBufferMin
           <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
             <Ic name="bell" size={14} style={{ color: 'var(--accent)' }} /> <strong>Notificações</strong>
           </div>
-          <label className="myag-check"><input type="checkbox" defaultChecked /> Enviar confirmação por e-mail ao cliente</label>
-          <label className="myag-check"><input type="checkbox" defaultChecked /> Enviar lembrete por WhatsApp 1h antes</label>
-          <label className="myag-check"><input type="checkbox" defaultChecked /> Me notificar quando novo agendamento for criado</label>
+          <label className="myag-check"><input type="checkbox" checked={notif.emailCliente !== false} onChange={(e) => setN('emailCliente', e.target.checked)} /> Enviar confirmação por e-mail ao cliente</label>
+          <label className="myag-check"><input type="checkbox" checked={notif.whatsappLembrete !== false} onChange={(e) => setN('whatsappLembrete', e.target.checked)} /> Enviar lembrete por WhatsApp 1h antes</label>
+          <label className="myag-check"><input type="checkbox" checked={notif.meNotificar !== false} onChange={(e) => setN('meNotificar', e.target.checked)} /> Me notificar quando novo agendamento for criado</label>
         </div>
       </div>
     </div>
@@ -822,23 +1082,55 @@ function MyAgendaStyles() {
         font-size: 12.5px; color: var(--text);
         max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
       }
+      .myag-link-card[data-off="true"] { opacity: .72; filter: grayscale(.35); }
+      .myag-link-pencil {
+        border: none; background: transparent; cursor: pointer; padding: 2px;
+        color: var(--text-muted); display: inline-flex; align-items: center;
+        border-radius: 4px; margin-left: 2px;
+      }
+      .myag-link-pencil:hover { color: var(--accent-700); background: var(--accent-soft); }
+      .myag-link-state {
+        display: inline-flex; align-items: center; gap: 5px;
+        border: 1px solid var(--border); background: var(--surface);
+        border-radius: 999px; padding: 2px 8px; font-size: 10.5px; font-weight: 600;
+        color: var(--text-muted); cursor: pointer;
+      }
+      .myag-link-state:hover { border-color: var(--border-strong); }
+      .myag-link-dot {
+        width: 7px; height: 7px; border-radius: 50%; background: var(--text-faint);
+      }
+      .myag-link-dot[data-on="true"] { background: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+      .myag-link-edit {
+        display: flex; align-items: center; gap: 6px; margin-top: 6px; flex-wrap: wrap;
+      }
+      .myag-link-prefix {
+        font-family: ui-monospace, monospace; font-size: 12px; color: var(--text-muted);
+      }
 
       .myag-tabs {
-        display: flex; gap: 4px; padding: 4px; background: var(--surface-2);
+        position: relative;
+        display: flex; gap: 0; padding: 4px; background: var(--surface-2);
         border: 1px solid var(--border); border-radius: 10px; margin-bottom: 18px;
       }
+      /* barra de destaque (verde do kit) que desliza lateralmente até a aba ativa */
+      .myag-tab-ind {
+        position: absolute; top: 4px; bottom: 4px; left: 4px;
+        width: calc((100% - 8px) / 4);
+        background: var(--accent-soft);
+        border: 1px solid color-mix(in oklab, var(--accent) 42%, transparent);
+        border-radius: 7px; pointer-events: none;
+        box-shadow: 0 1px 5px color-mix(in oklab, var(--accent) 24%, transparent);
+        transition: transform .3s cubic-bezier(.4, 0, .2, 1);
+      }
       .myag-tab {
+        position: relative; z-index: 1;
         flex: 1; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
         height: 36px; padding: 0 10px; border: none; background: transparent;
         color: var(--text-muted); font-weight: 500; font-size: 13px;
-        border-radius: 7px; cursor: pointer; transition: all .15s;
+        border-radius: 7px; cursor: pointer; transition: color .2s;
       }
-      .myag-tab:hover { background: var(--surface); color: var(--text); }
-      .myag-tab.active {
-        background: var(--surface); color: var(--accent-700);
-        font-weight: 600;
-        box-shadow: 0 1px 3px rgba(0,0,0,.06), 0 0 0 1px var(--border);
-      }
+      .myag-tab:hover { color: var(--text); }
+      .myag-tab.active { color: var(--accent-700); font-weight: 600; }
 
       .myag-panel { display: flex; flex-direction: column; gap: 14px; }
       .myag-panel-head {
@@ -879,7 +1171,9 @@ function MyAgendaStyles() {
         background: var(--surface);
       }
       .myag-range .input { height: 32px; width: 92px; }
-      .myag-add-range { color: var(--accent-700); border-color: var(--border-strong); }
+      /* botão "+" de faixa — verdinho claro do kit de rodapé (Salvar): #3DA767 sobre #C9F0D3 */
+      .myag-add-range { width: 34px; background: #C9F0D3; color: #3DA767; border: 1px solid color-mix(in oklab, #3DA767 28%, transparent); }
+      .myag-add-range:hover { background: color-mix(in oklab, #3DA767 26%, white); border-color: color-mix(in oklab, #3DA767 48%, transparent); color: #2f8f57; }
       .myag-off {
         display: inline-flex; align-items: center; gap: 6px;
         font-size: 12.5px; color: var(--text-faint); font-style: italic;
@@ -924,6 +1218,25 @@ function MyAgendaStyles() {
       .myag-wh-abbr {
         font-size: 11px; font-weight: 700; letter-spacing: .08em; color: var(--text-muted);
       }
+      .myag-wh-day {
+        font-size: 16px; font-weight: 600; color: var(--text); font-variant-numeric: tabular-nums; margin-top: 1px;
+      }
+      /* Navegador de semana (datas reais) */
+      .myag-weeknav { display: flex; align-items: center; gap: 8px; }
+      .myag-weeknav-btn {
+        width: 30px; height: 30px; border-radius: 8px; border: 1px solid var(--border);
+        background: var(--surface); color: var(--text-muted); display: inline-flex;
+        align-items: center; justify-content: center; cursor: pointer; transition: all .12s;
+      }
+      .myag-weeknav-btn:hover { background: var(--accent-soft); color: var(--accent-700); border-color: var(--accent); }
+      .myag-weeknav-label {
+        display: inline-flex; align-items: center; gap: 6px;
+        font-size: 13.5px; font-weight: 600; color: var(--text);
+        padding: 0 6px; min-width: 190px; justify-content: center;
+      }
+      .myag-weeknav-label > svg { color: var(--accent-700); }
+      /* marca de cadeado nos slots ocupados por agendamento real (só leitura) */
+      .myag-slot-lockmark { position: absolute; top: 2px; right: 3px; color: #be123c; opacity: .8; display: inline-flex; }
       .myag-week-hour {
         background: var(--surface-2); padding: 0; height: 28px;
         font-size: 10.5px; font-variant-numeric: tabular-nums;
@@ -960,6 +1273,37 @@ function MyAgendaStyles() {
         width: 5px; height: 5px; border-radius: 50%;
         background: var(--accent-700);
       }
+      .myag-slot:disabled { cursor: not-allowed; }
+
+      /* Popup de confirmação (ocupar/liberar) */
+      .myag-confirm-back {
+        position: fixed; inset: 0; z-index: 400;
+        background: rgba(15,23,42,.42); backdrop-filter: blur(2px);
+        display: flex; align-items: center; justify-content: center;
+        animation: fade .15s ease;
+      }
+      .myag-confirm {
+        width: 370px; max-width: calc(100vw - 40px);
+        background: var(--surface); border: 1px solid var(--border);
+        border-radius: 14px; padding: 24px 22px;
+        box-shadow: 0 20px 50px -12px rgba(15,23,42,.4);
+        display: flex; flex-direction: column; align-items: center; gap: 10px;
+        animation: myagPop .18s cubic-bezier(.4,0,.2,1);
+      }
+      @keyframes myagPop { from { opacity: 0; transform: translateY(8px) scale(.97); } to { opacity: 1; transform: none; } }
+      .myag-confirm-ic {
+        width: 50px; height: 50px; border-radius: 50%;
+        display: flex; align-items: center; justify-content: center;
+      }
+      .myag-confirm-ic[data-tipo="ocupar"] { background: color-mix(in oklab, var(--hue-rose) 16%, white); color: #be123c; }
+      .myag-confirm-ic[data-tipo="liberar"] { background: var(--accent-soft); color: var(--accent-700); }
+      .myag-confirm-title { font-size: 16px; font-weight: 600; }
+      .myag-confirm-acts { display: flex; gap: 8px; margin-top: 10px; }
+
+      /* Loading sem flicker (enquanto a config real não chega) */
+      .myag-loading { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 12px; padding: 70px 0; color: var(--text-muted); font-size: 13px; }
+      .myag-spin { width: 26px; height: 26px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: myagSpin .8s linear infinite; }
+      @keyframes myagSpin { to { transform: rotate(360deg); } }
 
       /* Browser frame for public preview */
       .myag-browser {
@@ -1011,7 +1355,7 @@ function MyAgendaStyles() {
       }
       .myag-pp2-logo-inner {
         width: 74px; height: 74px; border-radius: 50%;
-        background: #15366b; color: #fff;
+        background: #166534; color: #fff;
         display: flex; align-items: center; justify-content: center;
         font-weight: 700; font-size: 36px; letter-spacing: -0.04em;
         text-transform: lowercase;
@@ -1091,20 +1435,21 @@ function MyAgendaStyles() {
       }
       .myag-pp2-slot {
         height: 38px; padding: 0 6px;
-        border: 1.5px solid #1d4ed8;
-        background: #fff; color: #1d4ed8;
+        border: 1.5px solid #16a34a;
+        background: #fff; color: #16a34a;
         font-size: 14px; font-weight: 500; font-variant-numeric: tabular-nums;
         border-radius: 4px; cursor: pointer;
         transition: all .12s;
         font-family: inherit;
       }
       [data-theme="dark"] .myag-pp2-slot {
-        background: var(--surface); color: color-mix(in oklab, #3b82f6 80%, white);
-        border-color: color-mix(in oklab, #3b82f6 70%, var(--surface));
+        background: var(--surface); color: color-mix(in oklab, #16a34a 80%, white);
+        border-color: color-mix(in oklab, #16a34a 70%, var(--surface));
       }
       .myag-pp2-slot:hover:not(:disabled) {
-        background: #1d4ed8; color: #fff;
+        background: #dcfce7; color: #15803d; border-color: #16a34a;
       }
+      .myag-pp2-empty { text-align: center; color: var(--text-faint); font-size: 13px; padding: 6px 0; }
       .myag-pp2-slot:disabled, .myag-pp2-slot[data-state="blocked"], .myag-pp2-slot[data-state="busy"] {
         border-color: #cbd5e1; color: #94a3b8; background: transparent;
         cursor: not-allowed;
@@ -1151,8 +1496,8 @@ function MyAgendaStyles() {
       }
       .myag-pp2-popover-day:disabled { color: transparent; cursor: default; }
       .myag-pp2-popover-day[data-active="true"] {
-        background: color-mix(in oklab, #1d4ed8 14%, white);
-        color: #1d4ed8; font-weight: 600;
+        background: color-mix(in oklab, #16a34a 14%, white);
+        color: #15803d; font-weight: 600;
       }
 
       /* Form & done states */
